@@ -59,13 +59,16 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   overflow: hidden;
   position: relative; /* the phone's map tab floats .topchrome over the map */
 }
-/* Installed PWA: iOS standalone resolves [d]vh against a stale viewport on
-   the first paint, floating the bottom mode bar a toolbar's height off the
-   bottom until a drag forces re-layout. Standalone has no browser chrome to
-   dodge, so trust the html/body/#root height:100% chain instead — it tracks
-   the real window from the first frame. */
+/* Installed PWA: iOS standalone resolves [d]vh — and the % chain — against a
+   stale viewport at launch, floating the bottom bar off the bottom. main.jsx
+   mirrors the MEASURED window height into --app-h (corrected a beat after
+   launch, and on every resize); the shells size off that truth. Fallback is
+   plain dvh for the moment before the first measurement lands. */
 @media all and (display-mode: standalone) {
-  .app, .home { height: 100%; }
+  .app, .home { height: 100vh; height: var(--app-h, 100dvh); }
+  /* the ride overlay is fixed inset:0 — its bottom edge pins to the same
+     stale viewport, so swap the bottom anchor for the measured height */
+  .ride-mode { bottom: auto; height: 100vh; height: var(--app-h, 100dvh); }
 }
 /* Masthead and ribbon are one thing — the chrome above the content. Grouping
    them lets the map tab lift both off the layout in a single move instead of
