@@ -331,6 +331,7 @@ export default function RideMode({ onClose }) {
   const [undoSkip, setUndoSkip] = useState(null); // {id, name} — last auto-skip
   const [returnToId, setReturnToId] = useState(null); // restored stop BEHIND the projection nav is heading back to
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
+  const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
   const wpMarkersRef = useRef([]);
   const t = useT();
   const tt = useTT();
@@ -517,6 +518,7 @@ export default function RideMode({ onClose }) {
     setSkipped(new Set());
     setUndoSkip(null);
     setReturnToId(null);
+    setLiveEta(null);
     passRef.current = null;
     onPlanRef.current = 0;
     routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
@@ -881,11 +883,13 @@ export default function RideMode({ onClose }) {
     goRoute(remainingNav);
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- traffic anchor: navigate on a fresh traffic-aware route from the bike ----
-  // On the first good fix (and every 10 min after) fetch a live route from the
-  // current position through the day's remaining stops. Only adopted when it
-  // came from the traffic-aware provider — the OSRM fallback matches the
-  // planned line anyway, so swapping would add nothing.
+  // ---- traffic anchor: live-traffic ETA, and ONLY the ETA ----
+  // Every 10 min, fetch a traffic-aware route from the bike through the
+  // remaining stops and keep its total time. The GEOMETRY is deliberately
+  // never adopted: a time-optimizer will happily touch a mid-pass stop and
+  // double back around the mountain, and the planned road is the point of
+  // the ride. The route line only ever changes when the rider goes off-route
+  // or explicitly retargets (skip / go next / restore).
   useEffect(() => {
     if (!fix || !goodFix || !proj || offRoute || reroutingRef.current) return;
     const now = Date.now();
@@ -894,14 +898,7 @@ export default function RideMode({ onClose }) {
     const remaining = remainingNav; // latched + skip-aware
     if (!remaining.length) return;
     routeFrom({ lat: fix.lat, lng: fix.lng }, remaining, pace)
-      .then((r) => {
-        if (!r.traffic) return;
-        // a fresher off-route/deliberate reroute launched after us wins —
-        // adopting this one would navigate from a seconds-old origin
-        if (lastRerouteAtRef.current > now) return;
-        spokenRef.current = ''; // new step list, new announcement keys
-        setReroute({ ...r, byOffRoute: false });
-      })
+      .then((r) => { if (r.traffic) setLiveEta({ min: r.seconds / 60, at: Date.now() }); })
       .catch(() => { /* next cycle retries */ });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -922,7 +919,14 @@ export default function RideMode({ onClose }) {
     if (i <= effIdx || !w || skipped.has(w.id)) return a;
     return a + (s.dwell ?? 0);
   }, 0), [tl, day, effIdx, skipped]);
-  const eta = nav ? clock + nav.remMin + remDwellMin : null;
+  // Traffic-aware total when fresh (the anchor refreshes it every 10 min),
+  // decayed by the minutes since it was measured; while a reroute is active
+  // the stored figure describes a route no longer being ridden, so it stands
+  // down until the next anchor cycle.
+  const liveRemMin = liveEta && !reroute && Date.now() - liveEta.at < 12 * 60_000
+    ? Math.max(0, liveEta.min - (Date.now() - liveEta.at) / 60_000)
+    : null;
+  const eta = nav ? clock + (liveRemMin ?? nav.remMin) + remDwellMin : null;
   const legRemMin = nav ? nav.legMin
     : nextSched && delta != null ? Math.max(0, nextSched.arrive + delta - clock) : null;
   const legMiles = nav ? nav.legMi : proj?.remainToNext ?? null;
