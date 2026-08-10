@@ -204,7 +204,11 @@ export async function routeDay(day) {
       const m = json.waypoints?.[i]?.distance;
       if (Number.isFinite(m)) snaps[w.id] = Math.round(m);
     });
-    const result = { legs, geometry: route.geometry.coordinates, snaps };
+    // 5 decimals ≈ 1 m — plenty for drawing, off-route checks (0.12 mi), and
+    // puck snapping (30 m), and it nearly halves the cached JSON. An 11-day
+    // trip's geometry has to fit localStorage next to everything else.
+    const geometry = route.geometry.coordinates.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
+    const result = { legs, geometry, snaps };
     c[dayKey] = result;
     saveCache();
     return result;
@@ -221,6 +225,20 @@ export async function routeDay(day) {
 // read time — and arrive steps carry their stop name for per-leg ETAs. v3
 // briefly held routes allowed to U-turn at vias (see CACHE_KEY note).
 const STEP_CACHE = 'moto.stepsCache.v4';
+
+// Old cache generations are multi-MB dead weight. Left in place they push
+// localStorage over the phone's quota, every save of the CURRENT cache then
+// fails, the failure handler drops it — and the app re-routes the whole trip
+// on every launch. Purge anything that isn't the current generation.
+try {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if ((k?.startsWith('sturgis.routeCache.') && k !== CACHE_KEY)
+      || (k?.startsWith('moto.stepsCache.') && k !== STEP_CACHE)) {
+      localStorage.removeItem(k);
+    }
+  }
+} catch { /* storage unavailable — nothing to purge */ }
 
 function loadStepCache() {
   try { return JSON.parse(localStorage.getItem(STEP_CACHE) || '{}'); } catch { return {}; }
