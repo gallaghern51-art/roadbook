@@ -189,6 +189,35 @@ function ensureNavLayers(map) {
 }
 
 
+// Line-art chip icons, drawn to match the HUD rather than borrowing system
+// glyphs — emoji (⛽ ⏱ ⚑) render as coloured tiles on most platforms and
+// clash with everything else on this screen.
+function FuelPumpIcon({ className = 'mc-ic' }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true">
+      <path d="M4 17V5a1.5 1.5 0 0 1 1.5-1.5H10A1.5 1.5 0 0 1 11.5 5v12M3 17h9.5M11.5 8.5H14a1.5 1.5 0 0 1 1.5 1.5v4.2a1.15 1.15 0 1 0 2.3 0V7.4L16 5.6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ClockIcon({ className = 'mc-ic' }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true">
+      <circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M10 6.2V10l2.9 1.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FlagIcon({ className = 'mc-ic' }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} aria-hidden="true">
+      <path d="M5.5 17V3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M5.5 4h9l-2.2 3 2.2 3h-9" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // Line-art speaker, drawn to match the HUD rather than borrowing a system glyph
 // (an emoji speaker renders as a coloured tile on most platforms).
 function SpeakerIcon({ muted }) {
@@ -300,6 +329,7 @@ export default function RideMode({ onClose }) {
   const [progIdx, setProgIdx] = useState(0);
   const [skipped, setSkipped] = useState(() => new Set());
   const [undoSkip, setUndoSkip] = useState(null); // {id, name} — last auto-skip
+  const [returnToId, setReturnToId] = useState(null); // restored stop BEHIND the projection nav is heading back to
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const wpMarkersRef = useRef([]);
   const t = useT();
@@ -330,9 +360,19 @@ export default function RideMode({ onClose }) {
   progIdxRef.current = progIdx;
   const skippedRef = useRef(skipped);
   skippedRef.current = skipped;
+  const returnToRef = useRef(null);
+  returnToRef.current = returnToId;
   const passRef = useRef(null); // pass-by tracking for the next stop {id, min, lastD, away}
   const projRef = useRef(null);
   const limiterRef = useRef(null); // speed-limit tracker, one per ride
+  const onPlanRef = useRef(0); // consecutive fixes back on the planned line
+  const mountedRef = useRef(true);
+  // re-arm in the body: StrictMode's dev double-mount runs the cleanup once,
+  // and a ref initializer alone would leave this false forever after it
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const day = trip.days.find((d) => d.id === dayId) ?? trip.days[0];
   const pace = tripPace(trip);
@@ -476,7 +516,9 @@ export default function RideMode({ onClose }) {
     setProgIdx(0);
     setSkipped(new Set());
     setUndoSkip(null);
+    setReturnToId(null);
     passRef.current = null;
+    onPlanRef.current = 0;
     routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
     return () => { dead = true; };
   }, [day.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -559,10 +601,13 @@ export default function RideMode({ onClose }) {
   // without touching (projection alone can sit on the previous leg for miles).
   const effIdx = Math.max(progIdx, proj?.i ?? 0);
   // What navigation actually aims for: everything ahead, minus skipped stops.
-  const remainingNav = useMemo(
-    () => day.waypoints.filter((w, i) => i > effIdx && !skipped.has(w.id)),
-    [day, effIdx, skipped]
-  );
+  // A restored stop already BEHIND the projection goes back in front
+  // explicitly — index math alone can never re-add it once effIdx passed it.
+  const remainingNav = useMemo(() => {
+    const ahead = day.waypoints.filter((w, i) => i > effIdx && !skipped.has(w.id));
+    const back = returnToId ? day.waypoints.find((w) => w.id === returnToId) : null;
+    return back && !ahead.some((w) => w.id === returnToId) ? [back, ...ahead] : ahead;
+  }, [day, effIdx, skipped, returnToId]);
 
   // One reroute path for every deliberate retarget (skip, restore, go-next).
   // Takes the remaining list explicitly — setState hasn't landed yet when the
@@ -589,14 +634,33 @@ export default function RideMode({ onClose }) {
     if (!fix) return;
     const wps = day.waypoints;
     const base = Math.max(progIdxRef.current, projRef.current?.i ?? 0);
-    let ti = -1;
-    for (let i = base + 1; i < wps.length; i++) {
-      if (!skippedRef.current.has(wps[i].id)) { ti = i; break; }
+    // heading back to a restored stop takes priority over index order
+    let ti = returnToRef.current ? wps.findIndex((w) => w.id === returnToRef.current) : -1;
+    if (ti < 0) {
+      for (let i = base + 1; i < wps.length; i++) {
+        if (!skippedRef.current.has(wps[i].id)) { ti = i; break; }
+      }
     }
     if (ti < 0) return;
     const target = wps[ti];
     const isLast = ti === wps.length - 1;
     const d = haversineMiles(fix, target);
+    // The projection can walk PAST a spur stop at closest approach (the
+    // nearest-segment flip happens exactly abeam), retargeting this effect
+    // before the move-away counter completes. That silent hand-off IS a
+    // pass-by: announce it and leave the undo chip, same as the detector.
+    if (passRef.current && passRef.current.id !== target.id) {
+      const old = passRef.current;
+      passRef.current = null;
+      const oi = wps.findIndex((w) => w.id === old.id);
+      if (oi >= 0 && oi <= base && oi < wps.length - 1
+        && old.min <= PASS_NEAR_MI && old.min > ARRIVE_MI
+        && !skippedRef.current.has(old.id)) {
+        setSkipped(new Set(skippedRef.current).add(old.id));
+        setUndoSkip({ id: old.id, name: wps[oi].name });
+        speak(`Passing ${wps[oi].name}. Skipping it — tap undo to go back.`);
+      }
+    }
     if (passRef.current?.id !== target.id) passRef.current = { id: target.id, min: d, lastD: d, away: 0 };
     const ps = passRef.current;
     // touched the stop: latch it visited (the final stop keeps the existing
@@ -605,6 +669,7 @@ export default function RideMode({ onClose }) {
       if (!isLast) {
         setProgIdx((p) => Math.max(p, ti));
         setUndoSkip(null);
+        if (returnToRef.current === target.id) setReturnToId(null);
         passRef.current = null;
       }
       return;
@@ -617,6 +682,7 @@ export default function RideMode({ onClose }) {
       passRef.current = null;
       const nextSkipped = new Set(skippedRef.current).add(target.id);
       setSkipped(nextSkipped);
+      if (returnToRef.current === target.id) setReturnToId(null);
       setUndoSkip({ id: target.id, name: target.name });
       speak(`Passing ${target.name}. Skipping it — tap undo to go back.`);
       goRouteRef.current(wps.filter((w, i) => i > base && !nextSkipped.has(w.id)));
@@ -631,12 +697,16 @@ export default function RideMode({ onClose }) {
   }, [undoSkip]);
 
   // ---- posted speed limit for the road under the bike ----
+  // No per-fix dead flag here: an Overpass fetch takes longer than one GPS
+  // interval, and discarding its late resolution (while the tracker had
+  // already latched the value internally) left the sign blank for the whole
+  // way. The tracker serializes itself — whatever resolves is current truth.
   useEffect(() => {
-    if (!fix) return undefined;
+    if (!fix) return;
     limiterRef.current ??= speedLimitTracker();
-    let dead = false;
-    limiterRef.current.update(fix).then((v) => { if (!dead && v !== undefined) setLimit(v); });
-    return () => { dead = true; };
+    limiterRef.current.update(fix).then((v) => {
+      if (mountedRef.current && v !== undefined) setLimit(v);
+    });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Off-route is measured against the real routed geometry, not the maneuver
@@ -661,16 +731,18 @@ export default function RideMode({ onClose }) {
   // conditions.js so travelling along a road reuses one cache entry.
   const aheadPt = useMemo(() => {
     const chain = geomInfo?.chain;
-    if (!chain?.length || !proj) return null;
-    // ~12 miles ahead along the routed line
-    const startIdx = Math.min(chain.length - 1, Math.max(0, proj.i));
+    if (!chain?.length || !geoProj) return null;
+    // ~12 miles ahead along the routed line. Walk from the ROUTED-GEOMETRY
+    // vertex under the bike (geoProj) — proj.i indexes the waypoint chain,
+    // and using it here pinned "ahead" a few vertices past the day's start.
+    const startIdx = Math.min(chain.length - 1, Math.max(0, geoProj.i));
     let acc = 0;
     for (let i = startIdx; i < chain.length - 1; i++) {
       acc += haversineMiles(chain[i], chain[i + 1]);
       if (acc >= 12) return chain[i + 1];
     }
     return chain[chain.length - 1];
-  }, [geomInfo, proj?.i]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [geomInfo, geoProj?.i]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!aheadPt) return;
@@ -781,11 +853,32 @@ export default function RideMode({ onClose }) {
   // back on the original plan → drop an off-route detour (traffic-anchored
   // live routes stay — they refresh on their own cadence below)
   useEffect(() => {
-    if (!reroute?.byOffRoute || !fix) return;
+    if (!reroute?.byOffRoute || !fix) { onPlanRef.current = 0; return; }
     const coords = routes[day.id]?.geometry;
     if (!coords) return;
     const p = projectOnChain(coords.map(([lng, lat]) => ({ lat, lng })), fix);
-    if (p && p.off < 0.08) { setReroute(null); setRerouteFailed(false); }
+    // Several consecutive on-plan fixes — a detour that merely CROSSES the
+    // planned line must not kill the live route. And while stops are skipped
+    // (or nav is heading back to a restored one) the planned steps would
+    // route straight through them, so the skip-aware live route stays up.
+    if (p && p.off < 0.08) {
+      onPlanRef.current += 1;
+      if (onPlanRef.current >= 3 && skippedRef.current.size === 0 && !returnToRef.current) {
+        setReroute(null);
+        setRerouteFailed(false);
+        onPlanRef.current = 0;
+      }
+    } else onPlanRef.current = 0;
+  }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A deliberate reroute (skip/restore/go-next) that failed — no signal in a
+  // canyon — must retry: until it lands, the old steps still voice-guide the
+  // rider toward a stop they dropped.
+  useEffect(() => {
+    if (!fix || !rerouteFailed || rerouting) return;
+    if (!skipped.size && !returnToId) return;
+    if (Date.now() - lastRerouteAtRef.current < 20000) return;
+    goRoute(remainingNav);
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- traffic anchor: navigate on a fresh traffic-aware route from the bike ----
@@ -801,7 +894,14 @@ export default function RideMode({ onClose }) {
     const remaining = remainingNav; // latched + skip-aware
     if (!remaining.length) return;
     routeFrom({ lat: fix.lat, lng: fix.lng }, remaining, pace)
-      .then((r) => { if (r.traffic) setReroute({ ...r, byOffRoute: false }); })
+      .then((r) => {
+        if (!r.traffic) return;
+        // a fresher off-route/deliberate reroute launched after us wins —
+        // adopting this one would navigate from a seconds-old origin
+        if (lastRerouteAtRef.current > now) return;
+        spokenRef.current = ''; // new step list, new announcement keys
+        setReroute({ ...r, byOffRoute: false });
+      })
       .catch(() => { /* next cycle retries */ });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -814,7 +914,15 @@ export default function RideMode({ onClose }) {
   const projectedEnd = delta != null ? tl.endMin + delta : null;
   // Day-end ETA, and the CURRENT LEG's numbers — the leg is the primary
   // readout: how much longer to the next stop, and the clock time you get there.
-  const eta = nav ? clock + nav.remMin : null;
+  // Steps carry riding time only, so the planned time-on-the-ground at stops
+  // still ahead rides along — without it the day-end ETA reads ~half an hour
+  // optimistic on a day with fuel and photo stops left.
+  const remDwellMin = useMemo(() => tl.stops.reduce((a, s, i) => {
+    const w = day.waypoints[i];
+    if (i <= effIdx || !w || skipped.has(w.id)) return a;
+    return a + (s.dwell ?? 0);
+  }, 0), [tl, day, effIdx, skipped]);
+  const eta = nav ? clock + nav.remMin + remDwellMin : null;
   const legRemMin = nav ? nav.legMin
     : nextSched && delta != null ? Math.max(0, nextSched.arrive + delta - clock) : null;
   const legMiles = nav ? nav.legMi : proj?.remainToNext ?? null;
@@ -918,19 +1026,33 @@ export default function RideMode({ onClose }) {
 
   // Deliberate destination control from the sheet: skip a stop, restore one,
   // or aim the route straight at a chosen stop (skipping everything between).
-  const reSkip = (nextSkipped) => {
+  const reSkip = (nextSkipped, nextReturnTo) => {
     setSkipped(nextSkipped);
-    goRoute(day.waypoints.filter((w, i) => i > effIdx && !nextSkipped.has(w.id)));
+    const ahead = day.waypoints.filter((w, i) => i > effIdx && !nextSkipped.has(w.id));
+    const back = nextReturnTo ? day.waypoints.find((w) => w.id === nextReturnTo) : null;
+    goRoute(back && !ahead.some((w) => w.id === nextReturnTo) ? [back, ...ahead] : ahead);
   };
   const skipStop = (id) => {
     if (undoSkip?.id === id) setUndoSkip(null);
-    reSkip(new Set(skipped).add(id));
+    const nextReturnTo = returnToId === id ? null : returnToId;
+    if (nextReturnTo !== returnToId) setReturnToId(nextReturnTo);
+    reSkip(new Set(skipped).add(id), nextReturnTo);
   };
   const restoreStop = (id) => {
     const n = new Set(skipped);
     n.delete(id);
     if (undoSkip?.id === id) setUndoSkip(null);
-    reSkip(n);
+    const k = day.waypoints.findIndex((w) => w.id === id);
+    // Already behind the projection? Rewind the latch and pin it as the
+    // explicit destination — the index filter alone can never re-add it, so
+    // "UNDO" would say "heading back" while nav sailed on to the next stop.
+    const behind = k >= 0 && k <= effIdx;
+    const nextReturnTo = behind ? id : returnToId;
+    if (behind) {
+      setProgIdx((p) => Math.min(p, Math.max(0, k - 1)));
+      setReturnToId(id);
+    }
+    reSkip(n, nextReturnTo);
   };
   const goNextStop = (id) => {
     const k = day.waypoints.findIndex((w) => w.id === id);
@@ -939,10 +1061,11 @@ export default function RideMode({ onClose }) {
     for (let i = effIdx + 1; i < k; i++) n.add(day.waypoints[i].id);
     n.delete(id);
     setUndoSkip(null);
+    setReturnToId(null);
     setSheetOpen(false);
     setFollow(true);
     speak(`Navigating to ${day.waypoints[k].name}.`);
-    reSkip(n);
+    reSkip(n, null);
   };
   const undoLastSkip = () => {
     if (!undoSkip) return;
@@ -1078,10 +1201,10 @@ export default function RideMode({ onClose }) {
       {/* ---- top: the turn, and almost nothing else ---- */}
       <div className="ride-overlay ride-overlay-top">
         <div className="ride-topbar">
-          {/* Which day this is. Tap = whole-day overview. Switching days lives
-              in the sheet as a chip strip — the old dropdown was a form control
-              in a place where nobody is filling in forms. */}
-          <button className="ride-day-pill" onClick={showOverview} title={t('Route overview')}>
+          {/* Which day this is. Tap = the ride sheet, where day context lives
+              (day switching, stops ahead). Route overview belongs to the fab
+              alone — two doors to the same overview wasted this tap target. */}
+          <button className="ride-day-pill" onClick={() => setSheetOpen((v) => !v)} title={t('Ride menu')}>
             <span className="rdp-day">{day.dow} {fmtDayDate(day.date)}</span>
             <Marquee className="rdp-title" text={tt(day.title)} />
           </button>
@@ -1089,6 +1212,9 @@ export default function RideMode({ onClose }) {
             <div className="ride-chip wx" title={`${ahead.summary} · ${t('ahead')}`}>
               <WeatherIcon code={ahead.code} className="wxc-icon" />
               <span className="wxc-temp">{u.temp(ahead.temp)}</span>
+              {/* this is the road ahead, not the air here — say so, or a rider
+                  distrusts the number the moment it disagrees with their skin */}
+              <i className="wxc-ahead">{t('ahead')}</i>
             </div>
           )}
           <button className="btn icon-btn ride-x" onClick={onClose} aria-label={t('End navigation')} title={t('End navigation')}>✕</button>
@@ -1097,7 +1223,7 @@ export default function RideMode({ onClose }) {
         {geoErr && <div className="warning danger">⚠ {geoErr}</div>}
         {offRoute && !geoErr && (
           <div className="warning danger">
-            {rerouting ? '⟳ Off route — finding a new way from here…'
+            {rerouting ? '⚠ Off route — finding a new way from here…'
               : rerouteFailed ? '⚠ Off route — reroute failed (no signal?). Head back toward the line.'
                 : '⚠ Off route — recalculating…'}
           </div>
@@ -1205,13 +1331,14 @@ export default function RideMode({ onClose }) {
           <div className="ride-chips">
             {nextFuel && (
               <span className={`m-chip fuel${nextFuel.miles > range.comfort ? ' danger' : ''}`}>
-                <svg viewBox="0 0 20 20" className="mc-ic" aria-hidden="true"><path d="M4 17V5a1.5 1.5 0 0 1 1.5-1.5H10A1.5 1.5 0 0 1 11.5 5v12M3 17h9.5M11.5 8.5H14a1.5 1.5 0 0 1 1.5 1.5v4.2a1.15 1.15 0 1 0 2.3 0V7.4L16 5.6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
+                <FuelPumpIcon />
                 {u.miNum(nextFuel.miles)} {u.miUnit}
               </span>
             )}
             {nextGate && (
               <span className={`m-chip gate${nextGate.ok ? '' : ' danger'}`}>
-                ⏱ {tt(nextGate.label)} · {nextGate.ok ? `${fmtDur(nextGate.margin)} ${t('margin')}` : `${fmtDur(-nextGate.margin)} ${t('LATE')}`}
+                <ClockIcon />
+                {tt(nextGate.label)} · {nextGate.ok ? `${fmtDur(nextGate.margin)} ${t('margin')}` : `${fmtDur(-nextGate.margin)} ${t('LATE')}`}
               </span>
             )}
           </div>
@@ -1248,7 +1375,9 @@ export default function RideMode({ onClose }) {
                     </span>
                     {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
                   </div>
-                  {remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
+                  {/* minimal sheds the day line — it's exactly the secondary
+                      number that mode exists to drop; the sheet still has it */}
+                  {!lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
                     <span className="rb-day">
                       {t('Day')} {fmtTime(eta ?? projectedEnd)}
                       {nav ? ` · ${u.miNum(nav.remMi)} ${u.miUnit}` : ''}
@@ -1276,7 +1405,11 @@ export default function RideMode({ onClose }) {
                               mapRef.current?.easeTo({ center: [s.lng, s.lat], zoom: 12.5, pitch: 0, duration: 600 });
                             }}
                           >
-                            <span className="sc-kind">{s.fuel ? '⛽' : s.kind === 'photo' ? '◆' : s.kind === 'end' ? '⚑' : '●'}</span>
+                            <span className="sc-kind">
+                              {s.fuel ? <FuelPumpIcon className="sc-ic" />
+                                : s.kind === 'end' ? <FlagIcon className="sc-ic" />
+                                  : s.kind === 'photo' ? '◆' : '●'}
+                            </span>
                             <span className="sc-name">{tt(s.name)}</span>
                             {s.skipped
                               ? <span className="sc-eta skip">{t('skipped')}</span>

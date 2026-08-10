@@ -260,9 +260,12 @@ function applyOp(t, op) {
       const r = (t.reserveNow ?? []).find((x) => x.id === op.reservationId);
       if (!r) throw new Error(`unknown reservation ${op.reservationId}`);
       r.done = op.done ?? !r.done;
-      // Mirror onto lodging status when they correspond
+      // Mirror onto lodging status when they correspond. A day with no
+      // property name yet must never match — includes('') is true for
+      // everything, and ticking any reservation was silently "booking" it.
       for (const d of t.days) {
-        if (d.lodging?.status === 'reserve' && r.name.toLowerCase().includes(d.lodging.name.split(',')[0].toLowerCase().slice(0, 12))) {
+        const stem = (d.lodging?.name ?? '').split(',')[0].trim().toLowerCase().slice(0, 12);
+        if (d.lodging?.status === 'reserve' && stem.length >= 3 && r.name.toLowerCase().includes(stem)) {
           if (op.done) d.lodging.status = 'booked';
         }
       }
