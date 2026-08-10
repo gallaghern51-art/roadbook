@@ -1332,34 +1332,9 @@ export default function RideMode({ onClose }) {
     <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
 
-      {/* ---- top: the turn, and almost nothing else ---- */}
+      {/* ---- top: the turn OWNS the top edge; weather + close ride beneath
+              it on the right ---- */}
       <div className="ride-overlay ride-overlay-top">
-        <div className="ride-topbar">
-          {/* No day descriptor here — the day title is free text that does not
-              track route edits (drop a stop, the title still names it), and a
-              label that can lie has no place on a nav HUD. Day context lives
-              in the ride sheet, one tap on the bar. */}
-          {ahead && !lean && (
-            <div className="ride-chip wx" title={`${ahead.summary} · ${t('ahead')}`}>
-              <WeatherIcon code={ahead.code} className="wxc-icon" />
-              <span className="wxc-temp">{u.temp(ahead.temp)}</span>
-              {/* this is the road ahead, not the air here — say so, or a rider
-                  distrusts the number the moment it disagrees with their skin */}
-              <i className="wxc-ahead">{t('ahead')}</i>
-            </div>
-          )}
-          <button className="btn icon-btn ride-x" onClick={onClose} aria-label={t('End navigation')} title={t('End navigation')}>✕</button>
-        </div>
-
-        {geoErr && <div className="warning danger">⚠ {geoErr}</div>}
-        {offRoute && !geoErr && (
-          <div className="warning danger">
-            {rerouting ? '⚠ Off route — finding a new way from here…'
-              : rerouteFailed ? '⚠ Off route — reroute failed (no signal?). Head back toward the line.'
-                : '⚠ Off route — recalculating…'}
-          </div>
-        )}
-
         {/* the sheet is a menu — while it is up, the turn card and the map
             fabs stand down so it isn't buried under HUD on short screens */}
         {nav && !offRoute && !arrived && !sheetOpen && (
@@ -1387,6 +1362,32 @@ export default function RideMode({ onClose }) {
           </div>
         )}
         {steps === null && fix && !sheetOpen && <div className="turn-card loading"><div className="t-instr">loading turn-by-turn…</div></div>}
+
+        <div className="ride-topbar">
+          {/* No day descriptor here — the day title is free text that does not
+              track route edits (drop a stop, the title still names it), and a
+              label that can lie has no place on a nav HUD. Day context lives
+              in the ride sheet, one tap on the bar. */}
+          {ahead && !lean && (
+            <div className="ride-chip wx" title={`${ahead.summary} · ${t('ahead')}`}>
+              <WeatherIcon code={ahead.code} className="wxc-icon" />
+              <span className="wxc-temp">{u.temp(ahead.temp)}</span>
+              {/* this is the road ahead, not the air here — say so, or a rider
+                  distrusts the number the moment it disagrees with their skin */}
+              <i className="wxc-ahead">{t('ahead')}</i>
+            </div>
+          )}
+          <button className="btn icon-btn ride-x" onClick={onClose} aria-label={t('End navigation')} title={t('End navigation')}>✕</button>
+        </div>
+
+        {geoErr && <div className="warning danger">⚠ {geoErr}</div>}
+        {offRoute && !geoErr && (
+          <div className="warning danger">
+            {rerouting ? '⚠ Off route — finding a new way from here…'
+              : rerouteFailed ? '⚠ Off route — reroute failed (no signal?). Head back toward the line.'
+                : '⚠ Off route — recalculating…'}
+          </div>
+        )}
       </div>
 
       {/* ---- right edge: one-tap controls, glove-sized ---- */}

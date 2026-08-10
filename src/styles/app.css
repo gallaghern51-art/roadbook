@@ -1687,18 +1687,25 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    Only drawn when the whole day is framed. Labels alternate above and below so
    consecutive stops along a straight leg do not stack on each other, and they
    are capped in width so a long name cannot run off the screen. */
-.ov-wp { position: relative; display: flex; flex-direction: column; align-items: center; }
-.ov-wp.below { flex-direction: column-reverse; }
+/* The marker element is a 0×0 anchor sitting EXACTLY on the coordinate: the
+   dot centers on it and the label hangs off in fixed px. With the old flex
+   column the anchor was the STACK's center, so the dot sat a constant screen
+   offset from the true point — and visibly slid around as you zoomed.
+   Labels center with the `translate` property so the clamp code's
+   `transform` nudges compose instead of clobbering it. */
+.ov-wp { position: relative; width: 0; height: 0; }
 .ov-dot {
+  position: absolute; left: 0; top: 0; translate: -50% -50%;
   width: 11px; height: 11px; border-radius: 50%;
-  background: var(--ink); border: 2px solid #000; flex: none;
+  background: var(--ink); border: 2px solid #000;
 }
 .ov-wp.fuel .ov-dot { background: var(--outbound); }
 .ov-wp.meal .ov-dot { background: var(--ok); }
 .ov-wp.photo .ov-dot { background: var(--return); border-radius: 2px; transform: rotate(45deg); }
 .ov-wp.end .ov-dot { width: 9px; height: 15px; border-radius: 3px; }
 .ov-label {
-  max-width: 148px; margin: 3px 0;
+  position: absolute; left: 0; translate: -50% 0;
+  width: max-content; max-width: 148px;
   font-family: var(--mono); font-size: 11px; line-height: 1.15; color: #fff;
   text-align: center; overflow: hidden;
   /* two lines rather than an ellipsis: the point of overview is reading the name */
@@ -1706,6 +1713,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   text-shadow: 0 1px 3px #000, 0 0 4px #000, 0 0 8px #000;
   pointer-events: none;
 }
+.ov-wp.above .ov-label { bottom: 8px; }
+.ov-wp.below .ov-label { top: 8px; }
 
 
 /* ---------- map chrome on a phone ----------
