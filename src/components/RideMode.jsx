@@ -373,6 +373,7 @@ export default function RideMode({ onClose }) {
   const projRef = useRef(null);
   const limiterRef = useRef(null); // speed-limit tracker, one per ride
   const onPlanRef = useRef(0); // consecutive fixes back on the planned line
+  const initLatchRef = useRef(false); // one-time late-start latch, per day session
   const puckPosRef = useRef(null); // last PAINTED puck position — glide start point
   const puckAnimRef = useRef(0);
   const mountedRef = useRef(true);
@@ -576,6 +577,7 @@ export default function RideMode({ onClose }) {
     setLiveEta(null);
     passRef.current = null;
     onPlanRef.current = 0;
+    initLatchRef.current = false;
     routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
     return () => { dead = true; };
   }, [day.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -744,6 +746,36 @@ export default function RideMode({ onClose }) {
       speak(`Passing ${target.name}. Skipping it — tap undo to go back.`);
       goRouteRef.current(wps.filter((w, i) => i > base && !nextSkipped.has(w.id)));
     }
+  }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- late-start latch ----
+  // Opening Ride Mode after the group has already left gives the session no
+  // memory of the stops behind the bike — the projection alone can then aim
+  // nav BACK at a stop everyone rode away from before the app opened. On the
+  // first usable fix, walk the planned routed line once and latch every stop
+  // whose position along it is clearly behind the bike.
+  useEffect(() => {
+    if (initLatchRef.current || !fix) return;
+    if (fix.accuracy != null && fix.accuracy > 200) return; // wait for a real fix
+    const coords = routes[day.id]?.geometry;
+    if (!coords || routes[day.id]?.fallback || reroute || coords.length < 2) return;
+    const chain = coords.map(([lng, lat]) => ({ lat, lng }));
+    const cum = [0];
+    for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
+    const at = (p) => cum[p.i] + p.f * (cum[p.i + 1] - cum[p.i]);
+    const bike = projectOnChain(chain, fix);
+    initLatchRef.current = true;
+    if (!bike || bike.off > 2) return; // far off the plan — off-route handles it
+    const bikeAt = at(bike);
+    // contiguous prefix only: the first stop that reads "ahead" ends the walk,
+    // which also keeps out-and-back double-passage geometry from over-latching
+    let latch = 0;
+    for (let i = 1; i < day.waypoints.length - 1; i++) {
+      const p = projectOnChain(chain, day.waypoints[i]);
+      if (p && at(p) < bikeAt - 0.3) latch = i;
+      else break;
+    }
+    if (latch > 0) setProgIdx((prev) => Math.max(prev, latch));
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the undo chip earns its place for a minute, then stands down
