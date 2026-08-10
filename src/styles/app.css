@@ -1050,6 +1050,59 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
      near-black unless the HUD sets its own. */
   color: var(--ink);
 }
+/* ---------- high-contrast LIGHT HUD ----------
+   Follows the app theme: in light mode the panels flip to near-opaque white
+   with near-black type — the highest-contrast pairing there is through a
+   visor in direct sun. Accents darken to pigment that holds on paper. The
+   map, the route line, and the puck are untouched. */
+:root[data-theme='light'] .ride-mode {
+  --ink: #111111;
+  --ink-dim: rgba(0, 0, 0, 0.78);
+  --ink-faint: rgba(0, 0, 0, 0.52);
+  --line: rgba(0, 0, 0, 0.22);
+  --asphalt-0: #ffffff;
+  --asphalt-1: #f6f6f6;
+  --asphalt-2: #ffffff;
+  --asphalt-3: #e2e2e2;
+  --ok: #2e7d32; /* the dark-glass green washes out on white */
+  background: #dcdcdc;
+}
+:root[data-theme='light'] .ride-mode .turn-card {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme='light'] .ride-mode .t-exit { background: rgba(0, 0, 0, 0.1); }
+:root[data-theme='light'] .ride-mode .t-then { background: rgba(0, 0, 0, 0.07); }
+/* lane paint flips: lit lanes are ink, unlit recede in gray */
+:root[data-theme='light'] .ride-mode .lane { color: rgba(0, 0, 0, 0.28); }
+:root[data-theme='light'] .ride-mode .lane.on { color: #111111; }
+:root[data-theme='light'] .ride-mode .lane.on .lane-arrow { filter: none; }
+:root[data-theme='light'] .ride-mode .ride-topbar .btn,
+:root[data-theme='light'] .ride-mode .ride-x,
+:root[data-theme='light'] .ride-mode .ride-chip,
+:root[data-theme='light'] .ride-mode .ride-fab,
+:root[data-theme='light'] .ride-mode .m-chip,
+:root[data-theme='light'] .ride-mode .ride-undo,
+:root[data-theme='light'] .ride-mode .ride-recenter {
+  background: rgba(255, 255, 255, 0.94);
+}
+:root[data-theme='light'] .ride-mode .ride-bar,
+:root[data-theme='light'] .ride-mode .ride-sheet {
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+/* pale-orange accents tuned for dark glass need pigment on white */
+:root[data-theme='light'] .ride-mode .m-chip.danger,
+:root[data-theme='light'] .ride-mode .m-chip.danger .mc-ic,
+:root[data-theme='light'] .ride-mode .rb-chip.behind { color: #b3200a; }
+:root[data-theme='light'] .ride-mode .sc-actions button { background: rgba(0, 0, 0, 0.04); }
+:root[data-theme='light'] .ride-mode .sc-actions button:active { background: rgba(0, 0, 0, 0.12); color: var(--ink); }
+:root[data-theme='light'] .ride-mode .warning,
+:root[data-theme='light'] .ride-mode .warning.danger {
+  background: rgba(255, 255, 255, 0.94); color: #b3200a;
+}
+
 .ride-map { position: absolute; inset: 0; }
 
 .ride-overlay {
@@ -1364,8 +1417,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 
 /* ---------- light theme ----------
    data-theme lands on <html> from SettingsProvider. Accents stay Harley;
-   the asphalt scale flips to paper. Ride Mode stays dark on purpose — it's
-   a nav display over satellite imagery. */
+   the asphalt scale flips to paper. Ride Mode has its own high-contrast
+   light HUD (white panels, near-black type — see the ride section). */
 
 :root[data-theme='light'] {
   --asphalt-0: #f2f2f2;
@@ -2162,7 +2215,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .ride-chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .m-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.03em;
+  font-family: var(--mono); font-size: 14px; letter-spacing: 0.03em;
   background: rgba(0, 0, 0, 0.85); border: 1px solid var(--line); border-radius: 999px;
   padding: 5px 12px; color: var(--ink);
 }
@@ -2184,23 +2237,24 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   background: var(--asphalt-3); margin-bottom: 1px;
 }
 .ride-bar .rb-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
-.ride-bar .rb-big { font-family: var(--display); font-size: 29px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
-.ride-bar .rb-mid { font-family: var(--mono); font-size: 14px; color: var(--ink-dim); }
+/* sized for a tank-mounted phone at speed, not a phone in hand */
+.ride-bar .rb-big { font-family: var(--display); font-size: 33px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
+.ride-bar .rb-mid { font-family: var(--mono); font-size: 16px; color: var(--ink-dim); }
 /* footer: next stop name (scrolls) + the whole-day figure pinned right */
 .ride-bar .rb-foot { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ride-bar .rb-foot .rb-next { flex: 1; min-width: 0; margin-top: 0; }
 .ride-bar .rb-foot .rb-day { flex: none; white-space: nowrap; }
 .ride-bar .rb-chip {
-  margin-left: auto; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.05em;
+  margin-left: auto; font-family: var(--mono); font-size: 13.5px; letter-spacing: 0.05em;
   border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
 }
 .ride-bar .rb-chip.ahead { color: var(--ok); border-color: var(--ok); }
 .ride-bar .rb-chip.behind { color: #ffab84; border-color: var(--danger); }
 .ride-bar .rb-chip.on-time { color: var(--rally); border-color: var(--rally); }
 .ride-bar .rb-next { margin-top: 3px; }
-.ride-bar .rb-next .mq-ink { font-size: 13.5px; color: var(--ink-dim); }
+.ride-bar .rb-next .mq-ink { font-size: 15.5px; color: var(--ink-dim); }
 /* the whole-day ETA, demoted under the leg numbers so they can't be confused */
-.ride-bar .rb-day { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+.ride-bar .rb-day { font-family: var(--mono); font-size: 14px; color: var(--ink-faint); }
 .ride-bar .rb-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
 .ride-bar.arrive { border-color: var(--ok); }
 .ride-bar.arrive .rb-big { color: var(--ok); }
