@@ -367,6 +367,8 @@ export default function RideMode({ onClose }) {
   const projRef = useRef(null);
   const limiterRef = useRef(null); // speed-limit tracker, one per ride
   const onPlanRef = useRef(0); // consecutive fixes back on the planned line
+  const puckPosRef = useRef(null); // last PAINTED puck position — glide start point
+  const puckAnimRef = useRef(0);
   const mountedRef = useRef(true);
   // re-arm in the body: StrictMode's dev double-mount runs the cleanup once,
   // and a ref initializer alone would leave this false forever after it
@@ -771,9 +773,12 @@ export default function RideMode({ onClose }) {
   // ---- puck + chase camera, map-matched ----
   // Within ~30 m of the line the puck snaps onto it and takes the road's
   // bearing instead of the GPS one — kills the wobble like the big nav apps.
+  // Between 1 Hz fixes the puck GLIDES to the new position on animation
+  // frames instead of hopping once a second — the hop is what made tracking
+  // feel a beat behind the bike.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !fix) return;
+    if (!map || !fix) return undefined;
     const SNAP_MI = 0.019; // ≈ 30 m
     let lat = fix.lat, lng = fix.lng, heading = fix.heading;
     const a = geoProj && geomInfo.chain[geoProj.i];
@@ -785,8 +790,32 @@ export default function RideMode({ onClose }) {
         heading = (Math.atan2((b.lng - a.lng) * Math.cos((lat * Math.PI) / 180), b.lat - a.lat) * 180) / Math.PI;
       }
     }
-    puckRef.current?.setLngLat([lng, lat]);
-    if (heading != null) puckRef.current?.setRotation(heading);
+    const from = puckPosRef.current;
+    const to = { lat, lng, heading: heading ?? from?.heading ?? 0 };
+    cancelAnimationFrame(puckAnimRef.current);
+    // teleports (first fix, sim jumps, tunnels) place directly — no glide
+    if (!from || haversineMiles(from, to) > 0.5) {
+      puckPosRef.current = to;
+      puckRef.current?.setLngLat([to.lng, to.lat]);
+      if (heading != null) puckRef.current?.setRotation(to.heading);
+    } else {
+      const t0 = performance.now();
+      const dur = 850; // ≈ one GPS interval
+      const dh = ((to.heading - from.heading + 540) % 360) - 180; // shortest arc
+      const stepAnim = (now) => {
+        const k = Math.min(1, (now - t0) / dur);
+        const cur = {
+          lat: from.lat + (to.lat - from.lat) * k,
+          lng: from.lng + (to.lng - from.lng) * k,
+          heading: from.heading + dh * k,
+        };
+        puckPosRef.current = cur;
+        puckRef.current?.setLngLat([cur.lng, cur.lat]);
+        if (heading != null) puckRef.current?.setRotation(cur.heading);
+        if (k < 1) puckAnimRef.current = requestAnimationFrame(stepAnim);
+      };
+      puckAnimRef.current = requestAnimationFrame(stepAnim);
+    }
     if (followRef.current) {
       const mph = fix.speedMph;
       // Zoom breathes with speed and tightens into the next turn. Tuned to
@@ -803,7 +832,10 @@ export default function RideMode({ onClose }) {
         bearing: northUp ? 0 : heading ?? map.getBearing(),
         pitch: northUp ? 0 : 55,
         zoom,
-        duration: 950,
+        duration: 900,
+        // LINEAR: consecutive 1 Hz eases chain into continuous motion —
+        // the default s-curve decelerated into every fix and read as lag
+        easing: (t) => t,
         // keep the puck low on screen so the road ahead fills the view
         padding: { top: Math.round((mapDivRef.current?.clientHeight ?? 600) * 0.4), bottom: 0, left: 0, right: 0 },
       });
@@ -813,6 +845,7 @@ export default function RideMode({ onClose }) {
       warmAtRef.current = Date.now();
       warmTilesAhead(geomInfo.chain, geoProj.i, { miles: 12 });
     }
+    return () => cancelAnimationFrame(puckAnimRef.current);
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggling the compass snaps the camera to the new grammar immediately —
@@ -1131,14 +1164,14 @@ export default function RideMode({ onClose }) {
     });
   };
 
-  // Named stops, but only while the whole day is on screen. During navigation
-  // they would be noise on top of the turn card; in overview they are the point.
+  // Named stops, always on the map — a rider closing on a diner needs to SEE
+  // the diner without zooming out to the overview. The dots are small and the
+  // labels ride the map, so at nav zoom they read as destinations, not noise.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return undefined;
     wpMarkersRef.current.forEach((m) => m.remove());
     wpMarkersRef.current = [];
-    if (follow) return undefined;
 
     const labels = [];
     day.waypoints.forEach((w, i) => {
@@ -1195,7 +1228,7 @@ export default function RideMode({ onClose }) {
       wpMarkersRef.current.forEach((m) => m.remove());
       wpMarkersRef.current = [];
     };
-  }, [follow, day, stopMarks, tt]);
+  }, [day, stopMarks, tt]);
 
   return (
     // any first tap unlocks the speech engine (ref-guarded to run once)
@@ -1205,13 +1238,10 @@ export default function RideMode({ onClose }) {
       {/* ---- top: the turn, and almost nothing else ---- */}
       <div className="ride-overlay ride-overlay-top">
         <div className="ride-topbar">
-          {/* Which day this is. Tap = the ride sheet, where day context lives
-              (day switching, stops ahead). Route overview belongs to the fab
-              alone — two doors to the same overview wasted this tap target. */}
-          <button className="ride-day-pill" onClick={() => setSheetOpen((v) => !v)} title={t('Ride menu')}>
-            <span className="rdp-day">{day.dow} {fmtDayDate(day.date)}</span>
-            <Marquee className="rdp-title" text={tt(day.title)} />
-          </button>
+          {/* No day descriptor here — the day title is free text that does not
+              track route edits (drop a stop, the title still names it), and a
+              label that can lie has no place on a nav HUD. Day context lives
+              in the ride sheet, one tap on the bar. */}
           {ahead && !lean && (
             <div className="ride-chip wx" title={`${ahead.summary} · ${t('ahead')}`}>
               <WeatherIcon code={ahead.code} className="wxc-icon" />
@@ -1379,18 +1409,20 @@ export default function RideMode({ onClose }) {
                     </span>
                     {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
                   </div>
-                  {/* minimal sheds the day line — it's exactly the secondary
-                      number that mode exists to drop; the sheet still has it */}
-                  {!lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
+                </>
+              )}
+              {/* one footer row: the stop the leg numbers describe, and the
+                  whole-day figure at the right — minimal sheds the day part */}
+              {(nextWp ?? plannedNext) && !sheetOpen && (
+                <div className="rb-foot">
+                  <Marquee className="rb-next" label={lean ? null : t('Next')} text={tt((nextWp ?? plannedNext).name)} />
+                  {fix && !lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
                     <span className="rb-day">
                       {t('Day')} {fmtTime(eta ?? projectedEnd)}
                       {nav ? ` · ${u.miNum(nav.remMi)} ${u.miUnit}` : ''}
                     </span>
                   )}
-                </>
-              )}
-              {(nextWp ?? plannedNext) && !sheetOpen && (
-                <Marquee className="rb-next" label={lean ? null : t('Next')} text={tt((nextWp ?? plannedNext).name)} />
+                </div>
               )}
             </button>
 
