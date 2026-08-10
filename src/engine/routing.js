@@ -8,11 +8,13 @@ import { legKey, haversineMiles } from './tripEngine.js';
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 
-// v2: cached legs are CALIBRATED but UNPACED — the per-trip group-pace
+// v3: cached legs are CALIBRATED but UNPACED — the per-trip group-pace
 // multiplier (meta.pace) is applied by consumers, so changing it never
-// invalidates the cache. v1 entries baked in a +15% pace and the demo
-// profile's slow highways; they flush with the version bump.
-const CACHE_KEY = 'sturgis.routeCache.v2';
+// invalidates the cache. v2 briefly carried routes computed with
+// snapping=any + continue_straight=false, which let the router U-turn at a
+// via instead of riding THROUGH it (it cut a mountain pass in half, touching
+// the summit stop and doubling back); those flush with the bump.
+const CACHE_KEY = 'sturgis.routeCache.v3';
 
 // ---- speed calibration ----
 // The public OSRM demo times US highways like a cautious rental car: rural
@@ -168,10 +170,12 @@ function saveCache() {
 // Returns { legs: {legKey: {miles, seconds}}, geometry, snaps: {wpId: meters} }.
 // Leg seconds are calibrated (see SPEED_CURVE) but unpaced. `snaps` records how
 // far each pin sat from the road network — a big number is a mis-placed pin
-// that forces the route into an out-and-back spur to touch it.
-// snapping=any lets pins near restricted-access roads snap sensibly, and
-// continue_straight=false lets the route turn around AT a via instead of
-// looping miles to approach a wrong-carriageway pin "straight through".
+// that forces the route into an out-and-back spur to touch it; the day panel
+// warns on those so the pin gets fixed at the source.
+// Deliberately NO continue_straight=false / snapping=any here: allowing
+// U-turns at vias let the router touch a mid-pass stop and double back
+// instead of riding through the pass — on a motorcycle route the road is
+// the point, so vias keep OSRM's ride-through default.
 export async function routeDay(day) {
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return { legs: {}, geometry: null };
@@ -181,7 +185,7 @@ export async function routeDay(day) {
   if (c[dayKey]) return c[dayKey];
 
   const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=false&annotations=distance,duration&snapping=any&continue_straight=false`;
+  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=false&annotations=distance,duration`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`OSRM ${res.status}`);
@@ -213,9 +217,10 @@ export async function routeDay(day) {
 // Turn-by-turn maneuvers for Ride Mode. Fetched per day on demand (steps inflate
 // payloads ~10x, so they never ride along with the planning fetch) and cached
 // as compact maneuver points only.
-// v3: step durations are calibrated (SPEED_CURVE) and UNPACED — pace applies at
-// read time — and arrive steps carry their stop name for per-leg ETAs.
-const STEP_CACHE = 'moto.stepsCache.v3';
+// v4: step durations are calibrated (SPEED_CURVE) and UNPACED — pace applies at
+// read time — and arrive steps carry their stop name for per-leg ETAs. v3
+// briefly held routes allowed to U-turn at vias (see CACHE_KEY note).
+const STEP_CACHE = 'moto.stepsCache.v4';
 
 function loadStepCache() {
   try { return JSON.parse(localStorage.getItem(STEP_CACHE) || '{}'); } catch { return {}; }
@@ -363,7 +368,7 @@ export async function routeDaySteps(day, pace = 1) {
   } catch { /* fall through to OSRM */ }
 
   const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=false&steps=true&annotations=distance,duration&snapping=any&continue_straight=false`;
+  const url = `${OSRM}/${coords}?overview=false&steps=true&annotations=distance,duration`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`routing ${res.status}`);
   const json = await res.json();
@@ -396,7 +401,7 @@ export async function routeFrom(pos, waypoints, pace = 1) {
 
   const pts = [pos, ...wps];
   const coords = pts.map((p) => `${p.lng},${p.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=true&annotations=distance,duration&snapping=any&continue_straight=false`;
+  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=true&annotations=distance,duration`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`reroute ${res.status}`);
   const json = await res.json();
