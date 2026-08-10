@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SYNC_ENABLED, supabase, subscribeOps, pushOps, fetchTrip, currentUser } from './supabase.js';
+import { SYNC_ENABLED, supabase, subscribeOps, pushOps, fetchTrip, currentUser, CLIENT_ID } from './supabase.js';
 
 // Keeps a published trip in step with everyone else on it.
 //
@@ -40,7 +40,12 @@ export function useTripSync(state, dispatch) {
         if (!alive) return;
         const missed = ops.filter((r) => r.seq > (remote.seq ?? 0));
         if (missed.length) {
-          dispatch({ type: 'apply_ops', ops: missed.flatMap((r) => r.ops), remote: true });
+          // This device's own batches were applied optimistically when they
+          // were made — replaying them after a reload duplicates every added
+          // stop and day. They still advance seq, or the next catch-up would
+          // re-read them forever.
+          const foreign = missed.filter((r) => r.client_id !== CLIENT_ID);
+          if (foreign.length) dispatch({ type: 'apply_ops', ops: foreign.flatMap((r) => r.ops), remote: true });
           dispatch({ type: 'set_remote', remote: { ...remote, seq: missed[missed.length - 1].seq } });
         }
         if (alive) setStatus('live');
@@ -63,10 +68,11 @@ export function useTripSync(state, dispatch) {
     setStatus('syncing');
     (async () => {
       const sent = [];
+      let lastSeq = null;
       try {
         // Oldest first and strictly sequential: op order is the whole contract.
         for (const batch of outbox) {
-          await pushOps(remote.tripId, batch.ops);
+          lastSeq = await pushOps(remote.tripId, batch.ops);
           sent.push(batch.id);
         }
         setStatus('live');
@@ -74,6 +80,11 @@ export function useTripSync(state, dispatch) {
         setStatus('error'); // whatever did not send stays queued for the retry
       } finally {
         if (sent.length) dispatch({ type: 'outbox_sent', ids: sent });
+        // Advance past our own accepted writes so the next catch-up doesn't
+        // even have to fetch-and-discard them.
+        if (lastSeq != null) {
+          dispatch({ type: 'set_remote', remote: { ...remote, seq: Math.max(remote.seq ?? 0, lastSeq) } });
+        }
         busy.current = false;
       }
     })();

@@ -59,6 +59,14 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   overflow: hidden;
   position: relative; /* the phone's map tab floats .topchrome over the map */
 }
+/* Installed PWA: iOS standalone resolves [d]vh against a stale viewport on
+   the first paint, floating the bottom mode bar a toolbar's height off the
+   bottom until a drag forces re-layout. Standalone has no browser chrome to
+   dodge, so trust the html/body/#root height:100% chain instead — it tracks
+   the real window from the first frame. */
+@media all and (display-mode: standalone) {
+  .app, .home { height: 100%; }
+}
 /* Masthead and ribbon are one thing — the chrome above the content. Grouping
    them lets the map tab lift both off the layout in a single move instead of
    positioning two grid rows independently. */
@@ -337,6 +345,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .wp-row .nm .tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: 1px; }
 .wp-row .nm .tag.fuel { background: rgba(244, 131, 34, 0.18); color: var(--outbound); }
 .wp-row .nm .tag.photo { background: rgba(206, 206, 206, 0.12); color: var(--return); }
+/* pin sits off the road network — the router detours to touch it */
+.wp-row .nm .tag.offroad { background: rgba(214, 69, 51, 0.16); color: #ffab84; cursor: help; }
 .wp-row .note { font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
 .wp-row .rm { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); opacity: 0; }
 .wp-row:hover .rm { opacity: 1; }
@@ -1631,6 +1641,12 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+/* the chip reads the road AHEAD, not the air here — say so */
+.ride-chip .wxc-ahead {
+  font-family: var(--mono); font-style: normal; font-size: 8px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-faint); writing-mode: vertical-rl;
+  line-height: 1; margin-left: -1px;
+}
 /* US speed-limit sign: white plate, black rule, number */
 .ride-chip.limit { background: #fff; border-color: #d4d4d4; padding: 0 8px; }
 .ride-chip.limit .sl-num {
@@ -2079,6 +2095,33 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .ride-fab.lit { border-color: var(--rally); color: var(--rally); }
 .ride-fab:active { transform: scale(0.94); }
 
+/* Posted speed limit — drawn as the US sign so it reads at a glance. Sits at
+   the left edge above the chips, the corner nav apps trained everyone to scan. */
+.speed-sign {
+  align-self: flex-start; margin-left: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  background: #fff; color: #111;
+  border: 2px solid #111; box-shadow: 0 0 0 2px #fff, 0 4px 14px rgba(0, 0, 0, 0.5);
+  border-radius: 7px; padding: 4px 7px 3px; min-width: 46px;
+}
+.speed-sign .ss-word {
+  font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.06em;
+  line-height: 1.15; text-align: center;
+}
+.speed-sign .ss-num { font-family: var(--display); font-size: 23px; font-weight: 700; line-height: 1; }
+.speed-sign .ss-unit { font-family: var(--mono); font-size: 7.5px; letter-spacing: 0.06em; }
+
+/* a stop was auto-skipped — the one-tap way back */
+.ride-undo {
+  align-self: center; display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.03em;
+  background: rgba(0, 0, 0, 0.88); border: 1px solid var(--rally); border-radius: 999px;
+  padding: 8px 14px; min-height: 40px; color: var(--ink);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+.ride-undo b { color: var(--rally); letter-spacing: 0.08em; }
+.ride-undo:active { transform: scale(0.97); }
+
 /* plan-aware chips: fuel range countdown, next gate margin */
 .ride-chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .m-chip {
@@ -2089,6 +2132,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .m-chip .mc-ic { width: 15px; height: 15px; color: var(--outbound); }
 .m-chip.gate { color: var(--ink-dim); }
+.m-chip.gate .mc-ic { color: inherit; }
 .m-chip.danger { border-color: var(--danger); color: #ffab84; }
 .m-chip.danger .mc-ic { color: var(--danger); }
 
@@ -2114,6 +2158,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .ride-bar .rb-chip.on-time { color: var(--rally); border-color: var(--rally); }
 .ride-bar .rb-next { margin-top: 3px; }
 .ride-bar .rb-next .mq-ink { font-size: 14.5px; color: var(--ink-dim); }
+/* the whole-day ETA, demoted under the leg numbers so they can't be confused */
+.ride-bar .rb-day { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
 .ride-bar .rb-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
 .ride-bar.arrive { border-color: var(--ok); }
 .ride-bar.arrive .rb-big { color: var(--ok); }
@@ -2132,14 +2178,31 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .stops-strip { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .stops-strip::-webkit-scrollbar { display: none; }
 .stop-card {
-  flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; text-align: left;
-  min-width: 110px; max-width: 150px;
-  background: var(--asphalt-2); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px;
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: 0; text-align: left;
+  min-width: 128px; max-width: 160px;
+  background: var(--asphalt-2); border: 1px solid var(--line); border-radius: 9px;
+  overflow: hidden;
 }
 .stop-card.fuel { border-color: rgba(244, 131, 34, 0.5); }
+.stop-card.skipped { opacity: 0.55; border-style: dashed; }
+.stop-card .sc-main {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  padding: 8px 10px 6px; min-width: 0; width: 100%;
+}
 .stop-card .sc-kind { font-size: 12px; color: var(--outbound); }
+.stop-card .sc-kind .sc-ic { width: 13px; height: 13px; display: block; }
 .stop-card .sc-name { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stop-card .sc-eta { font-family: var(--mono); font-size: 11px; color: var(--rally); }
+.stop-card .sc-eta.skip { color: var(--ink-faint); letter-spacing: 0.06em; text-transform: uppercase; font-size: 9.5px; }
+/* destination control: aim the route here, or drop / restore the stop */
+.stop-card .sc-actions { display: flex; border-top: 1px solid var(--line); }
+.stop-card .sc-actions button {
+  flex: 1; min-height: 36px; padding: 4px 6px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--ink-dim); background: rgba(255, 255, 255, 0.03);
+}
+.stop-card .sc-actions button + button { border-left: 1px solid var(--line); }
+.stop-card .sc-actions button:active { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
 .day-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .day-chips::-webkit-scrollbar { display: none; }
 .day-chip {

@@ -101,13 +101,18 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
       const trip = {
         meta: { ...baseMeta(name), ...data.trip.meta },
         days: data.trip.days.map((d) => {
-          const waypoints = (d.waypoints ?? [])
-            .filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng))
-            .map((w) => ({ id: uid('w'), kind: 'via', mile: null, note: '', ...w }));
-          // The model names gate stops by index (it can't know the ids minted
-          // here); resolve them onto the fresh waypoint ids.
+          // The model's gate waypointIndex counts its EMITTED array — resolve
+          // ids against that same shape (invalid stops hold their slot as
+          // null) so dropping a bad coordinate can't shift a gate onto the
+          // next stop over.
+          const emitted = (d.waypoints ?? []).map((w) => (
+            Number.isFinite(w.lat) && Number.isFinite(w.lng)
+              ? { id: uid('w'), kind: 'via', mile: null, note: '', ...w }
+              : null
+          ));
+          const waypoints = emitted.filter(Boolean);
           const gates = (d.gates ?? [])
-            .map((g) => ({ label: g.label, by: g.by, waypointId: waypoints[g.waypointIndex]?.id ?? null }))
+            .map((g) => ({ label: g.label, by: g.by, waypointId: emitted[g.waypointIndex]?.id ?? null }))
             .filter((g) => g.label && g.by);
           return {
             ...blankDay({}),

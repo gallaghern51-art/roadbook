@@ -581,8 +581,22 @@ const ES = {
   'Dusk drives the after-dark warnings; the UTC offset places .ics calendar times in the trip’s zone.': 'El anochecer maneja los avisos de oscuridad; el desfase UTC ubica las horas del calendario .ics en la zona del viaje.',
   'Bike — type anything': 'Moto — escribe lo que sea',
   'Tickets, entries & passes': 'Entradas, accesos y pases',
-  'Method: departure times from each day\'s plan, routed leg durations (OSRM, +15% group pace), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, its dusk setting, and booking status. Scenario rows use cached routing where available and planned mileage otherwise.': 'Método: horas de salida del plan de cada día, duraciones de tramo ruteadas (OSRM, +15% ritmo de grupo), tiempo en tierra planificado en cada parada, verificado contra los horarios límite del viaje, su autonomía de bencina configurada, su hora de anochecer y el estado de reservas. Las filas de escenario usan ruteo en caché cuando existe y millaje planificado si no.',
+  'Method: departure times from each day\'s plan, routed leg durations (OSRM, speed-calibrated for real highway pace, scaled by the trip\'s group-pace setting), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, its dusk setting, and booking status. Scenario rows use cached routing where available and planned mileage otherwise.': 'Método: horas de salida del plan de cada día, duraciones de tramo ruteadas (OSRM, calibradas a la velocidad real de carretera y escaladas por el ritmo de grupo del viaje), tiempo en tierra planificado en cada parada, verificado contra los horarios límite del viaje, su autonomía de bencina configurada, su hora de anochecer y el estado de reservas. Las filas de escenario usan ruteo en caché cuando existe y millaje planificado si no.',
   'Back to the bundled Sturgis template. Every edit to this trip is discarded.': 'Vuelve a la plantilla Sturgis incluida. Se descarta cada edición de este viaje.',
+  // pace + off-road pin (planning)
+  'Group pace buffer %': 'Margen de ritmo de grupo %',
+  'The pace buffer slows every planned leg for group riding — set 0 for a solo trip, 15+ for a big group.': 'El margen de ritmo ralentiza cada tramo planificado para rodar en grupo — usa 0 para un viaje solo, 15+ para un grupo grande.',
+  'This pin sits off the road network, so routing detours to reach it. Drag it onto the road or re-pick the stop via search.': 'Este pin está fuera de la red de caminos, así que el ruteo se desvía para tocarlo. Arrástralo al camino o vuelve a elegir la parada con el buscador.',
+  'off road': 'fuera del camino',
+  // ride mode: destination control + speed limit
+  'Go next': 'Ir ahora',
+  'Skip': 'Omitir',
+  'Skipped': 'Omitida',
+  'skipped': 'omitida',
+  'Restore': 'Restaurar',
+  'UNDO': 'DESHACER',
+  'SPEED': 'SPEED',
+  'LIMIT': 'LIMIT',
 };
 
 export function useT() {

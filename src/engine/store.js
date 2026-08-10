@@ -119,12 +119,24 @@ export const initialState = () => {
 export function reducer(state, action) {
   switch (action.type) {
     case 'apply_ops': {
-      const { trip, errors } = applyOps(state.trip, action.ops);
+      // Add-ops mint their ids HERE, before applying, not inside applyOp:
+      // these op objects ship to other devices (sync outbox, collab
+      // proposals), and an id minted during replay comes out different on
+      // every device — after which each follow-up edit addressed to the
+      // author's id silently fails everywhere else.
+      const ops = action.remote ? action.ops : action.ops.map((op) => {
+        if (op.op === 'add_waypoint' && !op.waypoint?.id) return { ...op, waypoint: { ...op.waypoint, id: uid('w') } };
+        if (op.op === 'add_day' && !op.day?.id) return { ...op, day: { ...(op.day ?? {}), id: uid('day') } };
+        if (op.op === 'add_module' && !op.module?.id) return { ...op, module: { ...op.module, id: uid('mod') } };
+        if (op.op === 'add_reservation' && !op.reservation?.id) return { ...op, reservation: { ...op.reservation, id: uid('res') } };
+        return op;
+      });
+      const { trip, errors } = applyOps(state.trip, ops);
       if (errors.length) console.warn('op errors', errors);
       syncTrip(state, trip);
       // action.remote = this batch arrived FROM the server. Queueing it would
       // bounce it straight back and loop.
-      const outbox = action.remote ? state.outbox : [...state.outbox, { id: uid('ob'), ops: action.ops }];
+      const outbox = action.remote ? state.outbox : [...state.outbox, { id: uid('ob'), ops }];
       if (!action.remote) syncMeta(state, { outbox });
       return {
         ...state, trip, outbox,
@@ -134,7 +146,7 @@ export function reducer(state, action) {
         // Ops also accumulate for collaborate mode: a rider's edit session
         // becomes the proposal it sends (capped — a runaway session is not a
         // proposal). Server-originated batches are not yours to propose.
-        opLog: action.remote ? state.opLog : [...state.opLog, ...action.ops].slice(-120),
+        opLog: action.remote ? state.opLog : [...state.opLog, ...ops].slice(-120),
       };
     }
     // the server accepted these batches — drop them from the queue
@@ -181,17 +193,21 @@ export function reducer(state, action) {
     }
 
     // ---- trip library ----
+    // Switching records swaps EVERYTHING scoped to the trip — remote binding,
+    // outbox, opLog included. Carrying the old trip's remote/outbox across
+    // pushed the new trip's edits into the old shared trip's op log (and kept
+    // applying the old trip's incoming ops onto the new working copy).
     case 'create_trip': {
       const rec = freshRecord(action.trip, action.name);
       const lib = { ...state.lib, trips: [...state.lib.trips, rec], activeId: rec.id };
       persistLibrary(lib);
-      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], history: [], selectedDayId: null, pendingProposal: null, modal: null };
+      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], history: [], selectedDayId: null, pendingProposal: null, modal: null };
     }
     case 'switch_trip': {
       const lib = { ...state.lib, activeId: action.id };
       const rec = activeRecord(lib);
       persistLibrary(lib);
-      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], history: [], selectedDayId: null, pendingProposal: null, modal: null };
+      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], history: [], selectedDayId: null, pendingProposal: null, modal: null };
     }
     case 'delete_trip': {
       if (state.lib.trips.length <= 1) return state;
@@ -199,7 +215,7 @@ export function reducer(state, action) {
       const lib = { trips, activeId: state.lib.activeId === action.id ? trips[0].id : state.lib.activeId };
       const rec = activeRecord(lib);
       persistLibrary(lib);
-      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], history: [], selectedDayId: null };
+      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], history: [], selectedDayId: null };
     }
 
     // ---- UI ----

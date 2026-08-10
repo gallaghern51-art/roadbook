@@ -7,6 +7,7 @@ import { PHASES } from '../data/seedTrip.js';
 import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
+import { tripPace } from '../engine/tripEngine.js';
 
 // Suggestions only — riders type whatever they actually ride. (The list began
 // as the EagleRider rental lineup the Sturgis crew booked from; it survives as
@@ -172,6 +173,11 @@ function TripSettings({ trip, dispatch }) {
             placeholder="8:30 PM"
             onBlur={(e) => { if (e.target.value !== (trip.meta.dusk ?? '')) set({ dusk: e.target.value }); }} />
         </label>
+        <label className="fld">{t('Group pace buffer %')}
+          <input type="number" min="0" max="50" step="1"
+            value={Math.round((tripPace(trip) - 1) * 100)}
+            onChange={(e) => set({ pace: 1 + Math.max(0, Math.min(50, Number(e.target.value) || 0)) / 100 })} />
+        </label>
         <label className="fld">{t('UTC offset (calendar export)')}
           <input type="number" min="-12" max="14" step="0.5" value={Number.isFinite(trip.meta.utcOffset) ? trip.meta.utcOffset : -6}
             onChange={(e) => set({ utcOffset: Number(e.target.value) })} />
@@ -179,7 +185,8 @@ function TripSettings({ trip, dispatch }) {
       </div>
       <p style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 4 }}>
         {t('Changing the start date re-pins every day to the new calendar. Fuel warnings and feasibility use the bike range set here.')}{' '}
-        {t('Dusk drives the after-dark warnings; the UTC offset places .ics calendar times in the trip’s zone.')}
+        {t('Dusk drives the after-dark warnings; the UTC offset places .ics calendar times in the trip’s zone.')}{' '}
+        {t('The pace buffer slows every planned leg for group riding — set 0 for a solo trip, 15+ for a big group.')}
       </p>
     </div>
   );

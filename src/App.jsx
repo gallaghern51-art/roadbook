@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { TripContext, reducer, initialState } from './engine/store.js';
 import { routeDay } from './engine/routing.js';
-import { tripSummary } from './engine/tripEngine.js';
+import { tripSummary, tripPace } from './engine/tripEngine.js';
 import { tripFeasibility } from './engine/timeline.js';
 import { useIsMobile } from './hooks/useMediaQuery.js';
 import Home from './components/Home.jsx';
@@ -101,11 +101,20 @@ export default function App() {
     return () => { cancelled = true; };
   }, [routeSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cached legs are unpaced; the trip's group-pace multiplier is applied here,
+  // in one place, so every consumer (timeline, feasibility, exports, digests)
+  // sees the same paced durations and a pace edit retimes everything instantly.
+  const pace = tripPace(state.trip);
   const routedLegsByDay = useMemo(() => {
     const out = {};
-    for (const [id, r] of Object.entries(routes)) out[id] = r.legs;
+    for (const [id, r] of Object.entries(routes)) {
+      out[id] = {};
+      for (const [k, leg] of Object.entries(r.legs)) {
+        out[id][k] = leg.seconds != null ? { ...leg, seconds: leg.seconds * pace } : leg;
+      }
+    }
     return out;
-  }, [routes]);
+  }, [routes, pace]);
 
   const summary = useMemo(() => tripSummary(state.trip, routedLegsByDay), [state.trip, routedLegsByDay]);
   // One computation of the grade system, shared by the ribbon, Home, and PREP.
