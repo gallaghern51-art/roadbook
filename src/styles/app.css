@@ -1032,6 +1032,17 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   --ink-dim: rgba(255, 255, 255, 0.86);
   --ink-faint: rgba(255, 255, 255, 0.66);
   --line: rgba(255, 255, 255, 0.18);
+  /* the surface scale pins dark too — in the light theme these flip to
+     paper, and paper cards under the pinned white ink made the ride sheet
+     white-on-white. The HUD is dark in every theme, so it pins everything. */
+  --asphalt-0: #000000;
+  --asphalt-1: #0d0d0d;
+  --asphalt-2: #1a1a1a;
+  --asphalt-3: #262626;
+  /* re-APPLY color, not just the variable: body resolves color:var(--ink) at
+     the root, so inherited text arrives pre-resolved to the light theme's
+     near-black unless the HUD sets its own. */
+  color: var(--ink);
 }
 .ride-map { position: absolute; inset: 0; }
 
@@ -1371,6 +1382,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 /* warning text tuned for dark glass needs more pigment on paper */
 :root[data-theme='light'] .warning { color: #a03d0c; }
 :root[data-theme='light'] .warning.danger { color: #b3200a; }
+/* pale-orange accents tuned for dark panels need pigment on paper too */
+:root[data-theme='light'] .wp-row .nm .tag.offroad { color: #b3341f; }
 
 
 /* ---------- ribbon day number ---------- */
