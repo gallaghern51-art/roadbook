@@ -339,11 +339,38 @@ export default function RideMode({ onClose }) {
   const tl = useMemo(() => dayTimeline(day, routedLegsByDay[day.id]), [day, routedLegsByDay]);
   const totalMiles = tl.stops.reduce((a, s) => a + s.legMiles, 0);
 
+  // Speech must be woken from inside a user gesture on iOS and Android Chrome —
+  // an utterance queued from a GPS-fix effect before any gesture-context
+  // speak() is silently dropped, which reads as "voice never works". The first
+  // tap anywhere in Ride Mode speaks a muted blank to unlock the engine.
+  const voiceReadyRef = useRef(false);
+  const unlockVoice = () => {
+    if (voiceReadyRef.current || !('speechSynthesis' in window)) return;
+    voiceReadyRef.current = true;
+    try {
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    } catch { /* no speech engine */ }
+  };
+
   const speak = (text) => {
     if (!text || mutedRef.current || !('speechSynthesis' in window)) return;
     try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      const synth = window.speechSynthesis;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-US'; // nav instructions are English regardless of UI language
+      // cancel() followed by speak() in the same tick swallows the new
+      // utterance on Chrome — give the engine a beat to clear the queue.
+      if (synth.speaking || synth.pending) {
+        synth.cancel();
+        setTimeout(() => {
+          try { synth.resume(); synth.speak(u); } catch { /* engine gone */ }
+        }, 80);
+      } else {
+        synth.resume(); // Chrome wedges itself paused after tab switches
+        synth.speak(u);
+      }
     } catch { /* no voice — HUD still works */ }
   };
 
@@ -362,6 +389,7 @@ export default function RideMode({ onClose }) {
       maxTileCacheSize: 1024, // keep ridden-past tiles around for overview jumps
     });
     mapRef.current = map;
+    if (import.meta.env.DEV) window.__rideMap = map; // console/sim debugging, dev only
     map.on('dragstart', () => setFollow(false));
     // the rose needle tracks true map north on every frame of rotation
     map.on('rotate', () => {
@@ -687,9 +715,12 @@ export default function RideMode({ onClose }) {
     if (heading != null) puckRef.current?.setRotation(heading);
     if (followRef.current) {
       const mph = fix.speedMph;
-      // zoom breathes with speed and tightens into the next turn
-      let zoom = mph == null ? 14 : mph >= 50 ? 12.9 : mph >= 25 ? 13.8 : 14.8;
-      if (nav && nav.toNext < 0.35) zoom = Math.max(zoom, 15.3);
+      // Zoom breathes with speed and tightens into the next turn. Tuned to
+      // Google's nav framing: close on the rider, backing off ~a level at
+      // highway speed for look-ahead — the old tiers (12.9–14.8) framed a
+      // county, not a road.
+      let zoom = mph == null ? 15.2 : mph >= 50 ? 14.3 : mph >= 25 ? 15.2 : 16.2;
+      if (nav && nav.toNext < 0.35) zoom = Math.max(zoom, 16.5);
       const northUp = camModeRef.current === 'north';
       map.easeTo({
         center: [lng, lat],
@@ -789,19 +820,20 @@ export default function RideMode({ onClose }) {
   const legMiles = nav ? nav.legMi : proj?.remainToNext ?? null;
   const legEta = legRemMin != null ? clock + legRemMin : null;
 
-  // voice guidance at 1 mi / ¼ mi / 500 ft
+  // voice guidance at 1 mi / ¼ mi / on the turn
   useEffect(() => {
-    if (!nav || offRoute) return;
+    if (!nav || !nav.next || offRoute) return;
+    // Pick the CLOSEST tier already crossed. The old loop broke on the first
+    // (largest) match, so once inside a mile only "In one mile" could ever
+    // fire — the quarter-mile and on-turn calls were unreachable.
     const tiers = [[1.05, 'In one mile, '], [0.27, 'In a quarter mile, '], [0.1, '']];
-    for (const [at, prefix] of tiers) {
-      if (nav.toNext <= at) {
-        const key = `${nav.idx}:${at}`;
-        if (spokenRef.current !== key) {
-          spokenRef.current = key;
-          speak(prefix + nav.next.instr);
-        }
-        break;
-      }
+    let hit = null;
+    for (const t of tiers) if (nav.toNext <= t[0]) hit = t;
+    if (!hit) return;
+    const key = `${nav.idx}:${hit[0]}`;
+    if (spokenRef.current !== key) {
+      spokenRef.current = key;
+      speak(hit[1] + nav.next.instr);
     }
   }, [nav?.idx, nav?.toNext, offRoute]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1039,7 +1071,8 @@ export default function RideMode({ onClose }) {
   }, [follow, day, stopMarks, tt]);
 
   return (
-    <div className="ride-mode nav">
+    // any first tap unlocks the speech engine (ref-guarded to run once)
+    <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
 
       {/* ---- top: the turn, and almost nothing else ---- */}
@@ -1122,7 +1155,14 @@ export default function RideMode({ onClose }) {
         </button>
         <button
           className={`ride-fab${muted ? ' off' : ''}`}
-          onClick={() => setMuted((m) => !m)}
+          onClick={() => {
+            // unmuting speaks from the tap itself: audible confirmation, and
+            // the gesture context unlocks the engine on the spot
+            const next = !muted;
+            setMuted(next);
+            mutedRef.current = next;
+            if (!next) { voiceReadyRef.current = true; speak('Voice guidance on.'); }
+          }}
           aria-label={t('Voice')}
           title={t('Voice')}
         ><SpeakerIcon muted={muted} /></button>
