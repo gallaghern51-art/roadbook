@@ -2213,6 +2213,29 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .stop-card .sc-actions button + button { border-left: 1px solid var(--line); }
 .stop-card .sc-actions button:active { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
+/* mid-ride add-a-stop search */
+.ride-search {
+  width: 100%; min-height: 44px; font-size: 16px; /* 16px: iOS must not zoom-jump */
+  background: var(--asphalt-2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 8px 12px; color: var(--ink);
+}
+.rs-note { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 6px; }
+.rs-results { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.rs-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--asphalt-2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 6px 8px 6px 10px;
+}
+.rs-row .rs-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-row .rs-detail { display: block; font-size: 10.5px; font-weight: 400; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; }
+.rs-row button {
+  flex: none; min-height: 38px; padding: 4px 10px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  border: 1px solid var(--line); border-radius: 7px; color: var(--ink-dim);
+}
+.rs-row button:active { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
+.rs-row .rs-fuel { color: var(--outbound); border-color: rgba(244, 131, 34, 0.5); }
+
 .day-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .day-chips::-webkit-scrollbar { display: none; }
 .day-chip {

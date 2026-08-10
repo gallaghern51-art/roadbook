@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine/timeline.js';
-import { haversineMiles, tripRange, tripPace, projectOnChain } from '../engine/tripEngine.js';
+import { haversineMiles, tripRange, tripPace, projectOnChain, bestInsertIndex } from '../engine/tripEngine.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
+import { geocode } from '../engine/geocode.js';
 import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
@@ -302,7 +303,7 @@ function Marquee({ className, label, text }) {
 }
 
 export default function RideMode({ onClose }) {
-  const { state, routes, routedLegsByDay } = useTrip();
+  const { state, routes, routedLegsByDay, dispatch } = useTrip();
   const { trip } = state;
   const today = new Date().toLocaleDateString('sv-SE');
   const defaultDay = trip.days.find((d) => d.date === today)?.id ?? state.selectedDayId ?? trip.days[0]?.id;
@@ -332,6 +333,11 @@ export default function RideMode({ onClose }) {
   const [returnToId, setReturnToId] = useState(null); // restored stop BEHIND the projection nav is heading back to
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
+  // add-a-stop search: gas, food, a place — inserted into the CURRENT leg
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState(null); // null = idle, [] = no matches
+  const [searching, setSearching] = useState(false);
+  const searchRef = useRef(null);
   const wpMarkersRef = useRef([]);
   const t = useT();
   const tt = useTT();
@@ -374,7 +380,11 @@ export default function RideMode({ onClose }) {
   // and a ref initializer alone would leave this false forever after it
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      try { audioCtxRef.current?.close(); } catch { /* already closed */ }
+      audioCtxRef.current = null;
+    };
   }, []);
 
   const day = trip.days.find((d) => d.id === dayId) ?? trip.days[0];
@@ -385,10 +395,33 @@ export default function RideMode({ onClose }) {
   // Speech must be woken from inside a user gesture on iOS and Android Chrome —
   // an utterance queued from a GPS-fix effect before any gesture-context
   // speak() is silently dropped, which reads as "voice never works". The first
-  // tap anywhere in Ride Mode speaks a muted blank to unlock the engine.
+  // tap anywhere in Ride Mode speaks a muted blank to unlock the engine, AND
+  // starts a silent audio session: without one, iOS routes speech through the
+  // RINGER channel, so a phone with the silent switch on (every rider's phone)
+  // hears nothing. A zero-gain looping buffer flips the app into the media-
+  // playback session, which the silent switch does not mute.
   const voiceReadyRef = useRef(false);
+  const audioCtxRef = useRef(null);
+  const voiceRef = useRef(null); // resolved English voice — see below
+  const utterKeepRef = useRef(null); // GC guard: a collected utterance goes silent mid-queue
   const unlockVoice = () => {
-    if (voiceReadyRef.current || !('speechSynthesis' in window)) return;
+    if (!('speechSynthesis' in window)) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !audioCtxRef.current) {
+        const ctx = new AC();
+        const src = ctx.createBufferSource();
+        src.buffer = ctx.createBuffer(1, 1, 22050); // one silent sample, looped
+        src.loop = true;
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        src.connect(g).connect(ctx.destination);
+        src.start(0);
+        audioCtxRef.current = ctx;
+      }
+      audioCtxRef.current?.resume?.();
+    } catch { /* no audio session — speech follows the ringer switch */ }
+    if (voiceReadyRef.current) return;
     voiceReadyRef.current = true;
     try {
       const u = new SpeechSynthesisUtterance(' ');
@@ -397,12 +430,32 @@ export default function RideMode({ onClose }) {
     } catch { /* no speech engine */ }
   };
 
+  // Pin a concrete English voice once the list loads — iOS standalone builds
+  // have shipped with a default voice that never resolves, which also reads
+  // as "voice never works".
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return undefined;
+    const pick = () => {
+      try {
+        const vs = window.speechSynthesis.getVoices?.() ?? [];
+        voiceRef.current = vs.find((v) => v.lang?.startsWith('en') && v.localService)
+          ?? vs.find((v) => v.lang?.startsWith('en')) ?? null;
+      } catch { /* keep default */ }
+    };
+    pick();
+    window.speechSynthesis.addEventListener?.('voiceschanged', pick);
+    return () => window.speechSynthesis.removeEventListener?.('voiceschanged', pick);
+  }, []);
+
   const speak = (text) => {
     if (!text || mutedRef.current || !('speechSynthesis' in window)) return;
     try {
       const synth = window.speechSynthesis;
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'en-US'; // nav instructions are English regardless of UI language
+      if (voiceRef.current) u.voice = voiceRef.current;
+      utterKeepRef.current = u; // hold the reference until it finishes
+      u.onend = () => { if (utterKeepRef.current === u) utterKeepRef.current = null; };
       // cancel() followed by speak() in the same tick swallows the new
       // utterance on Chrome — give the engine a beat to clear the queue.
       if (synth.speaking || synth.pending) {
@@ -1111,6 +1164,50 @@ export default function RideMode({ onClose }) {
     restoreStop(id);
   };
 
+  // ---- add a stop mid-ride: gas, food, a place — into the current leg ----
+  useEffect(() => {
+    if (q.trim().length < 3) { setFound(null); setSearching(false); return undefined; }
+    setSearching(true);
+    const id = setTimeout(async () => {
+      try {
+        const near = fix ?? nextWp ?? day.waypoints[0];
+        setFound(await geocode(q.trim(), near ? { lat: near.lat, lng: near.lng } : undefined));
+      } catch {
+        setFound([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(id);
+  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addStop = (r, fuel) => {
+    // Insert where it geographically belongs among the REMAINING stops,
+    // anchored at the bike: a station between here and the next stop lands on
+    // this leg, a pick further up the day slots in later — blindly inserting
+    // "next" would make the route double back for anything past the next stop.
+    const anchor = fix ? { lat: fix.lat, lng: fix.lng } : day.waypoints[Math.min(effIdx, day.waypoints.length - 1)];
+    const tail = [anchor, ...day.waypoints.slice(effIdx + 1)];
+    const at = effIdx + Math.max(1, bestInsertIndex(tail, r));
+    const wp = {
+      name: r.name, lat: r.lat, lng: r.lng,
+      kind: fuel ? 'fuel' : 'via',
+      ...(fuel ? { fuel: true } : {}),
+      ...(r.source === 'google' && r.id ? { placeId: r.id } : {}),
+    };
+    dispatch({ type: 'apply_ops', ops: [{ op: 'add_waypoint', dayId: day.id, index: at, waypoint: wp }] });
+    setQ('');
+    setFound(null);
+    setSheetOpen(false);
+    setFollow(true);
+    speak(`Added ${r.name}. Rerouting.`);
+    if (fix) {
+      const after = day.waypoints.slice(effIdx + 1);
+      after.splice(Math.max(0, at - effIdx - 1), 0, wp);
+      goRoute(after.filter((w) => !skipped.has(w.id)));
+    }
+  };
+
   // Stops placed along the progress bar by their share of the day's distance, so
   // the bar shows what is coming (fuel, a photo stop, the end) and not just how
   // far along you are.
@@ -1313,6 +1410,18 @@ export default function RideMode({ onClose }) {
             </g>
           </svg>
         </button>
+        {/* add a destination mid-ride — opens the sheet with the search ready */}
+        <button
+          className="ride-fab"
+          onClick={() => { setSheetOpen(true); setTimeout(() => searchRef.current?.focus(), 350); }}
+          aria-label={t('Add a stop ahead')}
+          title={t('Add a stop ahead')}
+        >
+          <svg viewBox="0 0 22 22" aria-hidden="true">
+            <circle cx="9.5" cy="9.5" r="5.6" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M13.8 13.8 L18.4 18.4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+        </button>
         <button
           className={`ride-fab${muted ? ' off' : ''}`}
           onClick={() => {
@@ -1428,6 +1537,35 @@ export default function RideMode({ onClose }) {
 
             {sheetOpen && (
               <div className="ride-sheet" role="dialog" aria-label={t('Ride menu')}>
+                <div className="sheet-block">
+                  <div className="sheet-label">{t('Add a stop ahead')}</div>
+                  <input
+                    ref={searchRef}
+                    className="ride-search"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder={t('Gas, food, a place…')}
+                    enterKeyHint="search"
+                    autoComplete="off"
+                  />
+                  {searching && <div className="rs-note">{t('Searching…')}</div>}
+                  {!searching && found?.length === 0 && <div className="rs-note">{t('No matches — try adding the town name.')}</div>}
+                  {found?.length > 0 && (
+                    <div className="rs-results">
+                      {found.slice(0, 5).map((r) => (
+                        <div key={`${r.source}:${r.id}`} className="rs-row">
+                          <div className="rs-name">
+                            {r.name}
+                            {r.detail && <span className="rs-detail">{r.detail}</span>}
+                          </div>
+                          <button onClick={() => addStop(r, false)}>＋ {t('Stop')}</button>
+                          <button className="rs-fuel" onClick={() => addStop(r, true)}>＋ {t('FUEL')}</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {stopsAhead.length > 0 && (
                   <div className="sheet-block">
                     <div className="sheet-label">{t('Stops ahead')}</div>
