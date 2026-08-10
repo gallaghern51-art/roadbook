@@ -2236,17 +2236,23 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   align-self: center; width: 38px; height: 4px; border-radius: 2px;
   background: var(--asphalt-3); margin-bottom: 1px;
 }
-.ride-bar .rb-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+/* ONE row, never two: the chip is compact-signed and the middle figures
+   ellipsize before anything is allowed to wrap the bar taller */
+.ride-bar .rb-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 /* sized for a tank-mounted phone at speed, not a phone in hand */
-.ride-bar .rb-big { font-family: var(--display); font-size: 33px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
-.ride-bar .rb-mid { font-family: var(--mono); font-size: 16px; color: var(--ink-dim); }
+.ride-bar .rb-big { flex: none; font-family: var(--display); font-size: 33px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
+.ride-bar .rb-mid {
+  flex: 0 1 auto; min-width: 0; font-family: var(--mono); font-size: 16px; color: var(--ink-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 /* footer: next stop name (scrolls) + the whole-day figure pinned right */
 .ride-bar .rb-foot { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ride-bar .rb-foot .rb-next { flex: 1; min-width: 0; margin-top: 0; }
 .ride-bar .rb-foot .rb-day { flex: none; white-space: nowrap; }
 .ride-bar .rb-chip {
-  margin-left: auto; font-family: var(--mono); font-size: 13.5px; letter-spacing: 0.05em;
-  border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
+  flex: none; margin-left: auto; font-family: var(--mono); font-size: 13.5px; letter-spacing: 0.05em;
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px;
+  white-space: nowrap;
 }
 .ride-bar .rb-chip.ahead { color: var(--ok); border-color: var(--ok); }
 .ride-bar .rb-chip.behind { color: #ffab84; border-color: var(--danger); }

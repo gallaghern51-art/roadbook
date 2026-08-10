@@ -1076,11 +1076,14 @@ export default function RideMode({ onClose }) {
 
   // Minimalist drops the word: a signed figure in green or red says early or
   // late without spending a line on saying it, and it needs no translating.
+  // Signed and colored at every density: the word LATE cost the chip enough
+  // width to wrap the whole first row on a phone — a third bar row of lost
+  // map. Red +, green −, rally ±0 carry the same message in half the space.
   const deltaChip = delta == null ? null : Math.abs(delta) < 5
-    ? { cls: 'on-time', text: lean ? '±0' : t('ON PLAN') }
+    ? { cls: 'on-time', text: '±0' }
     : delta > 0
-      ? { cls: 'behind', text: lean ? `+${fmtDur(delta)}` : `${fmtDur(delta)} ${t('LATE')}` }
-      : { cls: 'ahead', text: lean ? `−${fmtDur(-delta)}` : `${fmtDur(-delta)} ${t('EARLY')}` };
+      ? { cls: 'behind', text: `+${fmtDur(delta)}` }
+      : { cls: 'ahead', text: `−${fmtDur(-delta)}` };
 
   // "Behind" on its own is not actionable. This is where the plan says you
   // should be at this minute — which leg, and how far off in ground terms —
