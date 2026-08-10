@@ -1061,7 +1061,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   padding-top: 0; padding-bottom: 0;
 }
 
-.ride-topbar { display: flex; gap: 8px; align-items: center; }
+/* day pill removed — the weather chip and ✕ hold the right edge, the map
+   gets the rest */
+.ride-topbar { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 /* The leg you are on, and the way into the hub. Two lines so a long leg name
    stays readable at a glance instead of being cut. */
 .ride-leg {
@@ -2139,19 +2141,24 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .m-chip.danger { border-color: var(--danger); color: #ffab84; }
 .m-chip.danger .mc-ic { color: var(--danger); }
 
-/* THE bar — arrival first, then distance, then the plan delta */
+/* THE bar — the current leg first, then the plan delta. Two text rows, tight
+   type: every pixel here is map the rider is not seeing. */
 .ride-bar {
-  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
   background: rgba(0, 0, 0, 0.92); border: 1px solid var(--line); border-radius: 14px;
-  padding: 8px 14px 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  padding: 5px 12px 8px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
 }
 .ride-bar .rb-grip {
   align-self: center; width: 38px; height: 4px; border-radius: 2px;
-  background: var(--asphalt-3); margin-bottom: 2px;
+  background: var(--asphalt-3); margin-bottom: 1px;
 }
-.ride-bar .rb-main { display: flex; align-items: baseline; gap: 12px; min-width: 0; flex-wrap: wrap; }
-.ride-bar .rb-big { font-family: var(--display); font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
-.ride-bar .rb-mid { font-family: var(--mono); font-size: 15px; color: var(--ink-dim); }
+.ride-bar .rb-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.ride-bar .rb-big { font-family: var(--display); font-size: 29px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
+.ride-bar .rb-mid { font-family: var(--mono); font-size: 14px; color: var(--ink-dim); }
+/* footer: next stop name (scrolls) + the whole-day figure pinned right */
+.ride-bar .rb-foot { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ride-bar .rb-foot .rb-next { flex: 1; min-width: 0; margin-top: 0; }
+.ride-bar .rb-foot .rb-day { flex: none; white-space: nowrap; }
 .ride-bar .rb-chip {
   margin-left: auto; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.05em;
   border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
@@ -2160,7 +2167,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .ride-bar .rb-chip.behind { color: #ffab84; border-color: var(--danger); }
 .ride-bar .rb-chip.on-time { color: var(--rally); border-color: var(--rally); }
 .ride-bar .rb-next { margin-top: 3px; }
-.ride-bar .rb-next .mq-ink { font-size: 14.5px; color: var(--ink-dim); }
+.ride-bar .rb-next .mq-ink { font-size: 13.5px; color: var(--ink-dim); }
 /* the whole-day ETA, demoted under the leg numbers so they can't be confused */
 .ride-bar .rb-day { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
 .ride-bar .rb-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
