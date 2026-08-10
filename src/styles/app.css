@@ -866,13 +866,19 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
     background: none; border-bottom: none;
     padding-top: 7px; padding-bottom: 7px;
   }
-  .app.map-full .ribbon .seg, .app.map-full .ribbon .overview-seg {
+  /* dark glass on the CURRENT chip class too — the ribbon pins white ink
+     below, and in the light theme the chips' asphalt background flips to
+     paper: white numbers on paper plates until this pins them dark */
+  .app.map-full .ribbon .seg, .app.map-full .ribbon .overview-seg,
+  .app.map-full .ribbon .rchip {
     background: rgba(12, 11, 10, 0.6);
     backdrop-filter: blur(16px) saturate(1.25);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
   }
-  .app.map-full .ribbon .seg.active { background: rgba(48, 42, 36, 0.74); }
+  .app.map-full .ribbon .seg.active,
+  .app.map-full .ribbon .rchip.active { background: rgba(48, 42, 36, 0.74); }
   .app.map-full .ribbon .seg .warn-dot { box-shadow: 0 0 0 2px rgba(12, 11, 10, 0.8); }
+  .app.map-full .ribbon .rchip .rc-g { border-color: rgba(12, 11, 10, 0.8); }
   /* Glass over satellite is dark whatever the app theme is, so these pin their
      own ink — in light mode --ink is near-black and vanished into the panel. */
   .app.map-full .mast-id, .app.map-full .ribbon {
