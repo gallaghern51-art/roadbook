@@ -7,6 +7,17 @@ const LONG_DAY_HOURS = 12;
 
 export const tripRange = (trip) => ({ ...DEFAULT_RANGE, ...(trip?.meta?.range ?? {}) });
 
+// Group pace: planned riding is slower than the router's solo car — staggered
+// formation, re-forms after stops, the slowest rider sets the speed. It lives
+// on the trip (meta.pace, a duration multiplier: 1.0 solo, ~1.15 for a big
+// group) and is applied wherever routed durations are consumed — never baked
+// into the route cache, so changing it retimes the plan instantly.
+export const DEFAULT_PACE = 1.08;
+export function tripPace(trip) {
+  const p = Number(trip?.meta?.pace);
+  return Number.isFinite(p) && p >= 0.8 && p <= 1.6 ? p : DEFAULT_PACE;
+}
+
 export function haversineMiles(a, b) {
   const R = 3958.8;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -52,6 +63,28 @@ export function dayRideHours(day, routedLegs) {
 
 export function legKey(a, b) {
   return `${a.lat.toFixed(4)},${a.lng.toFixed(4)}|${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
+}
+
+// Project a position onto a coordinate chain: the nearest segment, the
+// fraction along it, and the offset in miles. Shared by Ride Mode (plan
+// position, off-route checks) and the speed-limit road matcher.
+export function projectOnChain(chain, pos) {
+  let best = null;
+  const kx = Math.cos((pos.lat * Math.PI) / 180) * 69.17;
+  const ky = 69.17;
+  for (let i = 0; i < chain.length - 1; i++) {
+    const a = chain[i];
+    const b = chain[i + 1];
+    const ax = (a.lng - pos.lng) * kx; const ay = (a.lat - pos.lat) * ky;
+    const bx = (b.lng - pos.lng) * kx; const by = (b.lat - pos.lat) * ky;
+    const dx = bx - ax; const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const px = ax + t * dx; const py = ay + t * dy;
+    const d = Math.sqrt(px * px + py * py);
+    if (!best || d < best.off) best = { i, f: t, off: d };
+  }
+  return best;
 }
 
 // Cheapest place to splice a new point into an existing waypoint sequence.

@@ -101,7 +101,8 @@ function applyOp(t, op) {
     case 'set_meta': {
       // roster: [{ id, name, bike }] — who's riding what, shown under Field notes
       // dusk: "8:30 PM" — after-dark warnings; utcOffset: hours for .ics export
-      const allowed = ['title', 'subtitle', 'summary', 'riders', 'startDate', 'fuelRule', 'range', 'roster', 'dusk', 'utcOffset'];
+      // pace: riding-duration multiplier (1.0 solo … ~1.15 big group)
+      const allowed = ['title', 'subtitle', 'summary', 'riders', 'startDate', 'fuelRule', 'range', 'roster', 'dusk', 'utcOffset', 'pace'];
       for (const k of Object.keys(op.patch ?? {})) {
         if (!allowed.includes(k)) throw new Error(`meta field ${k} not editable`);
       }

@@ -131,7 +131,7 @@ export default function FeasibilityPanel() {
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 14 }}>
-        {t('Method: departure times from each day\'s plan, routed leg durations (OSRM, +15% group pace), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, its dusk setting, and booking status. Scenario rows use cached routing where available and planned mileage otherwise.')}
+        {t('Method: departure times from each day\'s plan, routed leg durations (OSRM, speed-calibrated for real highway pace, scaled by the trip\'s group-pace setting), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, its dusk setting, and booking status. Scenario rows use cached routing where available and planned mileage otherwise.')}
       </p>
     </div>
   );

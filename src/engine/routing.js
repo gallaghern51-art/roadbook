@@ -8,12 +8,64 @@ import { legKey, haversineMiles } from './tripEngine.js';
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 
-// Group riding is slower than a solo car: staggered formation, fuel-stop
-// re-forms, the slowest rider sets the pace. One factor, applied to every leg
-// duration in one place. NOTE: baked into cached legs — making this per-trip
-// means bumping the route-cache versions so old durations flush.
-export const GROUP_PACE = 1.15;
-const CACHE_KEY = 'sturgis.routeCache.v1';
+// v2: cached legs are CALIBRATED but UNPACED — the per-trip group-pace
+// multiplier (meta.pace) is applied by consumers, so changing it never
+// invalidates the cache. v1 entries baked in a +15% pace and the demo
+// profile's slow highways; they flush with the version bump.
+const CACHE_KEY = 'sturgis.routeCache.v2';
+
+// ---- speed calibration ----
+// The public OSRM demo times US highways like a cautious rental car: rural
+// roads with no maxspeed tag fall back to the car profile's class defaults
+// (motorway 90 km/h ≈ 56 mph, primary 65 km/h ≈ 40 mph) and tagged limits are
+// discounted ~10% — all well under how these roads actually ride. Map each
+// routed segment's profile speed onto a realistic cruise: town and junction
+// speeds stay honest, highway speeds get restored to posted-ish reality.
+// Anchors are [profile mph, realistic mph], piecewise-linear between them.
+const SPEED_CURVE = [
+  [0, 0], [25, 25],          // urban / ramps / switchbacks — believe the router
+  [34, 42],                  // untagged secondary default (55 km/h)
+  [40, 52],                  // untagged primary default (65 km/h) — rural two-lane
+  [53, 65],                  // untagged trunk default (85 km/h)
+  [56, 70],                  // untagged motorway default (90 km/h)
+  [63, 72],                  // tagged 70 mph × 0.9
+  [67.5, 77],                // tagged 75 mph × 0.9
+  [72, 80],                  // tagged 80 mph × 0.9
+  [82, 82],                  // never plan faster than this
+];
+export function calibrateMph(mph) {
+  if (!Number.isFinite(mph) || mph <= 0) return mph;
+  const last = SPEED_CURVE[SPEED_CURVE.length - 1];
+  if (mph >= last[0]) return last[1];
+  for (let i = 1; i < SPEED_CURVE.length; i++) {
+    const [x1, y1] = SPEED_CURVE[i - 1];
+    const [x2, y2] = SPEED_CURVE[i];
+    if (mph <= x2) return y1 + ((mph - x1) / (x2 - x1)) * (y2 - y1);
+  }
+  return mph;
+}
+
+// Re-time one OSRM leg from its per-segment annotation (distance/duration
+// arrays). Returns calibrated seconds, or null when the annotation is absent.
+function calibratedLegSeconds(leg) {
+  const ann = leg?.annotation;
+  const dist = ann?.distance;
+  const dur = ann?.duration;
+  if (!Array.isArray(dist) || !Array.isArray(dur) || dist.length !== dur.length || !dist.length) return null;
+  let sec = 0;
+  for (let i = 0; i < dist.length; i++) {
+    if (!(dur[i] > 0) || !(dist[i] > 0)) { sec += dur[i] > 0 ? dur[i] : 0; continue; }
+    const mph = (dist[i] / dur[i]) * 2.23694;
+    const out = calibrateMph(mph);
+    sec += out > 0 ? dist[i] / (out / 2.23694) : dur[i];
+  }
+  return sec;
+}
+
+// Apply the trip's pace multiplier to a step list at read time.
+const paceSteps = (steps, pace) => (pace === 1 || !steps
+  ? steps
+  : steps.map((s) => ({ ...s, sec: (s.sec ?? 0) * pace })));
 
 // ---- Google Routes proxy (traffic-aware) ----
 
@@ -62,6 +114,7 @@ const G_MANEUVER = {
 
 // Google gives static per-step durations but a traffic-aware total — spread the
 // traffic over the steps proportionally so ETA math stays per-step.
+// Steps come out UNPACED; callers apply the trip's pace multiplier.
 function googleCompactSteps(g, stops) {
   const totalStatic = g.legs.reduce((a, l) => a + l.steps.reduce((b, s) => b + s.staticDurationSeconds, 0), 0);
   const scale = totalStatic > 0 ? g.durationSeconds / totalStatic : 1;
@@ -73,7 +126,7 @@ function googleCompactSteps(g, stops) {
       steps.push({
         lat: st.lat, lng: st.lng,
         dist: st.distanceMeters / 1609.34,
-        sec: st.staticDurationSeconds * scale * GROUP_PACE, // group-of-8 pace, matches OSRM path
+        sec: st.staticDurationSeconds * scale,
         type, mod, exit: null, road: null,
         instr: st.instruction || 'Continue',
       });
@@ -84,6 +137,7 @@ function googleCompactSteps(g, stops) {
       steps.push({
         lat: wp.lat, lng: wp.lng, dist: 0, sec: 0,
         type: 'arrive', mod: null, exit: null, road: null,
+        stop: wp.name ?? null, // which stop this leg ends at — drives per-leg ETA
         instr: wp.name ? `Arrive: ${wp.name}` : 'Arrive at your stop',
       });
     }
@@ -110,8 +164,14 @@ function saveCache() {
   }
 }
 
-// Route one day's waypoints. Chunks the request (OSRM handles many vias in one call).
-// Returns { legs: {legKey: {miles, seconds}}, geometry: GeoJSON LineString coords }.
+// Route one day's waypoints in one OSRM call (it handles many vias fine).
+// Returns { legs: {legKey: {miles, seconds}}, geometry, snaps: {wpId: meters} }.
+// Leg seconds are calibrated (see SPEED_CURVE) but unpaced. `snaps` records how
+// far each pin sat from the road network — a big number is a mis-placed pin
+// that forces the route into an out-and-back spur to touch it.
+// snapping=any lets pins near restricted-access roads snap sensibly, and
+// continue_straight=false lets the route turn around AT a via instead of
+// looping miles to approach a wrong-carriageway pin "straight through".
 export async function routeDay(day) {
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return { legs: {}, geometry: null };
@@ -121,7 +181,7 @@ export async function routeDay(day) {
   if (c[dayKey]) return c[dayKey];
 
   const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=false`;
+  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=false&annotations=distance,duration&snapping=any&continue_straight=false`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`OSRM ${res.status}`);
@@ -132,10 +192,15 @@ export async function routeDay(day) {
     route.legs.forEach((leg, i) => {
       legs[legKey(wps[i], wps[i + 1])] = {
         miles: leg.distance / 1609.34,
-        seconds: leg.duration * GROUP_PACE, // group-of-8 pace penalty
+        seconds: calibratedLegSeconds(leg) ?? leg.duration,
       };
     });
-    const result = { legs, geometry: route.geometry.coordinates };
+    const snaps = {};
+    wps.forEach((w, i) => {
+      const m = json.waypoints?.[i]?.distance;
+      if (Number.isFinite(m)) snaps[w.id] = Math.round(m);
+    });
+    const result = { legs, geometry: route.geometry.coordinates, snaps };
     c[dayKey] = result;
     saveCache();
     return result;
@@ -148,8 +213,9 @@ export async function routeDay(day) {
 // Turn-by-turn maneuvers for Ride Mode. Fetched per day on demand (steps inflate
 // payloads ~10x, so they never ride along with the planning fetch) and cached
 // as compact maneuver points only.
-// v2: steps carry per-step duration (sec) for live ETA math — old v1 entries lack it.
-const STEP_CACHE = 'moto.stepsCache.v2';
+// v3: step durations are calibrated (SPEED_CURVE) and UNPACED — pace applies at
+// read time — and arrive steps carry their stop name for per-leg ETAs.
+const STEP_CACHE = 'moto.stepsCache.v3';
 
 function loadStepCache() {
   try { return JSON.parse(localStorage.getItem(STEP_CACHE) || '{}'); } catch { return {}; }
@@ -239,17 +305,22 @@ export async function attachLanes(steps, wps) {
 }
 
 // OSRM route → compact maneuver list. `stopNames[i]` names the arrive point of leg i.
+// Step durations are scaled by the leg's calibration factor (annotation-derived,
+// see SPEED_CURVE) and left unpaced — callers apply the trip's pace.
 function compactSteps(route, stopNames) {
   const steps = [];
   route.legs.forEach((leg, li) => {
+    const cal = calibratedLegSeconds(leg);
+    const factor = cal != null && leg.duration > 0 ? cal / leg.duration : 1;
     leg.steps.forEach((st) => {
       const isArrive = st.maneuver.type === 'arrive';
       steps.push({
         lat: st.maneuver.location[1],
         lng: st.maneuver.location[0],
         dist: st.distance / 1609.34, // miles from this maneuver to the next
-        sec: st.duration * GROUP_PACE,     // group-of-8 pace penalty, matches routeDay
+        sec: st.duration * factor,
         type: st.maneuver.type,
+        stop: isArrive ? stopNames?.[li] ?? null : undefined,
         mod: st.maneuver.modifier ?? null,
         exit: st.maneuver.exit ?? null,
         road: st.ref || st.name || null,
@@ -274,25 +345,25 @@ function saveStepCache(key, value) {
   } catch { localStorage.removeItem(STEP_CACHE); }
 }
 
-export async function routeDaySteps(day) {
+export async function routeDaySteps(day, pace = 1) {
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return [];
   const key = 'steps|' + wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
   const c = loadStepCache();
   const hit = c[key];
-  if (Array.isArray(hit)) return hit; // OSRM-sourced: static data, cache forever
-  if (hit?.g && Date.now() - hit.at < 15 * 60_000) return hit.steps; // traffic goes stale
+  if (Array.isArray(hit)) return paceSteps(hit, pace); // OSRM-sourced: static data, cache forever
+  if (hit?.g && Date.now() - hit.at < 15 * 60_000) return paceSteps(hit.steps, pace); // traffic goes stale
 
   // Traffic-aware first; OSRM below is the always-works fallback.
   try {
     const g = await googleRoute(wps[0], wps.slice(1));
     const steps = await attachLanes(googleCompactSteps(g, wps.slice(1)), wps);
     saveStepCache(key, { g: 1, at: Date.now(), steps });
-    return steps;
+    return paceSteps(steps, pace);
   } catch { /* fall through to OSRM */ }
 
   const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=false&steps=true&annotations=false`;
+  const url = `${OSRM}/${coords}?overview=false&steps=true&annotations=distance,duration&snapping=any&continue_straight=false`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`routing ${res.status}`);
   const json = await res.json();
@@ -301,14 +372,14 @@ export async function routeDaySteps(day) {
 
   const steps = compactSteps(route, wps.slice(1).map((w) => w.name));
   saveStepCache(key, steps);
-  return steps;
+  return paceSteps(steps, pace);
 }
 
 // Live reroute: current GPS position → the day's remaining waypoints.
 // Never cached (the origin is wherever the bike is right now).
 // Traffic-aware via Google when configured, OSRM otherwise.
 // Returns { geometry, steps, miles, seconds, traffic? } or throws.
-export async function routeFrom(pos, waypoints) {
+export async function routeFrom(pos, waypoints, pace = 1) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
 
@@ -316,25 +387,27 @@ export async function routeFrom(pos, waypoints) {
     const g = await googleRoute(pos, wps);
     return {
       geometry: g.geometry,
-      steps: googleCompactSteps(g, wps),
+      steps: paceSteps(googleCompactSteps(g, wps), pace),
       miles: g.distanceMeters / 1609.34,
-      seconds: g.durationSeconds * GROUP_PACE,
+      seconds: g.durationSeconds * pace,
       traffic: true,
     };
   } catch { /* fall through to OSRM */ }
 
   const pts = [pos, ...wps];
   const coords = pts.map((p) => `${p.lng},${p.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=true&annotations=false`;
+  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=true&annotations=distance,duration&snapping=any&continue_straight=false`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`reroute ${res.status}`);
   const json = await res.json();
   const route = json.routes?.[0];
   if (!route) throw new Error('no route');
+  const steps = compactSteps(route, wps.map((w) => w.name));
+  const calSec = route.legs.reduce((a, l) => a + (calibratedLegSeconds(l) ?? l.duration), 0);
   return {
     geometry: route.geometry.coordinates,
-    steps: compactSteps(route, wps.map((w) => w.name)),
+    steps: paceSteps(steps, pace),
     miles: route.distance / 1609.34,
-    seconds: route.duration * GROUP_PACE,
+    seconds: calSec * pace,
   };
 }

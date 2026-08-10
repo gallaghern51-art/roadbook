@@ -128,7 +128,7 @@ export default function DayPanel({ day }) {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={day.waypoints.map((w) => w.id)} strategy={verticalListSortingStrategy}>
             {day.waypoints.map((w, i) => (
-              <SortableWaypoint key={w.id} w={w} dayId={day.id} legIndex={i - 1} dispatch={dispatch} sched={timeline.stops[i]} cum={cumMiles[i]} first={i === 0} tt={tt} u={u} t={t} shields={showShields ? shieldsByStop[i] : null} />
+              <SortableWaypoint key={w.id} w={w} dayId={day.id} legIndex={i - 1} dispatch={dispatch} sched={timeline.stops[i]} cum={cumMiles[i]} first={i === 0} tt={tt} u={u} t={t} shields={showShields ? shieldsByStop[i] : null} snapM={routes[day.id]?.snaps?.[w.id]} />
             ))}
           </SortableContext>
         </DndContext>
@@ -505,7 +505,7 @@ function LodgingSection({ day, dispatch }) {
   );
 }
 
-function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt, u, t, shields }) {
+function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt, u, t, shields, snapM }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
@@ -556,6 +556,13 @@ function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt,
           {w.fuel && <span className="tag fuel">FUEL</span>}
           {w.kind === 'photo' && <span className="tag photo">{t('Photo').toUpperCase()}</span>}
           {sched && sched.dwell > 0 && <span className="tag dwell">{fmtDur(sched.dwell)}</span>}
+          {/* pin sits far from the road network — the router detours to touch
+              it, which is what draws those double-back spurs on the map */}
+          {snapM > 150 && (
+            <span className="tag offroad" title={t('This pin sits off the road network, so routing detours to reach it. Drag it onto the road or re-pick the stop via search.')}>
+              ⚠ {snapM} m {t('off road')}
+            </span>
+          )}
         </span>
         {w.note && <span className="note">{tt(w.note)}</span>}
       </div>
