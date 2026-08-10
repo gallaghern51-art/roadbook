@@ -588,7 +588,13 @@ const ES = {
   'The pace buffer slows every planned leg for group riding — set 0 for a solo trip, 15+ for a big group.': 'El margen de ritmo ralentiza cada tramo planificado para rodar en grupo — usa 0 para un viaje solo, 15+ para un grupo grande.',
   'This pin sits off the road network, so routing detours to reach it. Drag it onto the road or re-pick the stop via search.': 'Este pin está fuera de la red de caminos, así que el ruteo se desvía para tocarlo. Arrástralo al camino o vuelve a elegir la parada con el buscador.',
   'off road': 'fuera del camino',
-  // ride mode: destination control + speed limit
+  // ride mode: destination control + speed limit + mid-ride search
+  'Add a stop ahead': 'Agregar una parada adelante',
+  'Gas, food, a place…': 'Bencina, comida, un lugar…',
+  'Searching…': 'Buscando…',
+  'No matches — try adding the town name.': 'Sin resultados — agrega el nombre del pueblo.',
+  'Stop': 'Parada',
+  'FUEL': 'BENCINA',
   'Go next': 'Ir ahora',
   'Skip': 'Omitir',
   'Skipped': 'Omitida',
