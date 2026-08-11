@@ -467,14 +467,25 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .chat-suggest button:hover { color: var(--rally); border-color: var(--rally); }
 .chat-input { display: flex; gap: 8px; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
 .chat-input textarea { flex: 1; resize: none; height: 44px; font-size: 13px; }
+/* A 30-op restructure must never push Apply/Dismiss off a phone: the card
+   caps its height, the OP LIST scrolls inside it, and the verdict buttons
+   stay pinned. (It sits between the chat scroller and the composer in a
+   flex column, so an uncapped card used to shove both off-screen with
+   nothing scrollable left to reach them.) */
 .proposal {
   margin: 0 14px 10px; border: 1px solid var(--rally); border-radius: 8px; background: rgba(245, 63, 31, 0.06); padding: 10px 12px;
+  display: flex; flex-direction: column; min-height: 0;
+  max-height: min(46vh, 46dvh);
 }
-.proposal .p-title { font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rally); }
-.proposal ul { list-style: none; margin: 6px 0; }
+.proposal .p-title { flex: none; font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rally); }
+.proposal ul {
+  list-style: none; margin: 6px 0;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+}
 .proposal li { font-size: 12.5px; color: var(--ink-dim); padding: 2px 0 2px 14px; position: relative; }
 .proposal li::before { content: '→'; position: absolute; left: 0; color: var(--rally); font-size: 10px; }
-.proposal .p-actions { display: flex; gap: 8px; margin-top: 8px; }
+.proposal .p-actions { display: flex; gap: 8px; margin-top: 8px; flex: none; }
 .chat-setup { margin: 14px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; font-size: 12.5px; color: var(--ink-dim); }
 .chat-setup code { font-family: var(--mono); font-size: 11px; color: var(--rally); }
 
@@ -991,6 +1002,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   .chat-input { padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px)); }
   .chat-input textarea { height: 48px; }
   .proposal { margin: 0 12px 10px; }
+  /* full-width verdicts: the one decision on this screen gets thumb targets */
+  .proposal .p-actions .btn { flex: 1; justify-content: center; }
 }
 
 /* landscape phones have almost no vertical room — trim the chrome

@@ -49,6 +49,7 @@ function TranslationStatus() {
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  if (import.meta.env.DEV) window.__dispatch = dispatch; // console/sim debugging, dev only
   // Sync rides alongside the reducer: it drains the outbox and replays other
   // riders' ops through the same apply_ops path. No-ops when not configured.
   const sync = useTripSync(state, dispatch);
