@@ -1552,23 +1552,28 @@ export default function RideMode({ onClose }) {
             <button className={`ride-bar${sheetOpen ? ' open' : ''}`} onClick={() => setSheetOpen((v) => !v)} aria-expanded={sheetOpen}>
               <span className="rb-grip" aria-hidden="true" />
               {!fix ? (
-                <div className="rb-main">
-                  <b className="rb-big">{t('WAITING FOR GPS')}</b>
+                <>
+                  <div className="rb-main">
+                    <b className="rb-big">{t('WAITING FOR GPS')}</b>
+                  </div>
                   <span className="rb-mid">{fmtTime(tl.stops[0]?.depart ?? 0)} · {u.mi(totalMiles)}</span>
-                </div>
+                </>
               ) : (
                 <>
-                  {/* the LEG is the headline: time left to the next stop, then
-                      the clock time you get there — the day-end ETA steps down
-                      to a small line so the two can never be confused */}
+                  {/* the LEG is the headline: time left rides alone with the
+                      plan delta pinned right, and the leg ETA + miles get
+                      their own row — sharing a row with the chip, a long
+                      delta (+6h 39m) squeezed the miles into "99…" (field
+                      bug). The day-end ETA stays demoted to the small rb-day
+                      line so the leg and day numbers can't be confused. */}
                   <div className="rb-main">
                     <b className="rb-big">{legRemMin != null ? fmtDur(legRemMin) : '—'}</b>
-                    <span className="rb-mid">
-                      {legEta != null ? fmtTime(legEta) : '—'}
-                      {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
-                    </span>
                     {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
                   </div>
+                  <span className="rb-mid">
+                    {legEta != null ? fmtTime(legEta) : '—'}
+                    {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
+                  </span>
                 </>
               )}
               {/* one footer row: the stop the leg numbers describe, and the

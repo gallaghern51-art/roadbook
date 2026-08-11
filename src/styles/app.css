@@ -2316,8 +2316,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   align-self: center; width: 38px; height: 4px; border-radius: 2px;
   background: var(--asphalt-3); margin-bottom: 1px;
 }
-/* ONE row, never two: the chip is compact-signed and the middle figures
-   ellipsize before anything is allowed to wrap the bar taller */
+/* headline row: the big leg figure with the delta chip pinned right — the
+   leg ETA + miles live on their OWN rb-mid row below, so a long delta can
+   never squeeze them into truncating (the "99…" field bug) */
 .ride-bar .rb-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: nowrap; }
 /* sized for a tank-mounted phone at speed, not a phone in hand */
 .ride-bar .rb-big { flex: none; font-family: var(--display); font-size: 38px; font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
