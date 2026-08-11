@@ -468,6 +468,9 @@ export default function App() {
       <div ref={appRef} className={`app${isMobile ? ' mobile' : ''}${mapFull ? ' map-full' : ''}${mode === 'prep' ? ' prep-mode' : ''}`}>
         <div className="topchrome" ref={chromeRef}>
           <header className="masthead">
+            {/* the way OUT of a trip was tapping the wordmark — invisible.
+                A real back control, sized for gloves. */}
+            <button className="mast-back" title={t('Your trips')} aria-label={t('Your trips')} onClick={() => setScreen('home')}>‹</button>
             <div className="mast-id">
               <h1 className="brand">
                 <button onClick={() => setScreen('home')} title={t('Your trips')}>ROAD<span className="yr">BOOK</span></button>
