@@ -5,6 +5,10 @@ import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine
 import { haversineMiles, tripRange, tripPace, projectOnChain, bestInsertIndex } from '../engine/tripEngine.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
+import {
+  createNav, syncNav, navTarget, navRemaining, navFix,
+  navGoNext, navSkip, navRestore, navInitVisited,
+} from '../engine/rideNav.js';
 import { geocode } from '../engine/geocode.js';
 import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
@@ -162,13 +166,9 @@ function locateOnSteps(steps, pos) {
   };
 }
 
-// Stop-latching thresholds: within ARRIVE_MI of the next stop it counts as
-// visited (nav moves on and never routes back); a stop approached to within
-// PASS_NEAR_MI and then left behind by PASS_AWAY_MI without touching it is
-// auto-skipped — the rider chose the road over the pin, follow the rider.
-const ARRIVE_MI = 0.25;
-const PASS_NEAR_MI = 1.0;
-const PASS_AWAY_MI = 0.35;
+// Destination control lives in src/engine/rideNav.js — a pure fact machine
+// (visited / skipped / pinned), rebuilt after the projection-mixed index
+// version resurrected departed stops and auto-skipped chosen destinations.
 
 const NAV_AHEAD = '#ffab5c';
 const NAV_DONE = 'rgba(122, 122, 122, 0.65)';
@@ -344,12 +344,10 @@ export default function RideMode({ onClose }) {
   // rose toggles between them and its needle always shows true map north.
   const [camMode, setCamMode] = useState('track'); // track | north
   const [ahead, setAhead] = useState(null); // conditions a few miles up the road
-  // Destination control: stops the rider has passed (latched — nav never
-  // routes back), stops they've skipped (auto or by hand), the undo chip.
-  const [progIdx, setProgIdx] = useState(0);
-  const [skipped, setSkipped] = useState(() => new Set());
+  // Destination control: the rideNav fact machine — visited / skipped /
+  // pinned. See src/engine/rideNav.js for the full contract.
+  const [dest, setDest] = useState(() => createNav());
   const [undoSkip, setUndoSkip] = useState(null); // {id, name} — last auto-skip
-  const [returnToId, setReturnToId] = useState(null); // restored stop BEHIND the projection nav is heading back to
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
   // add-a-stop search: gas, food, a place — inserted into the CURRENT leg
@@ -386,13 +384,8 @@ export default function RideMode({ onClose }) {
   const camModeRef = useRef('track');
   camModeRef.current = camMode;
   const compassRef = useRef(null); // the rose needle — rotated straight on the DOM, no re-render per frame
-  const progIdxRef = useRef(0);
-  progIdxRef.current = progIdx;
-  const skippedRef = useRef(skipped);
-  skippedRef.current = skipped;
-  const returnToRef = useRef(null);
-  returnToRef.current = returnToId;
-  const passRef = useRef(null); // pass-by tracking for the next stop {id, min, lastD, away}
+  const destRef = useRef(null);
+  destRef.current = dest;
   const projRef = useRef(null);
   const limiterRef = useRef(null); // speed-limit tracker, one per ride
   const onPlanRef = useRef(0); // consecutive fixes back on the planned line
@@ -609,18 +602,21 @@ export default function RideMode({ onClose }) {
     offCountRef.current = 0;
     liveRouteAtRef.current = 0;
     spokenRef.current = '';
-    // a new day is a fresh slate for latched progress and skipped stops
-    setProgIdx(0);
-    setSkipped(new Set());
+    // a new day is a fresh slate for the destination machine
+    setDest(createNav());
     setUndoSkip(null);
-    setReturnToId(null);
     setLiveEta(null);
-    passRef.current = null;
     onPlanRef.current = 0;
     initLatchRef.current = false;
     routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
     return () => { dead = true; };
   }, [day.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Plan edits under a live ride (added stop, a sync landing, Copilot):
+  // facts are keyed by waypoint id — prune the ones that left the plan.
+  useEffect(() => {
+    setDest((d) => syncNav(d, day.waypoints));
+  }, [day.waypoints]);
 
   // ---- GPS watch ----
   useEffect(() => {
@@ -694,19 +690,9 @@ export default function RideMode({ onClose }) {
   const nav = fix && activeSteps?.length ? locateOnSteps(activeSteps, fix) : null;
   const delta = proj ? clock - proj.plannedMin : null; // + = behind plan
 
-  // The rider's true position in the stop sequence: whichever is further —
-  // geometric projection onto the plan, or the latched arrivals. The latch is
-  // what stops nav from dragging you back to a stop you passed close by
-  // without touching (projection alone can sit on the previous leg for miles).
-  const effIdx = Math.max(progIdx, proj?.i ?? 0);
-  // What navigation actually aims for: everything ahead, minus skipped stops.
-  // A restored stop already BEHIND the projection goes back in front
-  // explicitly — index math alone can never re-add it once effIdx passed it.
-  const remainingNav = useMemo(() => {
-    const ahead = day.waypoints.filter((w, i) => i > effIdx && !skipped.has(w.id));
-    const back = returnToId ? day.waypoints.find((w) => w.id === returnToId) : null;
-    return back && !ahead.some((w) => w.id === returnToId) ? [back, ...ahead] : ahead;
-  }, [day, effIdx, skipped, returnToId]);
+  // What navigation actually aims for — read straight off the fact machine.
+  // The projection above is DISPLAY (plan delta, mileage); it never targets.
+  const remainingNav = useMemo(() => navRemaining(dest, day.waypoints), [dest, day]);
 
   // One reroute path for every deliberate retarget (skip, restore, go-next).
   // Takes the remaining list explicitly — setState hasn't landed yet when the
@@ -727,75 +713,6 @@ export default function RideMode({ onClose }) {
   };
   const goRouteRef = useRef(goRoute);
   goRouteRef.current = goRoute;
-
-  // ---- stop latching: arrivals and passed-by skips ----
-  useEffect(() => {
-    if (!fix) return;
-    const wps = day.waypoints;
-    const base = Math.max(progIdxRef.current, projRef.current?.i ?? 0);
-    // Physically standing on a stop the projection has already walked past
-    // latches it even though it isn't the nav target — the target-only check
-    // below left such a stop unlatched, and the moment the projection rewound
-    // (leaving on the same road you arrived by) remainingNav resurrected it
-    // and nav turned the rider around (field-caught leaving Cozy Cabin,
-    // Aug 11). Capped before the final stop so the arrival state stays real.
-    for (let i = progIdxRef.current + 1; i <= Math.min(base, wps.length - 2); i++) {
-      if (haversineMiles(fix, wps[i]) < ARRIVE_MI) setProgIdx((p) => Math.max(p, i));
-    }
-    // heading back to a restored stop takes priority over index order
-    let ti = returnToRef.current ? wps.findIndex((w) => w.id === returnToRef.current) : -1;
-    if (ti < 0) {
-      for (let i = base + 1; i < wps.length; i++) {
-        if (!skippedRef.current.has(wps[i].id)) { ti = i; break; }
-      }
-    }
-    if (ti < 0) return;
-    const target = wps[ti];
-    const isLast = ti === wps.length - 1;
-    const d = haversineMiles(fix, target);
-    // The projection can walk PAST a spur stop at closest approach (the
-    // nearest-segment flip happens exactly abeam), retargeting this effect
-    // before the move-away counter completes. That silent hand-off IS a
-    // pass-by: announce it and leave the undo chip, same as the detector.
-    if (passRef.current && passRef.current.id !== target.id) {
-      const old = passRef.current;
-      passRef.current = null;
-      const oi = wps.findIndex((w) => w.id === old.id);
-      if (oi >= 0 && oi <= base && oi < wps.length - 1
-        && old.min <= PASS_NEAR_MI && old.min > ARRIVE_MI
-        && !skippedRef.current.has(old.id)) {
-        setSkipped(new Set(skippedRef.current).add(old.id));
-        setUndoSkip({ id: old.id, name: wps[oi].name });
-        speak(`Passing ${wps[oi].name}. Skipping it — tap undo to go back.`);
-      }
-    }
-    if (passRef.current?.id !== target.id) passRef.current = { id: target.id, min: d, lastD: d, away: 0 };
-    const ps = passRef.current;
-    // touched the stop: latch it visited (the final stop keeps the existing
-    // 0.15-mi arrival state instead of latching early)
-    if (d < ARRIVE_MI) {
-      if (!isLast) {
-        setProgIdx((p) => Math.max(p, ti));
-        setUndoSkip(null);
-        if (returnToRef.current === target.id) setReturnToId(null);
-        passRef.current = null;
-      }
-      return;
-    }
-    ps.away = d > ps.lastD + 0.01 ? ps.away + 1 : 0;
-    ps.lastD = d;
-    if (d < ps.min) ps.min = d;
-    // came close, now pulling away for several fixes: the rider isn't going in
-    if (!isLast && ps.min <= PASS_NEAR_MI && d >= ps.min + PASS_AWAY_MI && ps.away >= 3) {
-      passRef.current = null;
-      const nextSkipped = new Set(skippedRef.current).add(target.id);
-      setSkipped(nextSkipped);
-      if (returnToRef.current === target.id) setReturnToId(null);
-      setUndoSkip({ id: target.id, name: target.name });
-      speak(`Passing ${target.name}. Skipping it — tap undo to go back.`);
-      goRouteRef.current(wps.filter((w, i) => i > base && !nextSkipped.has(w.id)));
-    }
-  }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- late-start latch ----
   // Opening Ride Mode after the group has already left gives the session no
@@ -824,7 +741,10 @@ export default function RideMode({ onClose }) {
       if (p && at(p) < bikeAt - 0.3) latch = i;
       else break;
     }
-    if (latch > 0) setProgIdx((prev) => Math.max(prev, latch));
+    if (latch > 0) {
+      const behind = day.waypoints.slice(1, latch + 1).map((w) => w.id);
+      setDest((d) => navInitVisited(d, day.waypoints, behind));
+    }
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the undo chip earns its place for a minute, then stands down
@@ -863,6 +783,43 @@ export default function RideMode({ onClose }) {
   );
   const goodFix = fix && (fix.accuracy == null || fix.accuracy < 200);
   const offRoute = !!(geoProj && goodFix && geoProj.off > (hasRealRoute ? 0.12 : 2.5));
+
+  // ---- destination engine: one event per usable GPS fix ----
+  // onRoute suppresses the pass-by auto-skip: on a winding approach the
+  // straight-line distance to the target GROWS while the road is taking you
+  // there (Hwy 244 to Mount Rushmore) — the road's shape is not a change of
+  // intent. Off the route, pulling away past closest approach still skips.
+  useEffect(() => {
+    if (!fix || !goodFix) return;
+    const onRoute = hasRealRoute && !offRoute;
+    // Along-route passage: is the bike past the route's closest point to the
+    // current target? Monotonic as you ride — switchbacks can't fake it —
+    // and it resolves targets whose pin sits off the road (never inside the
+    // arrival ring). 0.3 mi of buffer absorbs snap noise.
+    let passedTargetId = null;
+    const tgt = navTarget(destRef.current, day.waypoints);
+    if (onRoute && tgt && geoProj && geomInfo.chain.length > 1) {
+      const tp = projectOnChain(geomInfo.chain, tgt);
+      if (tp && tp.off < 0.5) {
+        const along = (p) => geomInfo.cum[p.i] + p.f * (geomInfo.cum[p.i + 1] - geomInfo.cum[p.i]);
+        if (along(geoProj) > along(tp) + 0.3) passedTargetId = tgt.id;
+      }
+    }
+    const { nav: next, events } = navFix(destRef.current, day.waypoints, fix, { onRoute, passedTargetId });
+    if (next !== destRef.current) {
+      destRef.current = next;
+      setDest(next);
+    }
+    for (const ev of events) {
+      if (ev.type === 'autoskip') {
+        setUndoSkip({ id: ev.id, name: ev.name });
+        speak(`Passing ${ev.name}. Skipping it — tap undo to go back.`);
+        goRouteRef.current(navRemaining(next, day.waypoints));
+      } else if (ev.type === 'arrive') {
+        setUndoSkip((u) => (u?.id === ev.id ? null : u));
+      }
+    }
+  }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Weather for a point up the road rather than underfoot — what matters on a
   // bike is what you are about to ride into. Keyed to a coarse grid in
@@ -1047,7 +1004,7 @@ export default function RideMode({ onClose }) {
     // route straight through them, so the skip-aware live route stays up.
     if (p && p.off < 0.08) {
       onPlanRef.current += 1;
-      if (onPlanRef.current >= 3 && skippedRef.current.size === 0 && !returnToRef.current) {
+      if (onPlanRef.current >= 3 && destRef.current.skipped.size === 0 && !destRef.current.pinned) {
         setReroute(null);
         setRerouteFailed(false);
         onPlanRef.current = 0;
@@ -1060,7 +1017,7 @@ export default function RideMode({ onClose }) {
   // rider toward a stop they dropped.
   useEffect(() => {
     if (!fix || !rerouteFailed || rerouting) return;
-    if (!skipped.size && !returnToId) return;
+    if (!dest.skipped.size && !dest.pinned) return;
     if (Date.now() - lastRerouteAtRef.current < 20000) return;
     goRoute(remainingNav);
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1098,9 +1055,9 @@ export default function RideMode({ onClose }) {
   // optimistic on a day with fuel and photo stops left.
   const remDwellMin = useMemo(() => tl.stops.reduce((a, s, i) => {
     const w = day.waypoints[i];
-    if (i <= effIdx || !w || skipped.has(w.id)) return a;
+    if (!w || i === 0 || dest.visited.has(w.id) || dest.skipped.has(w.id)) return a;
     return a + (s.dwell ?? 0);
-  }, 0), [tl, day, effIdx, skipped]);
+  }, 0), [tl, day, dest]);
   // Traffic-aware total when fresh (the anchor refreshes it every 10 min),
   // decayed by the minutes since it was measured; while a reroute is active
   // the stored figure describes a route no longer being ridden, so it stands
@@ -1114,9 +1071,12 @@ export default function RideMode({ onClose }) {
   const legMiles = nav ? nav.legMi : proj?.remainToNext ?? null;
   const legEta = legRemMin != null ? clock + legRemMin : null;
 
-  // voice guidance at 1 mi / ¼ mi / on the turn
+  // voice guidance at 1 mi / ¼ mi / on the turn. Muted while a deliberate
+  // reroute is in flight — until the new steps land, the old ones describe a
+  // destination the rider just dropped, and speaking them is the split-brain
+  // ("the bar says Rushmore, the voice says the cabin") made audible.
   useEffect(() => {
-    if (!nav || !nav.next || offRoute) return;
+    if (!nav || !nav.next || offRoute || rerouting) return;
     // Pick the CLOSEST tier already crossed. The old loop broke on the first
     // (largest) match, so once inside a mile only "In one mile" could ever
     // fire — the quarter-mile and on-turn calls were unreachable.
@@ -1165,12 +1125,13 @@ export default function RideMode({ onClose }) {
     if (!proj) return null;
     let mi = proj.remainToNext;
     for (let j = proj.i + 1; j < day.waypoints.length; j++) {
-      // a skipped fuel stop is fuel you are NOT getting — don't count it
-      if (day.waypoints[j].fuel && !skipped.has(day.waypoints[j].id)) return { name: day.waypoints[j].name, miles: mi };
+      // a skipped or already-visited fuel stop is fuel you are NOT getting
+      const w = day.waypoints[j];
+      if (w.fuel && !dest.skipped.has(w.id) && !dest.visited.has(w.id)) return { name: w.name, miles: mi };
       mi += tl.stops[j + 1]?.legMiles ?? 0;
     }
     return null;
-  }, [proj?.i, proj?.remainToNext, day, tl, skipped]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [proj?.i, proj?.remainToNext, day, tl, dest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The next gate still ahead of the bike, with its live margin. One gate,
   // big — a row of tiny chips at 70 mph is decoration, not information.
@@ -1178,7 +1139,7 @@ export default function RideMode({ onClose }) {
     if (!fix) return null;
     for (const g of day.gates ?? []) {
       const idx = day.waypoints.findIndex((w) => w.id === g.waypointId);
-      if (idx < 0 || (proj && idx <= proj.i) || skipped.has(g.waypointId)) continue;
+      if (idx < 0 || (proj && idx <= proj.i) || dest.skipped.has(g.waypointId) || dest.visited.has(g.waypointId)) continue;
       const s = tl.stops[idx];
       if (!s) continue;
       const projected = delta != null ? s.arrive + delta : s.arrive;
@@ -1186,87 +1147,62 @@ export default function RideMode({ onClose }) {
       return { label: g.label, by: g.by, margin, ok: margin >= 0 };
     }
     return null;
-  }, [fix, day, tl, delta, proj?.i, skipped]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fix, day, tl, delta, proj?.i, dest]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Day's end: within a couple hundred yards of the last stop on its final leg.
+  // Day's end: the machine says the final stop is what's left, and the bike
+  // is within a couple hundred yards of it.
   const lastWp = day.waypoints[day.waypoints.length - 1];
-  const arrived = !!(fix && lastWp && proj
-    && proj.i >= day.waypoints.length - 2
+  const arrived = !!(fix && lastWp
+    && navTarget(dest, day.waypoints)?.id === lastWp.id
     && haversineMiles(fix, lastWp) < 0.15);
 
   // The remaining stops as swipeable cards — the roadbook strip. Google gives
   // you turns; a roadbook gives you the day. Skipped stops stay visible
   // (dimmed, restorable) — hiding them would make Restore undiscoverable.
-  const stopsAhead = useMemo(() => {
-    const from = effIdx + 1;
-    return day.waypoints.slice(from).map((w, k) => {
-      const i = from + k;
-      const s = tl.stops[i];
-      return {
-        id: w.id, name: w.name, fuel: !!w.fuel, kind: w.kind,
-        dwell: s?.dwell ?? 0,
-        arrive: s ? (delta != null ? s.arrive + delta : s.arrive) : null,
-        lat: w.lat, lng: w.lng,
-        skipped: skipped.has(w.id),
-        isLast: i === day.waypoints.length - 1,
-      };
-    });
-  }, [day, tl, effIdx, delta, skipped]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Visited stops drop off; unvisited ones stay listed however the GPS reads.
+  const stopsAhead = useMemo(() => day.waypoints
+    .map((w, i) => ({ w, i, s: tl.stops[i] }))
+    .filter(({ w, i }) => i > 0 && !dest.visited.has(w.id))
+    .map(({ w, i, s }) => ({
+      id: w.id, name: w.name, fuel: !!w.fuel, kind: w.kind,
+      dwell: s?.dwell ?? 0,
+      arrive: s ? (delta != null ? s.arrive + delta : s.arrive) : null,
+      lat: w.lat, lng: w.lng,
+      skipped: dest.skipped.has(w.id),
+      isLast: i === day.waypoints.length - 1,
+    })), [day, tl, dest, delta]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Deliberate destination control from the sheet: skip a stop, restore one,
-  // or aim the route straight at a chosen stop (skipping everything between).
-  const reSkip = (nextSkipped, nextReturnTo) => {
-    setSkipped(nextSkipped);
-    const ahead = day.waypoints.filter((w, i) => i > effIdx && !nextSkipped.has(w.id));
-    const back = nextReturnTo ? day.waypoints.find((w) => w.id === nextReturnTo) : null;
-    goRoute(back && !ahead.some((w) => w.id === nextReturnTo) ? [back, ...ahead] : ahead);
+  // Deliberate destination control from the sheet — each verb is one machine
+  // declaration, then the route re-fetches for the machine's remaining list.
+  // Facts can't be dissolved by anything the GPS does afterward.
+  const applyDest = (next) => {
+    destRef.current = next;
+    setDest(next);
+    goRoute(navRemaining(next, day.waypoints));
   };
   const skipStop = (id) => {
     if (undoSkip?.id === id) setUndoSkip(null);
-    const nextReturnTo = returnToId === id ? null : returnToId;
-    if (nextReturnTo !== returnToId) setReturnToId(nextReturnTo);
-    reSkip(new Set(skipped).add(id), nextReturnTo);
+    applyDest(navSkip(destRef.current, day.waypoints, id));
   };
   const restoreStop = (id) => {
-    const n = new Set(skipped);
-    n.delete(id);
     if (undoSkip?.id === id) setUndoSkip(null);
-    const k = day.waypoints.findIndex((w) => w.id === id);
-    // Already behind the projection? Rewind the latch and pin it as the
-    // explicit destination — the index filter alone can never re-add it, so
-    // "UNDO" would say "heading back" while nav sailed on to the next stop.
-    const behind = k >= 0 && k <= effIdx;
-    const nextReturnTo = behind ? id : returnToId;
-    if (behind) {
-      setProgIdx((p) => Math.min(p, Math.max(0, k - 1)));
-      setReturnToId(id);
-    }
-    reSkip(n, nextReturnTo);
+    applyDest(navRestore(destRef.current, id));
   };
   const goNextStop = (id) => {
-    const k = day.waypoints.findIndex((w) => w.id === id);
-    if (k < 0) return;
-    const n = new Set(skipped);
-    // Skip from the LATCHED floor, not effIdx: effIdx rides the geometric
-    // projection, which rewinds on an out-and-back spur — a stop the
-    // projection had merely walked past would dodge the skip set here, then
-    // come back as the destination on the next rewind. Latching the floor to
-    // the chosen stop makes "everything before this is behind me" durable.
-    for (let i = progIdx + 1; i < k; i++) n.add(day.waypoints[i].id);
-    n.delete(id);
-    setProgIdx((p) => Math.max(p, k - 1));
+    const w = day.waypoints.find((x) => x.id === id);
+    if (!w) return;
     setUndoSkip(null);
-    setReturnToId(null);
     setSheetOpen(false);
     setFollow(true);
-    speak(`Navigating to ${day.waypoints[k].name}.`);
-    reSkip(n, null);
+    speak(`Navigating to ${w.name}.`);
+    applyDest(navGoNext(destRef.current, day.waypoints, id));
   };
   const undoLastSkip = () => {
     if (!undoSkip) return;
     const { id, name } = undoSkip;
     speak(`Heading back to ${name}.`);
-    restoreStop(id);
+    setUndoSkip(null);
+    applyDest(navRestore(destRef.current, id));
   };
 
   // ---- add a stop mid-ride: gas, food, a place — into the current leg ----
@@ -1291,9 +1227,13 @@ export default function RideMode({ onClose }) {
     // anchored at the bike: a station between here and the next stop lands on
     // this leg, a pick further up the day slots in later — blindly inserting
     // "next" would make the route double back for anything past the next stop.
-    const anchor = fix ? { lat: fix.lat, lng: fix.lng } : day.waypoints[Math.min(effIdx, day.waypoints.length - 1)];
-    const tail = [anchor, ...day.waypoints.slice(effIdx + 1)];
-    const at = effIdx + Math.max(1, bestInsertIndex(tail, r));
+    const rem = navRemaining(destRef.current, day.waypoints);
+    const anchor = fix ? { lat: fix.lat, lng: fix.lng } : day.waypoints[0];
+    const tail = [anchor, ...rem];
+    const pos = Math.max(1, bestInsertIndex(tail, r)); // slot within [anchor, ...rem]
+    // day-array index: before the remaining stop this pick precedes, or the end
+    const before = rem[pos - 1];
+    const at = before ? day.waypoints.findIndex((w) => w.id === before.id) : day.waypoints.length;
     const wp = {
       name: r.name, lat: r.lat, lng: r.lng,
       kind: fuel ? 'fuel' : 'via',
@@ -1307,9 +1247,7 @@ export default function RideMode({ onClose }) {
     setFollow(true);
     speak(`Added ${r.name}. Rerouting.`);
     if (fix) {
-      const after = day.waypoints.slice(effIdx + 1);
-      after.splice(Math.max(0, at - effIdx - 1), 0, wp);
-      goRoute(after.filter((w) => !skipped.has(w.id)));
+      goRoute([...rem.slice(0, pos - 1), wp, ...rem.slice(pos - 1)]);
     }
   };
 
