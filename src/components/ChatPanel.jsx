@@ -11,7 +11,7 @@ const SUGGESTIONS = [
   'Run a full feasibility read — where does this plan break?',
   'Where should we break up the loops and the long days?',
   'Rebuild the trip to fix every failed gate and save it as "Fixed gates"',
-  'Give me a lower-mileage permutation of the whole trip, save as "Relaxed"',
+  'Give me a lower-mileage version of the whole trip, save as "Relaxed"',
 ];
 
 export default function ChatPanel({ onClose }) {
@@ -124,9 +124,9 @@ export default function ChatPanel({ onClose }) {
     setMessages((m) => [...m, {
       role: 'assistant',
       content: target
-        ? `Applied and updated scenario “${target.name}” — switch plans any time from the Plan strip (top of the trip overview or any day), or compare grades in the Feasibility view.`
+        ? `Applied and updated the saved plan “${target.name}” — switch plans any time from the Plans strip (top of the trip overview or any day), or compare grades in the Feasibility view.`
         : saveAs
-          ? `Applied and saved as “${saveAs}” — it's in the Plan strip at the top of the trip overview and every day panel, ready to switch to. Undo reverses the working plan.`
+          ? `Applied and saved as “${saveAs}” — it's in the Plans strip at the top of the trip overview and every day panel, ready to switch to. Undo reverses the working plan.`
           : 'Applied. The map, timeline, and feasibility have recomputed — Undo reverses it if it reads wrong.',
     }]);
   };
@@ -150,6 +150,7 @@ export default function ChatPanel({ onClose }) {
   };
 
   const proposal = state.pendingProposal;
+  const shared = !!state.remote?.tripId;
 
   return (
     <div className="chat-panel panel-view">
@@ -198,16 +199,21 @@ export default function ChatPanel({ onClose }) {
 
       {proposal && (
         <div className="proposal">
-          <div className="p-title">{t('Proposed changes')}{proposal.saveAs ? ` → ${t('saves as')} “${proposal.saveAs}”` : ''}</div>
+          <div className="p-title">{t('Proposed changes')}{proposal.saveAs ? ` — ${t('saves as')} “${proposal.saveAs}”` : ''}</div>
           <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>{proposal.summary}</div>
           <ul>
             {describeOps(state.trip, proposal.ops).map((d, i) => <li key={i}>{d}</li>)}
           </ul>
+          {/* on a shared trip Apply reaches every rider — the card must say
+              so, and speak the same fork language as the Plans strip */}
           <div className="p-actions">
-            <button className="btn gold" onClick={applyProposal}>{t('Apply')}</button>
-            <button className="btn" onClick={applyAsNewTrip}>{t('Apply as new trip')}</button>
+            <button className="btn gold" onClick={applyProposal}>{shared ? t('Apply for the group') : t('Apply')}</button>
+            <button className="btn" onClick={applyAsNewTrip}>{shared ? t('Just me — new trip') : t('Apply as new trip')}</button>
             <button className="btn" onClick={() => dispatch({ type: 'clear_proposal' })}>{t('Dismiss')}</button>
           </div>
+          {shared && (
+            <p className="p-note">{t('Group: these changes sync to every rider. Just me: they land in a separate trip on this phone.')}</p>
+          )}
         </div>
       )}
 

@@ -104,7 +104,7 @@ export default function DayPanel({ day }) {
         )}
       </div>
 
-      <ScenarioStrip />
+      <ScenarioStrip compact />
 
       <div className="stat-row">
         <div className="stat"><div className="n">{u.miNum(per?.miles ?? day.miles)}</div><div className="l">{u.metric ? 'km' : t('Miles')}</div></div>

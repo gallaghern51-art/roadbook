@@ -215,9 +215,9 @@ export default function PrepBoard({ focus, setFocus, onAskAI, onSaveScenario, on
             onClick={() => setFocus('packing')}
           />
           <Card
-            label={t('Scenarios')}
+            label={t('Plans')}
             meta={scenarios.length ? `${scenarios.length} ${t('saved')}` : undefined}
-            note={t('Compare and load saved permutations — save new ones from the Plan strip')}
+            note={t('Compare and load saved plans — save new ones from the Plans strip')}
             onClick={() => setFocus('feasibility')}
           />
           <Card
