@@ -263,6 +263,25 @@ const navStyleFor = (key) => (
 const MQ_GAP = 44; // px between the two copies — must match .mq-ink gap
 const MQ_SPEED = 26; // px per second, so long and short names read the same
 
+// Chase-camera zoom vs speed — CONTINUOUS, because the old 25/50 mph tier
+// steps pumped the camera a full level whenever a cruise wavered around a
+// tier edge (half of South Dakota sits at 48–52 mph). Anchors keep the
+// Google-like framing the tiers had — 16.2 in town, 15.2 at back-road pace,
+// 14.3 at highway speed — easing to 14.0 at a true interstate cruise so the
+// look-ahead grows with the speed.
+const ZOOM_ANCHORS = [[20, 16.2], [35, 15.2], [55, 14.3], [75, 14.0]];
+function speedZoom(mph) {
+  if (mph == null) return 15.2;
+  let [px, pz] = ZOOM_ANCHORS[0];
+  if (mph <= px) return pz;
+  for (const [x, z] of ZOOM_ANCHORS) {
+    if (mph <= x) return pz + ((mph - px) / (x - px)) * (z - pz);
+    px = x; pz = z;
+  }
+  return pz;
+}
+const ZOOM_HOLD_MS = 12000; // how long a pinched zoom / a map touch holds off the camera
+
 
 function Marquee({ className, label, text }) {
   const boxRef = useRef(null);
@@ -351,6 +370,10 @@ export default function RideMode({ onClose }) {
   const puckRef = useRef(null);
   const followRef = useRef(true);
   followRef.current = follow;
+  const hadFixRef = useRef(false); // live positioning has begun
+  const zoomHoldRef = useRef(null); // { z, at } — the rider's pinched zoom, held ZOOM_HOLD_MS
+  const pinchingRef = useRef(false); // a user gesture (not our easeTo) is driving the zoom
+  const lastTouchRef = useRef(0); // last deliberate map interaction — gates auto-recenter
   const mutedRef = useRef(false);
   mutedRef.current = muted;
   const spokenRef = useRef('');
@@ -487,7 +510,24 @@ export default function RideMode({ onClose }) {
     });
     mapRef.current = map;
     if (import.meta.env.DEV) window.__rideMap = map; // console/sim debugging, dev only
-    map.on('dragstart', () => setFollow(false));
+    map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
+    // Pinch-zoom does NOT break follow — the camera kept re-asserting its
+    // computed zoom every fix, snapping back a rider who pinched out to peek
+    // ahead. Instead the pinched zoom becomes a hold (Google's grammar): the
+    // chase keeps chasing at the rider's framing, then breathes back to the
+    // speed curve after ZOOM_HOLD_MS. Wheel is the desktop stand-in.
+    const cv = map.getCanvas();
+    cv.addEventListener('touchstart', (e) => {
+      lastTouchRef.current = Date.now();
+      if (e.touches.length >= 2) pinchingRef.current = true;
+    }, { passive: true });
+    cv.addEventListener('wheel', () => { lastTouchRef.current = Date.now(); pinchingRef.current = true; }, { passive: true });
+    map.on('zoomend', () => {
+      if (pinchingRef.current) {
+        pinchingRef.current = false;
+        zoomHoldRef.current = { z: map.getZoom(), at: Date.now() };
+      }
+    });
     // the rose needle tracks true map north on every frame of rotation
     map.on('rotate', () => {
       if (compassRef.current) compassRef.current.style.transform = `rotate(${-map.getBearing()}deg)`;
@@ -873,6 +913,20 @@ export default function RideMode({ onClose }) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !fix) return undefined;
+    // Live positioning claims the camera: the FIRST fix of a ride turns
+    // follow back on — pre-ride peeking (overview, a stop-card fly-to) used
+    // to leave departure on a stale frame demanding a RE-CENTER tap (field
+    // complaint). And riding away from any later peek self-heals after a
+    // grace period, Google-style; a parked rider studying the map is left
+    // alone (speed gate).
+    if (!hadFixRef.current) {
+      hadFixRef.current = true;
+      if (!followRef.current) { followRef.current = true; setFollow(true); }
+    } else if (!followRef.current && (fix.speedMph ?? 0) >= 8
+        && Date.now() - lastTouchRef.current > ZOOM_HOLD_MS) {
+      followRef.current = true;
+      setFollow(true);
+    }
     const SNAP_MI = 0.019; // ≈ 30 m
     let lat = fix.lat, lng = fix.lng, heading = fix.heading;
     const a = geoProj && geomInfo.chain[geoProj.i];
@@ -911,13 +965,14 @@ export default function RideMode({ onClose }) {
       puckAnimRef.current = requestAnimationFrame(stepAnim);
     }
     if (followRef.current) {
-      const mph = fix.speedMph;
-      // Zoom breathes with speed and tightens into the next turn. Tuned to
-      // Google's nav framing: close on the rider, backing off ~a level at
-      // highway speed for look-ahead — the old tiers (12.9–14.8) framed a
-      // county, not a road.
-      let zoom = mph == null ? 15.2 : mph >= 50 ? 14.3 : mph >= 25 ? 15.2 : 16.2;
-      if (nav && nav.toNext < 0.35) zoom = Math.max(zoom, 16.5);
+      // Zoom breathes with speed (continuous — see speedZoom) and tightens
+      // into the next turn. A fresh pinch hold wins outright, turn tighten
+      // included: the rider who pinched out to see the road ahead meant it.
+      const hold = zoomHoldRef.current;
+      const held = hold != null && Date.now() - hold.at < ZOOM_HOLD_MS;
+      if (hold && !held) zoomHoldRef.current = null;
+      let zoom = held ? hold.z : speedZoom(fix.speedMph);
+      if (!held && nav && nav.toNext < 0.35) zoom = Math.max(zoom, 16.5);
       const northUp = camModeRef.current === 'north';
       map.easeTo({
         center: [lng, lat],
@@ -1295,6 +1350,7 @@ export default function RideMode({ onClose }) {
 
 
   const showOverview = () => {
+    lastTouchRef.current = Date.now(); // a full grace period before auto-recenter
     setFollow(false);
     const map = mapRef.current;
     if (!map) return;
@@ -1634,6 +1690,7 @@ export default function RideMode({ onClose }) {
                           <button
                             className="sc-main"
                             onClick={() => {
+                              lastTouchRef.current = Date.now(); // grace before auto-recenter
                               setFollow(false);
                               mapRef.current?.easeTo({ center: [s.lng, s.lat], zoom: 12.5, pitch: 0, duration: 600 });
                             }}
