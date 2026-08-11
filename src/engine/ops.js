@@ -279,6 +279,14 @@ function applyOp(t, op) {
       else d.meals.push({ meal: op.meal, name: '', where: '', note: '', alt: '', ...op.patch });
       return t;
     }
+    // Wholesale plan swap — how "Load for the group" travels the op log so a
+    // shared trip's riders all receive it live. The snapshot IS the plan;
+    // nothing about the current trip survives. Not exposed to the AI: Copilot
+    // proposes granular ops, this one exists for plan switching.
+    case 'replace_trip': {
+      if (!op.trip?.meta || !op.trip?.days?.length) throw new Error('replace_trip needs a full trip snapshot');
+      return structuredClone(op.trip);
+    }
     default:
       throw new Error(`unknown op ${op.op}`);
   }
@@ -325,6 +333,7 @@ export function describeOps(trip, ops) {
       case 'remove_day': return `Remove ${dayName(op.dayId)}`;
       case 'update_lodging': return `Change lodging on ${dayName(op.dayId)}`;
       case 'set_meta': return `Update trip settings (${Object.keys(op.patch ?? {}).join(', ')})`;
+      case 'replace_trip': return `Switch the whole plan to “${op.label ?? op.trip?.meta?.title ?? 'a saved plan'}” (${op.trip?.days?.length ?? 0} days)`;
       default: return op.op;
     }
   });

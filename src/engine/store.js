@@ -294,10 +294,12 @@ export function reducer(state, action) {
       if (!scen) return state;
       // Switching must never be a one-way door: if the working plan matches no
       // saved snapshot, stash it first so there is always a way back to it.
+      // Only the LATEST auto-stash survives — a row of "Auto-saved 3:42" chips
+      // nobody named is clutter, not safety.
       const cur = JSON.stringify(state.trip);
       if (!rec.scenarios.some((s2) => JSON.stringify(s2.trip) === cur)) {
         const d = new Date();
-        rec.scenarios = [...rec.scenarios, {
+        rec.scenarios = [...rec.scenarios.filter((s2) => s2.id === scen.id || !/^Auto-saved /.test(s2.name)), {
           id: uid('s'),
           name: `Auto-saved ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`,
           savedAt: d.toISOString(),
@@ -307,21 +309,33 @@ export function reducer(state, action) {
       const trip = structuredClone(scen.trip);
       rec.activeScenarioId = scen.id;
       syncTrip(state, trip);
-      return { ...state, trip, scenarios: rec.scenarios, activeScenarioId: scen.id, history: [state.trip, ...state.history].slice(0, 30), modal: null };
+      // A group load on a shared trip must REACH the group: the swap ships as
+      // a replace_trip op through the same outbox as every other edit, so
+      // riders with the app open receive it via realtime. (Compaction alone
+      // only rescued riders whose apps were closed — and never propagated at
+      // all when a non-owner loaded, since compact() is owner-only by RLS.)
+      let outbox = state.outbox;
+      if (action.broadcast && state.remote?.tripId) {
+        outbox = [...state.outbox, { id: uid('ob'), ops: [{ op: 'replace_trip', label: scen.name, trip: structuredClone(scen.trip) }] }];
+        syncMeta(state, { outbox });
+      }
+      return { ...state, trip, outbox, scenarios: rec.scenarios, activeScenarioId: scen.id, history: [state.trip, ...state.history].slice(0, 30), modal: null };
     }
     case 'delete_scenario': {
       const rec = activeRecord(state.lib);
       rec.scenarios = rec.scenarios.filter((s) => s.id !== action.id);
+      if (rec.activeScenarioId === action.id) rec.activeScenarioId = null;
       persistLibrary(state.lib);
-      return { ...state, scenarios: rec.scenarios };
+      return { ...state, scenarios: rec.scenarios, activeScenarioId: rec.activeScenarioId ?? null };
     }
     case 'overwrite_scenario': {
       const rec = activeRecord(state.lib);
       rec.scenarios = rec.scenarios.map((s) =>
         s.id === action.id ? { ...s, trip: structuredClone(state.trip), savedAt: new Date().toISOString() } : s
       );
+      rec.activeScenarioId = action.id; // the working plan now IS this permutation
       persistLibrary(state.lib);
-      return { ...state, scenarios: rec.scenarios };
+      return { ...state, scenarios: rec.scenarios, activeScenarioId: action.id };
     }
     default:
       return state;

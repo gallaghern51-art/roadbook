@@ -504,9 +504,28 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .scen-strip .ss-chip.active { border-color: var(--rally); color: var(--rally); }
 .scen-strip .ss-chip.picked { border-color: var(--outbound); color: var(--outbound); }
-.scen-strip .ss-confirm { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-.scen-strip .ss-confirm .btn { flex: 1 0 auto; justify-content: center; }
-.scen-strip .ss-note { flex: 1 0 100%; font-size: 11.5px; color: var(--ink-faint); line-height: 1.45; margin: 2px 0 0; }
+.scen-strip .ss-chip.ss-add { border-style: dashed; color: var(--ink-faint); }
+.scen-strip .ss-chip.auto { opacity: 0.55; font-style: italic; } /* unnamed auto-stashes read as background, not peers */
+/* .ss-confirm is unscoped: FeasibilityPanel's saved-plans table reuses the
+   same action-row grammar outside .scen-strip */
+.ss-confirm { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.ss-name { flex: 1 1 160px; min-height: 40px; font-size: 16px; }
+.ss-confirm .btn { flex: 1 0 auto; justify-content: center; }
+.ss-note { flex: 1 0 100%; font-size: 11.5px; color: var(--ink-faint); line-height: 1.45; margin: 2px 0 0; }
+.scen-strip .ss-caret { flex: none; color: var(--ink-faint); font-size: 12px; padding: 4px 8px; }
+/* day panels: the strip collapsed to one line — "which plan am I on" */
+.ss-pill {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  margin: 8px 0 4px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--asphalt-1);
+}
+.ss-pill .ss-cur {
+  font-family: var(--mono); font-size: 11.5px; color: var(--rally);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ss-pill .ss-caret { flex: none; color: var(--ink-faint); font-size: 12px; }
+.scen-table tr.picked td { background: color-mix(in srgb, var(--outbound) 12%, transparent); }
+.proposal .p-note { flex: 1 0 100%; font-size: 11.5px; color: var(--ink-faint); line-height: 1.45; margin: 6px 0 0; }
 .chat-setup code { font-family: var(--mono); font-size: 11px; color: var(--rally); }
 
 /* ---------- detail modal ---------- */
@@ -690,6 +709,8 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 @media (pointer: coarse) {
   .btn { min-height: 42px; padding: 9px 14px; }
   .scen-table .btn, .split-rec .btn { min-height: 34px; }
+  .scen-strip .ss-chip { min-height: 44px; }
+  .ss-pill { min-height: 44px; }
   .chip.gpx-btn, .chip.depart-edit {
     display: inline-flex; align-items: center; min-height: 36px; padding: 4px 10px;
   }

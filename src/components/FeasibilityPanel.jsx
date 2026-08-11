@@ -6,6 +6,7 @@ import { splitRecommendations } from '../engine/splits.js';
 import { PHASES } from '../data/seedTrip.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
+import { forkScenarioToTrip } from './ScenarioStrip.jsx';
 
 // Two-tap confirm in place: first tap arms for 3 seconds, second fires. The
 // stakes here are undo-able (Load) or single-row (Delete) — a dialog is more
@@ -34,6 +35,11 @@ export default function FeasibilityPanel() {
   const t = useT();
   const tt = useTT();
   const u = useUnits();
+  // On a shared trip, Load forks the same decision the Plans strip asks —
+  // group swap vs personal trip — so this table can't bypass that question.
+  const shared = !!state.remote?.tripId;
+  const [pickId, setPickId] = useState(null);
+  const picked = scenarios.find((s) => s.id === pickId);
   const feas = tripFeasibility(trip, routedLegsByDay);
   const summary = tripSummary(trip, routedLegsByDay);
   const splits = splitRecommendations(trip, routedLegsByDay);
@@ -92,10 +98,10 @@ export default function FeasibilityPanel() {
       </div>
 
       <div className="section">
-        <h3>{t('Saved permutations')} <span className="cnt">{scenarios.length}</span></h3>
+        <h3>{t('Saved plans')} <span className="cnt">{scenarios.length}</span></h3>
         {scenarios.length === 0 && (
           <p style={{ fontSize: 12.5, color: 'var(--ink-dim)' }}>
-            {t('None yet. Use “Save scenario” in the top bar — or ask the optimizer to rebuild the trip and save the result — then compare permutations here and swap between them.')}
+            {t('None yet. Save one from the Plans strip at the top of the trip overview — or ask Copilot to restructure the trip and save the result — then compare plans here and swap between them.')}
           </p>
         )}
         {scenarios.length > 0 && (
@@ -115,12 +121,16 @@ export default function FeasibilityPanel() {
                   const sf = tripFeasibility(s.trip, routedLegsByDay);
                   const ss = tripSummary(s.trip, routedLegsByDay);
                   return (
-                    <tr key={s.id}>
+                    <tr key={s.id} className={s.id === pickId ? 'picked' : undefined}>
                       <td>{s.name}<div className="scen-date">{new Date(s.savedAt).toLocaleDateString()} {new Date(s.savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div></td>
                       <td>{u.miNum(ss.totalMiles)}</td>
                       <td><span className={`grade grade-${sf.grade}`}>{sf.grade} {sf.overall}</span></td>
-                      <td><ArmedButton label={t('Load')} onFire={() => dispatch({ type: 'load_scenario', id: s.id })} /></td>
-                      <td><ArmedButton label="✕" danger onFire={() => dispatch({ type: 'delete_scenario', id: s.id })} /></td>
+                      <td>
+                        {shared
+                          ? <button className="btn" onClick={() => setPickId(pickId === s.id ? null : s.id)}>{t('Load')}…</button>
+                          : <ArmedButton label={t('Load')} onFire={() => dispatch({ type: 'load_scenario', id: s.id })} />}
+                      </td>
+                      <td><ArmedButton label="✕" danger onFire={() => { dispatch({ type: 'delete_scenario', id: s.id }); if (pickId === s.id) setPickId(null); }} /></td>
                     </tr>
                   );
                 })}
@@ -128,10 +138,18 @@ export default function FeasibilityPanel() {
             </table>
           </div>
         )}
+        {picked && (
+          <div className="ss-confirm">
+            <button className="btn gold" onClick={() => { dispatch({ type: 'load_scenario', id: picked.id, broadcast: true }); setPickId(null); }}>{t('Load for the group')}</button>
+            <button className="btn" onClick={() => { forkScenarioToTrip(dispatch, picked); setPickId(null); }}>{t('Just me — new trip')}</button>
+            <button className="btn" onClick={() => setPickId(null)}>{t('Cancel')}</button>
+            <p className="ss-note">{t('Group: every rider’s plan switches to this — it syncs like any other edit. Just me: a separate trip only on this phone; the group plan stays untouched.')}</p>
+          </div>
+        )}
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 14 }}>
-        {t('Method: departure times from each day\'s plan, routed leg durations (OSRM, speed-calibrated for real highway pace, scaled by the trip\'s group-pace setting), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, its dusk setting, and booking status. Scenario rows use cached routing where available and planned mileage otherwise.')}
+        {t('Method: departure times from each day\'s plan, routed leg durations (OSRM, speed-calibrated for real highway pace, scaled by the trip\'s group-pace setting), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, its dusk setting, and booking status. Saved-plan rows use cached routing where available and planned mileage otherwise.')}
       </p>
     </div>
   );
