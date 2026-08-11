@@ -111,6 +111,15 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
               : null
           ));
           const waypoints = emitted.filter(Boolean);
+          // Day endpoints get their positional kinds when the model left them
+          // as plain vias — overnights are the stops the trip map marks, and
+          // an unkinded boundary rendered markerless. Deliberate fuel/photo
+          // kinds at an endpoint are kept (marker logic is positional now).
+          if (waypoints.length) {
+            const first = waypoints[0], last = waypoints[waypoints.length - 1];
+            if (first.kind === 'via') first.kind = 'start';
+            if (last.kind === 'via' && waypoints.length > 1) last.kind = 'end';
+          }
           const gates = (d.gates ?? [])
             .map((g) => ({ label: g.label, by: g.by, waypointId: emitted[g.waypointIndex]?.id ?? null }))
             .filter((g) => g.label && g.by);

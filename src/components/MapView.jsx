@@ -456,7 +456,11 @@ export default function MapView() {
       const color = phaseColor(day.phase);
       const showAll = sel === day.id;
       for (const [wi, w] of day.waypoints.entries()) {
-        const isEnd = w.kind === 'start' || w.kind === 'end';
+        // A day's endpoints are POSITIONAL, not a matter of what kind the stop
+        // carries: AI-built days default every stop to 'via', which left real
+        // overnights (Bozeman on the solo fork) markerless at trip zoom.
+        const isEnd = w.kind === 'start' || w.kind === 'end'
+          || wi === 0 || wi === day.waypoints.length - 1;
         if (!showAll && !isEnd) continue;
         const el = document.createElement('div');
         el.className = `wp-marker${w.fuel ? ' fuel' : ''}${w.kind === 'photo' ? ' photo' : ''}`;

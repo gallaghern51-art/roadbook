@@ -693,6 +693,15 @@ export default function RideMode({ onClose }) {
     if (!fix) return;
     const wps = day.waypoints;
     const base = Math.max(progIdxRef.current, projRef.current?.i ?? 0);
+    // Physically standing on a stop the projection has already walked past
+    // latches it even though it isn't the nav target — the target-only check
+    // below left such a stop unlatched, and the moment the projection rewound
+    // (leaving on the same road you arrived by) remainingNav resurrected it
+    // and nav turned the rider around (field-caught leaving Cozy Cabin,
+    // Aug 11). Capped before the final stop so the arrival state stays real.
+    for (let i = progIdxRef.current + 1; i <= Math.min(base, wps.length - 2); i++) {
+      if (haversineMiles(fix, wps[i]) < ARRIVE_MI) setProgIdx((p) => Math.max(p, i));
+    }
     // heading back to a restored stop takes priority over index order
     let ti = returnToRef.current ? wps.findIndex((w) => w.id === returnToRef.current) : -1;
     if (ti < 0) {
@@ -1183,8 +1192,14 @@ export default function RideMode({ onClose }) {
     const k = day.waypoints.findIndex((w) => w.id === id);
     if (k < 0) return;
     const n = new Set(skipped);
-    for (let i = effIdx + 1; i < k; i++) n.add(day.waypoints[i].id);
+    // Skip from the LATCHED floor, not effIdx: effIdx rides the geometric
+    // projection, which rewinds on an out-and-back spur — a stop the
+    // projection had merely walked past would dodge the skip set here, then
+    // come back as the destination on the next rewind. Latching the floor to
+    // the chosen stop makes "everything before this is behind me" durable.
+    for (let i = progIdx + 1; i < k; i++) n.add(day.waypoints[i].id);
     n.delete(id);
+    setProgIdx((p) => Math.max(p, k - 1));
     setUndoSkip(null);
     setReturnToId(null);
     setSheetOpen(false);

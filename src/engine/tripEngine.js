@@ -123,8 +123,20 @@ export function fuelGaps(day, routedLegs) {
   return gaps;
 }
 
-export function dayWarnings(day, routedLegs, range = DEFAULT_RANGE) {
+export function dayWarnings(day, routedLegs, range = DEFAULT_RANGE, prevDay = null) {
   const warnings = [];
+  // A day that starts away from where yesterday ended: the connecting miles
+  // belong to no day (totals quietly under-count) and the trip map's line
+  // visibly breaks there. AI restructures produce this when the same town
+  // geocodes to two different pins on either side of the boundary.
+  const prevEnd = prevDay?.waypoints?.[prevDay.waypoints.length - 1];
+  const firstWp = day.waypoints?.[0];
+  if (prevEnd && firstWp && Number.isFinite(prevEnd.lat) && Number.isFinite(firstWp.lat)) {
+    const bGap = haversineMiles(prevEnd, firstWp);
+    if (bGap > 2) {
+      warnings.push({ level: 'warn', text: `Starts ${Math.round(bGap)} mi from where ${prevDay.dow} ends (${prevEnd.name} → ${firstWp.name}) — those miles belong to no day. Re-pick one of the two stops so the days connect.` });
+    }
+  }
   const gaps = fuelGaps(day, routedLegs);
   for (const g of gaps) {
     if (g.miles > range.absolute) {
@@ -160,7 +172,7 @@ export function tripSummary(trip, routedLegsByDay) {
   const days = trip.days;
   const range = tripRange(trip);
   let miles = 0;
-  const perDay = days.map((d) => {
+  const perDay = days.map((d, i) => {
     const m = dayMiles(d, routedLegsByDay?.[d.id]);
     miles += m;
     return {
@@ -168,7 +180,7 @@ export function tripSummary(trip, routedLegsByDay) {
       miles: m,
       rideHours: dayRideHours(d, routedLegsByDay?.[d.id]),
       stopHours: estimatedStopHours(d),
-      warnings: dayWarnings(d, routedLegsByDay?.[d.id], range),
+      warnings: dayWarnings(d, routedLegsByDay?.[d.id], range, i > 0 ? days[i - 1] : null),
     };
   });
   const unbooked = days.filter((d) => d.lodging?.status === 'reserve').length;
@@ -220,7 +232,7 @@ export function tripDigest(trip, routedLegsByDay) {
     if (d.meals?.length) lines.push(`Meals: ${d.meals.map((x) => `${x.meal}: ${x.name}`).join(' · ')}`);
     if (d.modules?.length) lines.push(`Modules: ${d.modules.map((x) => `${x.id}:${x.name} (${x.enabled ? 'ON' : 'off'})`).join(' · ')}`);
     if (d.lodging) lines.push(`Lodging: ${d.lodging.name} [${d.lodging.status}]`);
-    const warns = dayWarnings(d, routedLegsByDay?.[d.id], tripRange(trip));
+    const warns = dayWarnings(d, routedLegsByDay?.[d.id], tripRange(trip), trip.days[trip.days.indexOf(d) - 1] ?? null);
     for (const w of warns) lines.push(`⚠ ${w.text}`);
   }
   lines.push('');
