@@ -217,8 +217,8 @@ export default function PrepBoard({ focus, setFocus, onAskAI, onSaveScenario, on
           <Card
             label={t('Scenarios')}
             meta={scenarios.length ? `${scenarios.length} ${t('saved')}` : undefined}
-            note={t('Save this plan as a named permutation')}
-            onClick={onSaveScenario}
+            note={t('Compare and load saved permutations — save new ones from the Plan strip')}
+            onClick={() => setFocus('feasibility')}
           />
           <Card
             label={t('Trip file')}

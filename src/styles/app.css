@@ -504,7 +504,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .scen-strip .ss-chip.active { border-color: var(--rally); color: var(--rally); }
 .scen-strip .ss-chip.picked { border-color: var(--outbound); color: var(--outbound); }
+.scen-strip .ss-chip.ss-add { border-style: dashed; color: var(--ink-faint); }
 .scen-strip .ss-confirm { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.scen-strip .ss-name { flex: 1 1 160px; min-height: 40px; font-size: 16px; }
 .scen-strip .ss-confirm .btn { flex: 1 0 auto; justify-content: center; }
 .scen-strip .ss-note { flex: 1 0 100%; font-size: 11.5px; color: var(--ink-faint); line-height: 1.45; margin: 2px 0 0; }
 .chat-setup code { font-family: var(--mono); font-size: 11px; color: var(--rally); }

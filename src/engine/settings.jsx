@@ -589,6 +589,13 @@ const ES = {
   'This pin sits off the road network, so routing detours to reach it. Drag it onto the road or re-pick the stop via search.': 'Este pin está fuera de la red de caminos, así que el ruteo se desvía para tocarlo. Arrástralo al camino o vuelve a elegir la parada con el buscador.',
   'off road': 'fuera del camino',
   // plan strip: scenario switching on the PLAN surface
+  'Save plan as…': 'Guardar plan como…',
+  'Name this version — e.g. Solo Thursday': 'Nombra esta versión — p. ej. Jueves solo',
+  'Snapshots the whole current plan under a name. Copilot restructures land here automatically too.': 'Guarda una copia del plan actual bajo un nombre. Las reestructuraciones del Copiloto también llegan aquí automáticamente.',
+  'Update': 'Actualizar',
+  'The working plan has drifted from this permutation — Update writes your edits back into it.': 'El plan de trabajo se apartó de esta permutación — Actualizar escribe tus ediciones de vuelta en ella.',
+  'Compare and load saved permutations — save new ones from the Plan strip': 'Compara y carga permutaciones guardadas — guarda nuevas desde la franja Plan',
+  'Delete': 'Eliminar',
   'Load for the group': 'Cargar para el grupo',
   'Just me — personal copy': 'Solo yo — copia personal',
   'Group: this becomes the shared plan every rider sees. Just me: a separate trip only on this phone — the group plan stays untouched.': 'Grupo: este pasa a ser el plan compartido que ven todos. Solo yo: un viaje aparte solo en este teléfono — el plan del grupo queda intacto.',

@@ -312,16 +312,18 @@ export function reducer(state, action) {
     case 'delete_scenario': {
       const rec = activeRecord(state.lib);
       rec.scenarios = rec.scenarios.filter((s) => s.id !== action.id);
+      if (rec.activeScenarioId === action.id) rec.activeScenarioId = null;
       persistLibrary(state.lib);
-      return { ...state, scenarios: rec.scenarios };
+      return { ...state, scenarios: rec.scenarios, activeScenarioId: rec.activeScenarioId ?? null };
     }
     case 'overwrite_scenario': {
       const rec = activeRecord(state.lib);
       rec.scenarios = rec.scenarios.map((s) =>
         s.id === action.id ? { ...s, trip: structuredClone(state.trip), savedAt: new Date().toISOString() } : s
       );
+      rec.activeScenarioId = action.id; // the working plan now IS this permutation
       persistLibrary(state.lib);
-      return { ...state, scenarios: rec.scenarios };
+      return { ...state, scenarios: rec.scenarios, activeScenarioId: action.id };
     }
     default:
       return state;
