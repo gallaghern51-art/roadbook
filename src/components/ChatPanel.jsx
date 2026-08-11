@@ -124,9 +124,9 @@ export default function ChatPanel({ onClose }) {
     setMessages((m) => [...m, {
       role: 'assistant',
       content: target
-        ? `Applied and updated scenario “${target.name}” — compare permutations in the Feasibility view.`
+        ? `Applied and updated scenario “${target.name}” — switch plans any time from the Plan strip (top of the trip overview or any day), or compare grades in the Feasibility view.`
         : saveAs
-          ? `Applied and saved as “${saveAs}” — compare permutations in the Feasibility view, Undo reverses the working plan.`
+          ? `Applied and saved as “${saveAs}” — it's in the Plan strip at the top of the trip overview and every day panel, ready to switch to. Undo reverses the working plan.`
           : 'Applied. The map, timeline, and feasibility have recomputed — Undo reverses it if it reads wrong.',
     }]);
   };

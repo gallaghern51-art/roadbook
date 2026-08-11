@@ -106,6 +106,7 @@ export const initialState = () => {
     chat: rec.chat ?? [],
     remote: rec.remote ?? null,
     outbox: rec.outbox ?? [],
+    activeScenarioId: rec.activeScenarioId ?? null, // which saved permutation the working plan came from
     history: [], // undo stack of previous trips (capped)
     selectedDayId: null, // null = whole-trip overview
     pendingProposal: null, // { ops, summary, saveAs, overwriteScenarioId }
@@ -201,13 +202,13 @@ export function reducer(state, action) {
       const rec = freshRecord(action.trip, action.name);
       const lib = { ...state.lib, trips: [...state.lib.trips, rec], activeId: rec.id };
       persistLibrary(lib);
-      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], history: [], selectedDayId: null, pendingProposal: null, modal: null };
+      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], activeScenarioId: rec.activeScenarioId ?? null, history: [], selectedDayId: null, pendingProposal: null, modal: null };
     }
     case 'switch_trip': {
       const lib = { ...state.lib, activeId: action.id };
       const rec = activeRecord(lib);
       persistLibrary(lib);
-      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], history: [], selectedDayId: null, pendingProposal: null, modal: null };
+      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], activeScenarioId: rec.activeScenarioId ?? null, history: [], selectedDayId: null, pendingProposal: null, modal: null };
     }
     case 'delete_trip': {
       if (state.lib.trips.length <= 1) return state;
@@ -215,7 +216,7 @@ export function reducer(state, action) {
       const lib = { trips, activeId: state.lib.activeId === action.id ? trips[0].id : state.lib.activeId };
       const rec = activeRecord(lib);
       persistLibrary(lib);
-      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], history: [], selectedDayId: null };
+      return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], activeScenarioId: rec.activeScenarioId ?? null, history: [], selectedDayId: null };
     }
 
     // ---- UI ----
@@ -266,23 +267,47 @@ export function reducer(state, action) {
     // ---- scenarios (scoped to the active trip) ----
     case 'save_scenario': {
       const rec = activeRecord(state.lib);
+      const name = action.name || `Scenario ${rec.scenarios.length + 1}`;
+      // Idempotent: an identical snapshot under the same name is the same
+      // save — guards double-taps (and StrictMode's dev double-invoke).
+      const cur = JSON.stringify(state.trip);
+      const dup = rec.scenarios.find((s) => s.name === name && JSON.stringify(s.trip) === cur);
+      if (dup) {
+        rec.activeScenarioId = dup.id;
+        persistLibrary(state.lib);
+        return { ...state, scenarios: rec.scenarios, activeScenarioId: dup.id };
+      }
       const scen = {
         id: uid('s'),
-        name: action.name || `Scenario ${rec.scenarios.length + 1}`,
+        name,
         savedAt: new Date().toISOString(),
         trip: structuredClone(state.trip),
       };
       rec.scenarios = [...rec.scenarios, scen];
+      rec.activeScenarioId = scen.id;
       persistLibrary(state.lib);
-      return { ...state, scenarios: rec.scenarios };
+      return { ...state, scenarios: rec.scenarios, activeScenarioId: scen.id };
     }
     case 'load_scenario': {
       const rec = activeRecord(state.lib);
       const scen = rec.scenarios.find((s) => s.id === action.id);
       if (!scen) return state;
+      // Switching must never be a one-way door: if the working plan matches no
+      // saved snapshot, stash it first so there is always a way back to it.
+      const cur = JSON.stringify(state.trip);
+      if (!rec.scenarios.some((s2) => JSON.stringify(s2.trip) === cur)) {
+        const d = new Date();
+        rec.scenarios = [...rec.scenarios, {
+          id: uid('s'),
+          name: `Auto-saved ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`,
+          savedAt: d.toISOString(),
+          trip: structuredClone(state.trip),
+        }];
+      }
       const trip = structuredClone(scen.trip);
+      rec.activeScenarioId = scen.id;
       syncTrip(state, trip);
-      return { ...state, trip, history: [state.trip, ...state.history].slice(0, 30), selectedDayId: null, modal: null };
+      return { ...state, trip, scenarios: rec.scenarios, activeScenarioId: scen.id, history: [state.trip, ...state.history].slice(0, 30), modal: null };
     }
     case 'delete_scenario': {
       const rec = activeRecord(state.lib);

@@ -8,6 +8,7 @@ import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
 import { tripPace } from '../engine/tripEngine.js';
+import ScenarioStrip from './ScenarioStrip.jsx';
 
 // Suggestions only — riders type whatever they actually ride. (The list began
 // as the EagleRider rental lineup the Sturgis crew booked from; it survives as
@@ -46,6 +47,7 @@ export default function OverviewPanel() {
       <div className="day-head">
         <div className="eyebrow">{tt(trip.meta.subtitle)}</div>
         <h2>{t('The whole trip at a glance')}</h2>
+        <ScenarioStrip />
         <div className="datebar">
           <span className="chip">{trip.days[0]?.dow} {fmtLongDate(trip.days[0]?.date ?? trip.meta.startDate)} → {trip.days[trip.days.length - 1]?.dow} {fmtLongDate(trip.days[trip.days.length - 1]?.date ?? trip.meta.startDate)}</span>
           <span className="chip">{u.mi(summary.totalMiles)}</span>

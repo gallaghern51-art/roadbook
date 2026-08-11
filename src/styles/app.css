@@ -487,6 +487,26 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .proposal li::before { content: '→'; position: absolute; left: 0; color: var(--rally); font-size: 10px; }
 .proposal .p-actions { display: flex; gap: 8px; margin-top: 8px; flex: none; }
 .chat-setup { margin: 14px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; font-size: 12.5px; color: var(--ink-dim); }
+
+/* ---------- plan strip: scenario switching on the PLAN surface ---------- */
+.scen-strip {
+  margin: 8px 0 4px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--asphalt-1);
+}
+.scen-strip .ss-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.scen-strip .ss-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); flex: none; }
+.scen-strip .ss-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; }
+.scen-strip .ss-chips::-webkit-scrollbar { display: none; }
+.scen-strip .ss-chip {
+  flex: none; font-family: var(--mono); font-size: 11.5px; padding: 6px 11px; min-height: 34px;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--ink-dim);
+  white-space: nowrap; max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+}
+.scen-strip .ss-chip.active { border-color: var(--rally); color: var(--rally); }
+.scen-strip .ss-chip.picked { border-color: var(--outbound); color: var(--outbound); }
+.scen-strip .ss-confirm { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.scen-strip .ss-confirm .btn { flex: 1 0 auto; justify-content: center; }
+.scen-strip .ss-note { flex: 1 0 100%; font-size: 11.5px; color: var(--ink-faint); line-height: 1.45; margin: 2px 0 0; }
 .chat-setup code { font-family: var(--mono); font-size: 11px; color: var(--rally); }
 
 /* ---------- detail modal ---------- */

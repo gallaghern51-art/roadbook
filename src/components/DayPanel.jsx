@@ -14,6 +14,7 @@ import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
 import { dayRoadShields } from '../engine/roads.js';
 import RoadShield from './RoadShield.jsx';
 import { parksForDay } from '../data/parks.js';
+import ScenarioStrip from './ScenarioStrip.jsx';
 
 export default function DayPanel({ day }) {
   const { state, dispatch, summary, routedLegsByDay, routes } = useTrip();
@@ -102,6 +103,8 @@ export default function DayPanel({ day }) {
           </div>
         )}
       </div>
+
+      <ScenarioStrip />
 
       <div className="stat-row">
         <div className="stat"><div className="n">{u.miNum(per?.miles ?? day.miles)}</div><div className="l">{u.metric ? 'km' : t('Miles')}</div></div>
