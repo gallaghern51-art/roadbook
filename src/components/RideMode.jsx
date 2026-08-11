@@ -1552,36 +1552,44 @@ export default function RideMode({ onClose }) {
             <button className={`ride-bar${sheetOpen ? ' open' : ''}`} onClick={() => setSheetOpen((v) => !v)} aria-expanded={sheetOpen}>
               <span className="rb-grip" aria-hidden="true" />
               {!fix ? (
-                <div className="rb-main">
-                  <b className="rb-big">{t('WAITING FOR GPS')}</b>
+                <>
+                  <div className="rb-main">
+                    <b className="rb-big">{t('WAITING FOR GPS')}</b>
+                  </div>
                   <span className="rb-mid">{fmtTime(tl.stops[0]?.depart ?? 0)} · {u.mi(totalMiles)}</span>
-                </div>
+                </>
               ) : (
                 <>
-                  {/* the LEG is the headline: time left to the next stop, then
-                      the clock time you get there — the day-end ETA steps down
-                      to a small line so the two can never be confused */}
+                  {/* the LEG is the headline: time left rides alone with the
+                      plan delta pinned right — sharing a row with the chip, a
+                      long delta (+6h 39m) squeezed the leg miles into "99…"
+                      (field bug). The leg ETA + miles share the middle row
+                      with the small whole-day figure pinned right, so the leg
+                      and day numbers still can't be confused. */}
                   <div className="rb-main">
                     <b className="rb-big">{legRemMin != null ? fmtDur(legRemMin) : '—'}</b>
+                    {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
+                  </div>
+                  <div className="rb-duo">
                     <span className="rb-mid">
                       {legEta != null ? fmtTime(legEta) : '—'}
                       {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
                     </span>
-                    {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
+                    {!lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
+                      <span className="rb-day">
+                        {t('Day')} {fmtTime(eta ?? projectedEnd)}
+                        {nav && <span className="rb-day-mi">{` · ${u.miNum(nav.remMi)} ${u.miUnit}`}</span>}
+                      </span>
+                    )}
                   </div>
                 </>
               )}
-              {/* one footer row: the stop the leg numbers describe, and the
-                  whole-day figure at the right — minimal sheds the day part */}
+              {/* the footer is the next stop's alone now — full width means a
+                  typical name fits still, and the marquee only runs on the
+                  rare long one */}
               {(nextWp ?? plannedNext) && !sheetOpen && (
                 <div className="rb-foot">
                   <Marquee className="rb-next" label={lean ? null : t('Next')} text={tt((nextWp ?? plannedNext).name)} />
-                  {fix && !lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
-                    <span className="rb-day">
-                      {t('Day')} {fmtTime(eta ?? projectedEnd)}
-                      {nav ? ` · ${u.miNum(nav.remMi)} ${u.miUnit}` : ''}
-                    </span>
-                  )}
                 </div>
               )}
             </button>
