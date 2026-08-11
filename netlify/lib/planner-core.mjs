@@ -50,12 +50,14 @@ How to respond:
 - When the user asks a question or for analysis, answer in text only. Do not propose changes nobody asked for.
 - Waypoints need lat/lng when added; use accurate coordinates for real places.
 - When a search_places result becomes a waypoint, copy its id into the waypoint's placeId — routing then snaps to the place itself instead of the raw coordinate (which can force absurd exit-and-re-enter maneuvers).
-- The search_places tool returns verified names, addresses, and exact coordinates from the live places database. Use it whenever you add or move a stop whose coordinates you are not fully certain of (restaurants, gas stations, small attractions, lodging) — one focused query per place, then emit the ops using the returned lat/lng. Do not call propose_trip_changes and search_places in the same reply; search first, propose after the results come back. Skip searching for places you already know precisely (major cities, famous landmarks).`;
+- The search_places tool returns verified names, addresses, exact coordinates, and weekly opening hours from the live places database. Use it whenever you add or move a stop whose coordinates you are not fully certain of (restaurants, gas stations, small attractions, lodging) — one focused query per place, then emit the ops using the returned lat/lng. Do not call propose_trip_changes and search_places in the same reply; search first, propose after the results come back. Skip searching for places you already know precisely (major cities, famous landmarks).
+- FUEL STOPS ARE STATIONS, NOT TOWNS: when you add or move a fuel stop, search_places for an actual gas station ("gas station <town>") and emit the station's name, exact coordinates, and placeId. Prefer a station at the highway exit or directly on the route so the group is never dragged through town for gas. A bare town-center pin flagged fuel is not acceptable.
+- HOURS MUST LINE UP: before recommending a restaurant, lodging, or any stop the plan puts a time on, compare its opening hours (in the search_places result) against the day's simulated ETA at that stop — never propose a place that will be closed when the riders arrive, and if hours are missing say the pick is unverified.`;
 
 // Live place lookup for the model — verified coordinates instead of recalled ones.
 export const PLACES_TOOL = {
   name: 'search_places',
-  description: 'Search the live places database (Google) for real-world locations. Returns up to 6 matches with verified name, address, and exact lat/lng. Use before adding stops whose coordinates you are not certain of.',
+  description: 'Search the live places database (Google) for real-world locations. Returns up to 6 matches with verified name, address, exact lat/lng, and weekly opening hours. Use before adding stops whose coordinates you are not certain of, and to check hours against planned arrival times.',
   input_schema: {
     type: 'object',
     additionalProperties: false,
@@ -83,7 +85,7 @@ async function answerToolCalls(response, emit) {
       try {
         const key = process.env.GOOGLE_MAPS_API_KEY;
         if (!key) throw new Error('place search not configured on this site');
-        const places = await searchPlacesGoogle(key, block.input?.query ?? '', block.input?.near, { limit: 6 });
+        const places = await searchPlacesGoogle(key, block.input?.query ?? '', block.input?.near, { limit: 6, hours: true });
         content = JSON.stringify(places.length ? places : { note: 'no matches — try a broader query' });
       } catch (e) {
         content = JSON.stringify({ error: String(e.message).slice(0, 200) });
@@ -193,7 +195,7 @@ export const GENERATE_SYSTEM = `You are the itinerary builder for a motorcycle t
 
 Rules:
 - Real places, accurate lat/lng (4+ decimals). Route days along roads riders actually take; favor the famous riding roads of the region when they fit.
-- 4–10 waypoints per riding day: start point, the best scenic/riding stops (kind "photo"), fuel stops every 100–150 miles in real towns (kind "fuel", fuel: true), lunch-town stops, and the day's end point. First waypoint kind "start", last kind "end".
+- 4–10 waypoints per riding day: start point, the best scenic/riding stops (kind "photo"), fuel stops every 100–150 miles at real gas stations you know — the station's own coordinates at the highway exit, never a bare town-center pin (kind "fuel", fuel: true) — lunch-town stops, and the day's end point. First waypoint kind "start", last kind "end".
 - Keep daily distance realistic: 150–300 mi for scenic days, up to 450 for transit days, and note it in the summary.
 - Every day gets: an honest one-to-two-sentence summary (trade-offs included), a depart time, lunch and dinner meal entries with real restaurant-quality picks when you know them (or the honest "best option in town" note), and lodging (real town + property suggestion, status "reserve").
 - Phases: use "outbound" for the way out, "rally" for event/destination days, "return" for the way home, "prep" for travel/arrival days.
