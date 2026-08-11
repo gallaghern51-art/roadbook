@@ -2326,10 +2326,17 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   flex: 0 1 auto; min-width: 0; font-family: var(--mono); font-size: 18.5px; font-weight: 500; color: var(--ink-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* footer: next stop name (scrolls) + the whole-day figure pinned right */
+/* middle row: leg ETA + miles, with the whole-day figure pinned right — the
+   leg figures win the width fight (rb-day's shrink factor makes the day
+   yield ~4:1 first), and under 400px the day sheds its miles tail entirely
+   (still in the ride sheet) instead of ellipsizing mid-number */
+.ride-bar .rb-duo { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: nowrap; }
+.ride-bar .rb-duo .rb-day { flex: 0 4 auto; min-width: 0; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 400px) { .ride-bar .rb-day-mi { display: none; } }
+@media (max-width: 359px) { .ride-bar .rb-duo .rb-day { display: none; } }
+/* footer: the next stop's name alone at full width, so it rarely marquees */
 .ride-bar .rb-foot { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ride-bar .rb-foot .rb-next { flex: 1; min-width: 0; margin-top: 0; }
-.ride-bar .rb-foot .rb-day { flex: none; white-space: nowrap; }
 .ride-bar .rb-chip {
   flex: none; margin-left: auto; font-family: var(--mono); font-size: 15px; letter-spacing: 0.05em;
   border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
@@ -2341,7 +2348,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .ride-bar .rb-next { margin-top: 3px; }
 .ride-bar .rb-next .mq-ink { font-size: 17.5px; font-weight: 500; color: var(--ink-dim); }
 /* the whole-day ETA, demoted under the leg numbers so they can't be confused */
-.ride-bar .rb-day { font-family: var(--mono); font-size: 15.5px; font-weight: 500; color: var(--ink-faint); }
+.ride-bar .rb-day { font-family: var(--mono); font-size: 14.5px; font-weight: 500; color: var(--ink-faint); }
 .ride-bar .rb-sub { font-family: var(--mono); font-size: 14px; color: var(--ink-dim); }
 .ride-bar.arrive { border-color: var(--ok); }
 .ride-bar.arrive .rb-big { color: var(--ok); }

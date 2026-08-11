@@ -1561,32 +1561,35 @@ export default function RideMode({ onClose }) {
               ) : (
                 <>
                   {/* the LEG is the headline: time left rides alone with the
-                      plan delta pinned right, and the leg ETA + miles get
-                      their own row — sharing a row with the chip, a long
-                      delta (+6h 39m) squeezed the miles into "99…" (field
-                      bug). The day-end ETA stays demoted to the small rb-day
-                      line so the leg and day numbers can't be confused. */}
+                      plan delta pinned right — sharing a row with the chip, a
+                      long delta (+6h 39m) squeezed the leg miles into "99…"
+                      (field bug). The leg ETA + miles share the middle row
+                      with the small whole-day figure pinned right, so the leg
+                      and day numbers still can't be confused. */}
                   <div className="rb-main">
                     <b className="rb-big">{legRemMin != null ? fmtDur(legRemMin) : '—'}</b>
                     {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
                   </div>
-                  <span className="rb-mid">
-                    {legEta != null ? fmtTime(legEta) : '—'}
-                    {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
-                  </span>
+                  <div className="rb-duo">
+                    <span className="rb-mid">
+                      {legEta != null ? fmtTime(legEta) : '—'}
+                      {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
+                    </span>
+                    {!lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
+                      <span className="rb-day">
+                        {t('Day')} {fmtTime(eta ?? projectedEnd)}
+                        {nav && <span className="rb-day-mi">{` · ${u.miNum(nav.remMi)} ${u.miUnit}`}</span>}
+                      </span>
+                    )}
+                  </div>
                 </>
               )}
-              {/* one footer row: the stop the leg numbers describe, and the
-                  whole-day figure at the right — minimal sheds the day part */}
+              {/* the footer is the next stop's alone now — full width means a
+                  typical name fits still, and the marquee only runs on the
+                  rare long one */}
               {(nextWp ?? plannedNext) && !sheetOpen && (
                 <div className="rb-foot">
                   <Marquee className="rb-next" label={lean ? null : t('Next')} text={tt((nextWp ?? plannedNext).name)} />
-                  {fix && !lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
-                    <span className="rb-day">
-                      {t('Day')} {fmtTime(eta ?? projectedEnd)}
-                      {nav ? ` · ${u.miNum(nav.remMi)} ${u.miUnit}` : ''}
-                    </span>
-                  )}
                 </div>
               )}
             </button>
