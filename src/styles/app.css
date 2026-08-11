@@ -61,9 +61,11 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 /* Installed PWA: iOS standalone resolves [d]vh — and the % chain — against a
    stale viewport at launch, floating the bottom bar off the bottom. main.jsx
-   mirrors the MEASURED window height into --app-h (corrected a beat after
-   launch, and on every resize); the shells size off that truth. Fallback is
-   plain dvh for the moment before the first measurement lands. */
+   mirrors the MEASURED window height into --app-h — floored at the hardware
+   screen height on iOS (black-translucent + viewport-fit=cover means the app
+   owns the whole screen), so the first measurement is already right; the
+   shells size off that truth. Fallback is plain dvh for the moment before
+   the first measurement lands. */
 @media all and (display-mode: standalone) {
   .app, .home { height: 100vh; height: var(--app-h, 100dvh); }
   /* the ride overlay is fixed inset:0 — its bottom edge pins to the same
