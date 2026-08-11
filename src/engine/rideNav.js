@@ -226,6 +226,26 @@ export function navRestore(nav, id) {
   return { visited, skipped, pinned: id, pass: null };
 }
 
+// The rider declared arrival at a stop the bike is standing at ("Go next"
+// inside the arrival ring): a routing request to a pin you are on top of
+// yields a legal-loop tour of the parking lot's one-ways (field-caught at
+// Mount Rushmore — 4 road-miles to a stop 550 feet away). The final stop is
+// excluded: the arrival state owns the end of the day.
+export function navArriveAt(nav, waypoints, id) {
+  if (waypoints[waypoints.length - 1]?.id === id) return nav;
+  if (!waypoints.some((w) => w.id === id)) return nav;
+  const visited = new Set(nav.visited);
+  visited.add(id);
+  const skipped = new Set(nav.skipped);
+  skipped.delete(id);
+  return {
+    visited,
+    skipped,
+    pinned: nav.pinned === id ? null : nav.pinned,
+    pass: nav.pass?.id === id ? null : nav.pass,
+  };
+}
+
 // Late-start init: the ids the routed-line walk found clearly behind the
 // bike when the session opened.
 export function navInitVisited(nav, waypoints, ids) {

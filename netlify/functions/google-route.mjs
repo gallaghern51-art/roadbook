@@ -55,8 +55,14 @@ export default async (req) => {
   const vias = waypoints.slice(0, -1).slice(0, 23);
   const dest = waypoints[waypoints.length - 1];
 
+  // The bike's heading (when moving) rides into the origin so the route
+  // departs the way the bike is pointed — without it Google assumes a
+  // direction from the road snap and can open with a turn-around tour.
+  const gOrigin = latLng(origin);
+  if (Number.isFinite(origin.heading)) gOrigin.location.heading = ((Math.round(origin.heading) % 360) + 360) % 360;
+
   const gBody = {
-    origin: latLng(origin), // where the bike IS — plain position, no stop semantics
+    origin: gOrigin, // where the bike IS — plain position, no stop semantics
     destination: stopWaypoint(dest),
     ...(vias.length ? { intermediates: vias.map(stopWaypoint) } : {}),
     travelMode: 'DRIVE',
