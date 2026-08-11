@@ -590,6 +590,7 @@ const ES = {
   'off road': 'fuera del camino',
   // plan strip: scenario switching on the PLAN surface
   'Save plan as…': 'Guardar plan como…',
+  'Apply as new trip': 'Aplicar como viaje nuevo',
   'Name this version — e.g. Solo Thursday': 'Nombra esta versión — p. ej. Jueves solo',
   'Snapshots the whole current plan under a name. Copilot restructures land here automatically too.': 'Guarda una copia del plan actual bajo un nombre. Las reestructuraciones del Copiloto también llegan aquí automáticamente.',
   'Update': 'Actualizar',

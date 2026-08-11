@@ -3,7 +3,7 @@ import { useTrip } from '../engine/store.js';
 import { tripDigest, compactTripForModel } from '../engine/tripEngine.js';
 import { feasibilityDigest } from '../engine/timeline.js';
 import { splitsDigest } from '../engine/splits.js';
-import { describeOps } from '../engine/ops.js';
+import { describeOps, applyOps } from '../engine/ops.js';
 import { runPlanner } from '../engine/planner.js';
 import { useT } from '../engine/settings.jsx';
 
@@ -131,6 +131,24 @@ export default function ChatPanel({ onClose }) {
     }]);
   };
 
+  // Seed the proposal into a NEW trip instead of this one: ops apply to a
+  // CLONE, which becomes its own unshared record. On a shared trip this is
+  // the only safe way to take a personal variant — plain Apply would push
+  // the ops to every rider before there was anything to fork.
+  const applyAsNewTrip = () => {
+    const { ops, saveAs } = state.pendingProposal;
+    const { trip: forked, errors } = applyOps(structuredClone(state.trip), ops);
+    if (errors.length) console.warn('fork op errors', errors);
+    const name = saveAs || `${state.trip.meta.title} — variant`;
+    forked.meta = { ...forked.meta, title: name };
+    dispatch({ type: 'create_trip', trip: forked, name });
+    dispatch({ type: 'clear_proposal' });
+    setMessages((m) => [...m, {
+      role: 'assistant',
+      content: `Created “${name}” as its own trip and switched you to it — unshared, so nothing here touches the group plan. The original trip is exactly as it was; switch between them from HOME.`,
+    }]);
+  };
+
   const proposal = state.pendingProposal;
 
   return (
@@ -187,6 +205,7 @@ export default function ChatPanel({ onClose }) {
           </ul>
           <div className="p-actions">
             <button className="btn gold" onClick={applyProposal}>{t('Apply')}</button>
+            <button className="btn" onClick={applyAsNewTrip}>{t('Apply as new trip')}</button>
             <button className="btn" onClick={() => dispatch({ type: 'clear_proposal' })}>{t('Dismiss')}</button>
           </div>
         </div>
