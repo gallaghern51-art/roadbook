@@ -82,7 +82,13 @@ async function googleRoute(origin, waypoints) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        origin: { lat: origin.lat, lng: origin.lng },
+        // heading rides along when the caller has one — the route then
+        // departs the way the bike is pointed instead of assuming a
+        // direction from the road snap
+        origin: {
+          lat: origin.lat, lng: origin.lng,
+          ...(Number.isFinite(origin.heading) ? { heading: ((Math.round(origin.heading) % 360) + 360) % 360 } : {}),
+        },
         // place identity rides along when a stop has it — the route function
         // snaps those to the place instead of the raw coordinate
         waypoints: waypoints.map((w) => ({ lat: w.lat, lng: w.lng, ...(w.placeId ? { placeId: w.placeId } : {}) })),
@@ -419,7 +425,13 @@ export async function routeFrom(pos, waypoints, pace = 1) {
 
   const pts = [pos, ...wps];
   const coords = pts.map((p) => `${p.lng},${p.lat}`).join(';');
-  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=true&annotations=distance,duration`;
+  // The bike's heading constrains the DEPARTURE only (±45°) — every other
+  // point stays unrestricted. Without it OSRM picks a departure direction
+  // from the snap alone and can route the wrong way up the road.
+  const bearings = Number.isFinite(pos.heading)
+    ? `&bearings=${((Math.round(pos.heading) % 360) + 360) % 360},45${';'.repeat(pts.length - 1)}`
+    : '';
+  const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=true&annotations=distance,duration${bearings}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`reroute ${res.status}`);
   const json = await res.json();

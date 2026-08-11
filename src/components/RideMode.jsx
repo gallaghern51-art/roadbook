@@ -7,7 +7,7 @@ import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
-  navGoNext, navSkip, navRestore, navInitVisited,
+  navGoNext, navSkip, navRestore, navInitVisited, navArriveAt,
 } from '../engine/rideNav.js';
 import { geocode } from '../engine/geocode.js';
 import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
@@ -694,6 +694,14 @@ export default function RideMode({ onClose }) {
   // The projection above is DISPLAY (plan delta, mileage); it never targets.
   const remainingNav = useMemo(() => navRemaining(dest, day.waypoints), [dest, day]);
 
+  // Reroute origin: the bike's heading rides along only when it means
+  // something — a parked bike may legally depart either direction, and a
+  // heading assumed from the road snap is what buys a turn-around tour.
+  const navOrigin = () => ({
+    lat: fix.lat, lng: fix.lng,
+    ...(fix.heading != null && (fix.speedMph ?? 0) > 4 ? { heading: fix.heading } : {}),
+  });
+
   // One reroute path for every deliberate retarget (skip, restore, go-next).
   // Takes the remaining list explicitly — setState hasn't landed yet when the
   // caller just changed the skip set.
@@ -701,7 +709,7 @@ export default function RideMode({ onClose }) {
     if (!fix || !rem.length) return;
     setRerouting(true);
     lastRerouteAtRef.current = Date.now();
-    routeFrom({ lat: fix.lat, lng: fix.lng }, rem, pace)
+    routeFrom(navOrigin(), rem, pace)
       .then((r) => {
         setReroute({ ...r, byOffRoute: false });
         setRerouteFailed(false);
@@ -979,7 +987,7 @@ export default function RideMode({ onClose }) {
     setRerouting(true);
     lastRerouteAtRef.current = now;
     speak('Off route. Recalculating.');
-    routeFrom({ lat: fix.lat, lng: fix.lng }, remaining, pace)
+    routeFrom(navOrigin(), remaining, pace)
       .then((r) => {
         setReroute({ ...r, byOffRoute: true });
         setRerouteFailed(false);
@@ -1036,7 +1044,7 @@ export default function RideMode({ onClose }) {
     liveRouteAtRef.current = now;
     const remaining = remainingNav; // latched + skip-aware
     if (!remaining.length) return;
-    routeFrom({ lat: fix.lat, lng: fix.lng }, remaining, pace)
+    routeFrom(navOrigin(), remaining, pace)
       .then((r) => { if (r.traffic) setLiveEta({ min: r.seconds / 60, at: Date.now() }); })
       .catch(() => { /* next cycle retries */ });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1194,6 +1202,22 @@ export default function RideMode({ onClose }) {
     setUndoSkip(null);
     setSheetOpen(false);
     setFollow(true);
+    // Standing at the stop already? That's an ARRIVAL declaration, not a
+    // routing request — routing to a pin you're on top of yields a legal
+    // loop of the venue's one-ways (field-caught at Mount Rushmore: 4 road
+    // miles to a stop 550 feet away). Slightly wider than the latch ring:
+    // venue pins sit past the parking the bike actually stands in.
+    if (fix && haversineMiles(fix, w) < 0.3 && day.waypoints[day.waypoints.length - 1]?.id !== id) {
+      // same declaration as any Go next (everything before is behind me),
+      // plus: this stop is REACHED, aim onward
+      const next = navArriveAt(navGoNext(destRef.current, day.waypoints, id), day.waypoints, id);
+      destRef.current = next;
+      setDest(next);
+      const onward = navRemaining(next, day.waypoints);
+      speak(`You're at ${w.name}.${onward[0] ? ` Next: ${onward[0].name}.` : ''}`);
+      goRoute(onward);
+      return;
+    }
     speak(`Navigating to ${w.name}.`);
     applyDest(navGoNext(destRef.current, day.waypoints, id));
   };
