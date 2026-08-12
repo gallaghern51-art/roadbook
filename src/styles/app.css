@@ -2617,7 +2617,6 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
     width: calc(100% - min(88vw, 460px));
     z-index: 9; background: none; border: none; padding: 0;
   }
-  .panel-tab { height: 58px; }
 
   /* iOS zooms the page on focusing any input under 16px — the jump is worse
      than the density cost of bigger type in fields */
@@ -2694,8 +2693,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .wp-row .eta.leg-tap { cursor: pointer; border-radius: 5px; }
 .wp-row .eta.leg-tap:hover { background: rgba(245, 63, 31, 0.08); }
 @media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
-  /* thumb zone, not dead center */
-  .panel-tab { top: 62%; height: 64px; }
+  /* centered on the panel edge and sized for gloves (owner request — the
+     62% thumb-zone offset read as misplaced, not ergonomic) */
+  .panel-tab { top: 50%; height: 96px; width: 30px; left: -29px; font-size: 22px; }
   .wp-row .eta.leg-tap { padding: 2px 4px; margin: -2px -4px; }
   .wp-row .eta.leg-tap .leg-mi { text-decoration: underline dotted; text-underline-offset: 2px; }
 }
