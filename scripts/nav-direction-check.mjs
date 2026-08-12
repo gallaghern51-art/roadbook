@@ -1,0 +1,160 @@
+// Direction-aware projection + arrival-ring checks (Aug 12, 2026).
+//
+// Field problems these guard against, all caught on the Crazy Horse
+// out-and-back: (1) the traveled-line dim split detaching from the puck,
+// (2) nav "spinning around" — turn guidance and auto-arrival reading from
+// the RETURN copy of a road the day rides twice, (3) "Arrived" declared
+// while still riding 200 m out (the old flat 0.25 mi ring).
+//
+// Run: node scripts/nav-direction-check.mjs
+
+import {
+  projectOnChainDirected, chainCursor, haversineMiles,
+} from '../src/engine/tripEngine.js';
+import {
+  createNav, navFix, navTarget, arriveRingMi, ARRIVE_MI, ARRIVE_PARKED_MI,
+} from '../src/engine/rideNav.js';
+
+let pass = 0;
+let fail = 0;
+const check = (name, ok, detail = '') => {
+  if (ok) { pass += 1; console.log(`  ✓ ${name}`); }
+  else { fail += 1; console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ''}`); }
+};
+
+// ---- synthetic out-and-back corridor ----
+// A straight N–S road ridden UP then back DOWN, the return copy offset one
+// carriageway width (~16 m) east — the geometry OSRM hands back for any
+// out-and-back day. 5 mi each way, vertices every ~0.035 mi.
+const LNG_OUT = -103.6;
+const LNG_BACK = -103.5998;
+const LAT0 = 44.0;
+const LAT1 = 44.0723; // ≈ 5 mi north
+const STEP = 0.0005;
+const chain = [];
+for (let lat = LAT0; lat <= LAT1 + 1e-9; lat += STEP) chain.push({ lat, lng: LNG_OUT });
+for (let lat = LAT1; lat >= LAT0 - 1e-9; lat -= STEP) chain.push({ lat, lng: LNG_BACK });
+const cum = [0];
+for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
+const total = cum[cum.length - 1];
+const apexMi = total / 2;
+const NORTH = 0;
+const SOUTH = 180;
+// a fix drifted 3/4 of the way from the outbound copy toward the return copy
+// — the worst realistic GPS noise, where plain nearest picks the wrong road
+const drifted = (lat, extra = {}) => ({ lat, lng: LNG_OUT + 0.00015, at: 0, ...extra });
+
+console.log('projectOnChainDirected:');
+{
+  const plain = projectOnChainDirected(chain, drifted(44.03), { cum });
+  check('drifted fix with no heading lands on the RETURN copy (the ambiguity is real)',
+    plain.along > apexMi, `along ${plain.along.toFixed(2)} vs apex ${apexMi.toFixed(2)}`);
+
+  const out = projectOnChainDirected(chain, drifted(44.03), { heading: NORTH, cum });
+  check('heading north keeps the same fix on the OUTBOUND copy',
+    out.along < apexMi, `along ${out.along.toFixed(2)}`);
+  check('raw off is the chosen segment\'s true distance (not the nearest\'s)',
+    out.off > 0.005 && out.off < 0.012, `off ${out.off.toFixed(4)}`);
+
+  const back = projectOnChainDirected(chain, drifted(44.03), { heading: SOUTH, cum });
+  check('heading south matches the RETURN copy', back.along > apexMi, `along ${back.along.toFixed(2)}`);
+
+  const held = projectOnChainDirected(chain, drifted(44.03), { nearMi: 2.0, cum });
+  check('no heading (parked) + continuity memory stays on the outbound copy',
+    held.along < apexMi, `along ${held.along.toFixed(2)}`);
+
+  // near the apex both copies sit inside the continuity window — heading
+  // must still separate them (this is where premature "passed target" fired)
+  const nearApex = projectOnChainDirected(chain, drifted(44.0705), { heading: NORTH, nearMi: apexMi - 0.15, cum });
+  check('0.12 mi short of the apex, heading north still reads OUTBOUND',
+    nearApex.along < apexMi, `along ${nearApex.along.toFixed(2)} apex ${apexMi.toFixed(2)}`);
+}
+
+console.log('afterMi (stationary stop → which drive-by):');
+{
+  // a stop beside the corridor: the route approaches it twice
+  const stop = { lat: 44.029, lng: LNG_OUT - 0.0002 };
+  const first = projectOnChainDirected(chain, stop, { cum, afterMi: 0 });
+  const outAlong = first.along;
+  check('afterMi 0 picks the FIRST drive-by', outAlong < apexMi, `along ${outAlong.toFixed(2)}`);
+  const next = projectOnChainDirected(chain, stop, { cum, afterMi: apexMi });
+  check('afterMi past the apex picks the RETURN drive-by', next.along > apexMi, `along ${next.along.toFixed(2)}`);
+  const last = projectOnChainDirected(chain, stop, { cum, afterMi: total - 0.5 });
+  check('afterMi beyond every drive-by falls back to the LAST one',
+    last.along > apexMi && last.along < total - 0.5, `along ${last.along.toFixed(2)}`);
+}
+
+console.log('chainCursor (fix-to-fix tracking):');
+{
+  // ride the full out-and-back at ~0.07 mi per fix with worst-case drift;
+  // along must never rewind and never leap — the dim split, the puck snap,
+  // and the passage measure all read this number
+  const cur = chainCursor();
+  let prev = null;
+  let monotonic = true;
+  let maxJump = 0;
+  let t = 1000;
+  for (let lat = LAT0; lat <= LAT1 - STEP; lat += 0.001) {
+    const r = cur.project(chain, drifted(lat, { at: (t += 1000), speedMph: 55 }), { heading: NORTH, cum });
+    if (prev != null) {
+      if (r.along < prev - 0.02) monotonic = false;
+      maxJump = Math.max(maxJump, Math.abs(r.along - prev));
+    }
+    prev = r.along;
+  }
+  check('outbound ride: along never rewinds', monotonic);
+  check('outbound ride: no leap onto the return copy', maxJump < 0.2, `max jump ${maxJump.toFixed(2)} mi`);
+  check('outbound ride ends short of the apex', prev < apexMi, `along ${prev.toFixed(2)}`);
+
+  // park at the apex (heading gone), then depart south: the cursor must
+  // cross onto the return copy — a real direction change is not noise
+  const atApex = cur.project(chain, { lat: LAT1, lng: LNG_OUT + 0.0001, at: (t += 1000), speedMph: 0 }, { heading: null, cum });
+  check('parked at the apex stays near the apex', Math.abs(atApex.along - apexMi) < 0.3, `along ${atApex.along.toFixed(2)}`);
+  let south = null;
+  for (let lat = LAT1 - 0.001; lat > LAT1 - 0.006; lat -= 0.001) {
+    south = cur.project(chain, { lat, lng: LNG_BACK - 0.00015, at: (t += 1000), speedMph: 40, heading: SOUTH }, { heading: SOUTH, cum });
+  }
+  check('departing south picks up the RETURN copy', south.along > apexMi, `along ${south.along.toFixed(2)}`);
+
+  // cold lock on the wrong copy (no heading on fix 1) heals within 3 moving fixes
+  const cur2 = chainCursor();
+  let t2 = 1000;
+  const cold = cur2.project(chain, drifted(44.03, { at: t2 }), { heading: null, cum });
+  check('cold start with drift CAN lock the wrong copy (setup)', cold.along > apexMi, `along ${cold.along.toFixed(2)}`);
+  let healed = null;
+  for (let k = 1; k <= 3; k++) {
+    healed = cur2.project(chain, drifted(44.03 + k * 0.001, { at: (t2 += 1000), speedMph: 50 }), { heading: NORTH, cum });
+  }
+  check('three heading-opposed fixes drop the memory and re-acquire OUTBOUND',
+    healed.along < apexMi, `along ${healed.along.toFixed(2)}`);
+}
+
+console.log('arrival ring (speed-tiered):');
+{
+  const mi = (d) => d / 69.17; // degrees latitude for d miles
+  const wps = [
+    { id: 'o', name: 'Origin', lat: 44.0, lng: -103.0 },
+    { id: 'a', name: 'Stop A', lat: 44.2, lng: -103.0 },
+    { id: 'z', name: 'End', lat: 44.5, lng: -103.0 },
+  ];
+  const at = (dMi, speedMph) => ({ lat: 44.2 - mi(dMi), lng: -103.0, speedMph });
+
+  check('ring at speed is tight', arriveRingMi(40) === ARRIVE_MI && ARRIVE_MI <= 0.1);
+  check('ring at parking pace is venue-wide', arriveRingMi(2) === ARRIVE_PARKED_MI);
+
+  // the field complaint: riding 200 m (0.124 mi) out must NOT read arrived
+  let r = navFix(createNav(), wps, at(0.124, 40));
+  check('riding past 200 m out does not latch', navTarget(r.nav, wps).id === 'a');
+
+  r = navFix(createNav(), wps, at(0.124, 3));
+  check('parked 200 m out (at the venue) latches', r.nav.visited.has('a'));
+
+  r = navFix(createNav(), wps, at(0.07, 40));
+  check('riding within ~110 m latches', r.nav.visited.has('a'));
+
+  r = navFix(createNav(), wps, { lat: 44.5 - mi(0.05), lng: -103.0, speedMph: 40 });
+  check('the final stop never proximity-latches', !r.nav.visited.has('z'));
+}
+
+console.log(`\n${pass}/${pass + fail} checks passed${fail ? ' — FAILURES ABOVE' : ''}`);
+process.exit(fail ? 1 : 0);

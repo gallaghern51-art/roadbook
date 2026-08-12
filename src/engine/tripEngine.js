@@ -87,6 +87,129 @@ export function projectOnChain(chain, pos) {
   return best;
 }
 
+// ---- direction-aware projection ----
+// On an out-and-back day the routed chain carries the same road TWICE, the
+// two copies within GPS noise of each other — a plain nearest-segment search
+// picks between them arbitrarily, and every consumer downstream inherits the
+// flip: the traveled-line split detaches from the puck, the snapped heading
+// reverses (the camera spins), and the along-route position leaps onto the
+// return leg, resolving stops the bike never reached (field-caught riding
+// into Crazy Horse, Aug 12 2026). This variant keeps the same scan but,
+// among segments in distance CONTENTION with the nearest, prefers the one
+// that agrees with the bike's heading and with where the bike just was.
+// The penalties only ever reorder contenders — the returned `off` is always
+// the raw distance to the chosen segment, so off-route thresholds and snap
+// gates read exactly as before.
+const CONTEND_MI = 0.03;      // contention band above the nearest hit (~50 m)
+const HEADING_TOL_DEG = 100;  // beyond this the segment points the wrong way
+const HEADING_PENALTY_MI = 0.06;
+const CONTINUITY_WINDOW_MI = 0.4; // plausible along-travel between usable fixes
+const CONTINUITY_PENALTY_MI = 0.12; // outranks heading: hairpins briefly align with the other copy
+export function projectOnChainDirected(chain, pos, { heading = null, nearMi = null, cum = null, afterMi = null } = {}) {
+  if (!chain || chain.length < 2 || !pos) return null;
+  const kx = Math.cos((pos.lat * Math.PI) / 180) * 69.17;
+  const ky = 69.17;
+  // pass 1: every segment's distance + along-position; remember the nearest
+  const segs = new Array(chain.length - 1);
+  let minOff = Infinity;
+  let cumd = 0;
+  for (let i = 0; i < chain.length - 1; i++) {
+    const a = chain[i];
+    const b = chain[i + 1];
+    const ax = (a.lng - pos.lng) * kx; const ay = (a.lat - pos.lat) * ky;
+    const bx = (b.lng - pos.lng) * kx; const by = (b.lat - pos.lat) * ky;
+    const dx = bx - ax; const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const px = ax + t * dx; const py = ay + t * dy;
+    const d = Math.sqrt(px * px + py * py);
+    const segLen = cum ? cum[i + 1] - cum[i] : Math.sqrt(len2);
+    const along = (cum ? cum[i] : cumd) + t * segLen;
+    segs[i] = { d, t, along };
+    cumd += segLen;
+    if (d < minOff) minOff = d;
+  }
+  // pass 2: score the contenders
+  let best = null;
+  let bestScore = Infinity;
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    if (s.d > minOff + CONTEND_MI) continue;
+    let aligned = true;
+    if (heading != null) {
+      const a = chain[i];
+      const b = chain[i + 1];
+      const brg = (Math.atan2((b.lng - a.lng) * Math.cos((pos.lat * Math.PI) / 180), b.lat - a.lat) * 180) / Math.PI;
+      const diff = Math.abs((((brg - heading) % 360) + 540) % 360 - 180);
+      aligned = diff <= HEADING_TOL_DEG;
+    }
+    let score = s.d;
+    if (!aligned) score += HEADING_PENALTY_MI;
+    if (nearMi != null && Math.abs(s.along - nearMi) > CONTINUITY_WINDOW_MI) score += CONTINUITY_PENALTY_MI;
+    // afterMi projects a STATIONARY point (a stop): among contenders, the
+    // route's next approach at-or-past this along-position — or, when every
+    // approach is already behind, the LAST one, so "passed the stop" only
+    // reads true once the bike is past even the final drive-by.
+    if (afterMi != null) score = s.along >= afterMi ? s.along : 1e6 - s.along;
+    if (score < bestScore - 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && best && s.along < best.along)) {
+      bestScore = score;
+      best = { i, f: s.t, off: s.d, along: s.along, aligned };
+    }
+  }
+  return best;
+}
+
+// A stateful wrapper for tracking one moving position along one chain across
+// GPS fixes: remembers the last along-position for the continuity preference,
+// forgets it when the chain changes / the memory goes stale / the bike
+// teleports, and self-heals a wrong-copy lock — three consecutive fixes
+// tracking a segment that opposes the bike's actual heading mean the initial
+// (headingless) acquisition latched the wrong copy of an overlapping road,
+// so the memory drops and heading re-acquires the right one immediately.
+// Results are memoized on (chain, pos) identity: re-renders re-read for free,
+// and a repeat call can never advance the wrong-way counter twice.
+const CURSOR_STALE_MS = 15000;
+const CURSOR_JUMP_MI = 1.5;
+const WRONG_WAY_FIXES = 3;
+export function chainCursor() {
+  let lastChain = null;
+  let lastPos = null;
+  let lastOut = null;
+  let alongMi = null;
+  let atMs = 0;
+  let wrongWay = 0;
+  return {
+    project(chain, pos, { heading = null, cum = null } = {}) {
+      if (!chain || chain.length < 2 || !pos) return null;
+      if (chain === lastChain && pos === lastPos) return lastOut;
+      const now = pos.at ?? Date.now();
+      if (chain !== lastChain) { alongMi = null; wrongWay = 0; }
+      else if (alongMi != null
+        && ((atMs && now - atMs > CURSOR_STALE_MS)
+          || (lastPos && haversineMiles(lastPos, pos) > CURSOR_JUMP_MI))) {
+        alongMi = null;
+        wrongWay = 0;
+      }
+      let r = projectOnChainDirected(chain, pos, { heading, nearMi: alongMi, cum });
+      if (r && heading != null && !r.aligned) {
+        wrongWay += 1;
+        if (wrongWay >= WRONG_WAY_FIXES) {
+          wrongWay = 0;
+          alongMi = null;
+          r = projectOnChainDirected(chain, pos, { heading, nearMi: null, cum });
+        }
+      } else if (r) {
+        wrongWay = 0;
+      }
+      lastChain = chain;
+      lastPos = pos;
+      lastOut = r;
+      if (r) { alongMi = r.along; atMs = now; }
+      return r;
+    },
+  };
+}
+
 // Cheapest place to splice a new point into an existing waypoint sequence.
 export function bestInsertIndex(waypoints, pt) {
   if (waypoints.length < 2) return waypoints.length;

@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine/timeline.js';
-import { haversineMiles, tripRange, tripPace, projectOnChain, bestInsertIndex } from '../engine/tripEngine.js';
+import {
+  haversineMiles, tripRange, tripPace, projectOnChain, projectOnChainDirected,
+  chainCursor, bestInsertIndex,
+} from '../engine/tripEngine.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
-  navGoNext, navSkip, navRestore, navInitVisited, navArriveAt,
+  navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
 import { geocode } from '../engine/geocode.js';
 import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
@@ -122,12 +125,21 @@ const fmtStepDist = (mi) => {
   return `${Math.max(50, Math.round((mi * 5280) / 50) * 50)} ft`;
 };
 
+// A moving position keeps its heading only when it means something — GPS
+// course below walking-out-of-a-lot speed is noise, and a parked bike may
+// legally face either way. Shared by every chain projection and navOrigin.
+const fixHeading = (f) => (f && f.heading != null && (f.speedMph ?? 0) > 4 ? f.heading : null);
+
 // Position on the plan: leg index, planned clock minutes, miles done.
-// (projectOnChain — position → best segment of a chain — lives in tripEngine.)
-function planPosition(day, tl, pos) {
+// Projections go through a chainCursor: out-and-back days carry the same
+// corridor twice, and the cursor's heading + continuity preferences are what
+// keep the match on the copy the bike is actually riding (see tripEngine).
+function planPosition(day, tl, pos, cursor) {
   const wps = day.waypoints;
   if (wps.length < 2) return null;
-  const best = projectOnChain(wps, pos);
+  const best = cursor
+    ? cursor.project(wps, pos, { heading: fixHeading(pos) })
+    : projectOnChain(wps, pos);
   if (!best) return null;
   const seg = tl.stops[best.i + 1];
   const plannedMin = tl.stops[best.i].depart + best.f * (seg?.legMin ?? 0);
@@ -140,9 +152,11 @@ function planPosition(day, tl, pos) {
 // Position on the maneuver chain: next turn, miles to it, what's left of the
 // CURRENT LEG (up to the next arrive maneuver — the number a rider actually
 // wants at speed), and what's left of the whole day.
-function locateOnSteps(steps, pos) {
+function locateOnSteps(steps, pos, cursor) {
   if (!steps || steps.length < 2) return null;
-  const best = projectOnChain(steps, pos);
+  const best = cursor
+    ? cursor.project(steps, pos, { heading: fixHeading(pos) })
+    : projectOnChain(steps, pos);
   if (!best) return null;
   const cur = steps[best.i];
   const toNext = Math.max(0, (1 - best.f) * cur.dist);
@@ -393,6 +407,12 @@ export default function RideMode({ onClose }) {
   const puckPosRef = useRef(null); // last PAINTED puck position — glide start point
   const puckAnimRef = useRef(0);
   const mountedRef = useRef(true);
+  // One direction-aware projection cursor per chain the bike is tracked on
+  // (routed geometry / maneuver steps / waypoint legs). Each remembers its
+  // own along-position; a chain identity change resets it naturally.
+  const geoCursorRef = useRef(null);
+  const stepsCursorRef = useRef(null);
+  const planCursorRef = useRef(null);
   // re-arm in the body: StrictMode's dev double-mount runs the cleanup once,
   // and a ref initializer alone would leave this false forever after it
   useEffect(() => {
@@ -685,9 +705,11 @@ export default function RideMode({ onClose }) {
 
   // ---- derived readouts ----
   const activeSteps = reroute?.steps ?? steps;
-  const proj = fix ? planPosition(day, tl, fix) : null;
+  const proj = fix ? planPosition(day, tl, fix, (planCursorRef.current ??= chainCursor())) : null;
   projRef.current = proj;
-  const nav = fix && activeSteps?.length ? locateOnSteps(activeSteps, fix) : null;
+  const nav = fix && activeSteps?.length
+    ? locateOnSteps(activeSteps, fix, (stepsCursorRef.current ??= chainCursor()))
+    : null;
   const delta = proj ? clock - proj.plannedMin : null; // + = behind plan
 
   // What navigation actually aims for — read straight off the fact machine.
@@ -699,7 +721,7 @@ export default function RideMode({ onClose }) {
   // heading assumed from the road snap is what buys a turn-around tour.
   const navOrigin = () => ({
     lat: fix.lat, lng: fix.lng,
-    ...(fix.heading != null && (fix.speedMph ?? 0) > 4 ? { heading: fix.heading } : {}),
+    ...(fixHeading(fix) != null ? { heading: fix.heading } : {}),
   });
 
   // One reroute path for every deliberate retarget (skip, restore, go-next).
@@ -736,17 +758,18 @@ export default function RideMode({ onClose }) {
     const chain = coords.map(([lng, lat]) => ({ lat, lng }));
     const cum = [0];
     for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-    const at = (p) => cum[p.i] + p.f * (cum[p.i + 1] - cum[p.i]);
-    const bike = projectOnChain(chain, fix);
+    const bike = projectOnChainDirected(chain, fix, { heading: fixHeading(fix), cum });
     initLatchRef.current = true;
     if (!bike || bike.off > 2) return; // far off the plan — off-route handles it
-    const bikeAt = at(bike);
+    const bikeAt = bike.along;
     // contiguous prefix only: the first stop that reads "ahead" ends the walk,
-    // which also keeps out-and-back double-passage geometry from over-latching
+    // which also keeps out-and-back double-passage geometry from over-latching.
+    // Each stop reads at its FIRST drive-by (afterMi: 0) — a stop is behind
+    // only when the bike is past even its earliest approach.
     let latch = 0;
     for (let i = 1; i < day.waypoints.length - 1; i++) {
-      const p = projectOnChain(chain, day.waypoints[i]);
-      if (p && at(p) < bikeAt - 0.3) latch = i;
+      const p = projectOnChainDirected(chain, day.waypoints[i], { cum, afterMi: 0 });
+      if (p && p.along < bikeAt - 0.3) latch = i;
       else break;
     }
     if (latch > 0) {
@@ -786,8 +809,11 @@ export default function RideMode({ onClose }) {
     return { chain, cum, total: cum[cum.length - 1] || 1 };
   }, [reroute, routes, day]);
   const geoProj = useMemo(
-    () => (fix && geomInfo.chain.length > 1 ? projectOnChain(geomInfo.chain, fix) : null),
-    [fix, geomInfo]
+    () => (fix && geomInfo.chain.length > 1
+      ? (geoCursorRef.current ??= chainCursor())
+        .project(geomInfo.chain, fix, { heading: fixHeading(fix), cum: geomInfo.cum })
+      : null),
+    [fix, geomInfo] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const goodFix = fix && (fix.accuracy == null || fix.accuracy < 200);
   const offRoute = !!(geoProj && goodFix && geoProj.off > (hasRealRoute ? 0.12 : 2.5));
@@ -807,11 +833,14 @@ export default function RideMode({ onClose }) {
     let passedTargetId = null;
     const tgt = navTarget(destRef.current, day.waypoints);
     if (onRoute && tgt && geoProj && geomInfo.chain.length > 1) {
-      const tp = projectOnChain(geomInfo.chain, tgt);
-      if (tp && tp.off < 0.5) {
-        const along = (p) => geomInfo.cum[p.i] + p.f * (geomInfo.cum[p.i + 1] - geomInfo.cum[p.i]);
-        if (along(geoProj) > along(tp) + 0.3) passedTargetId = tgt.id;
-      }
+      // The route may approach this stop more than once (out-and-back).
+      // Measure passage against its NEXT approach at-or-past the bike —
+      // projecting onto an earlier drive-by would read "passed" the moment
+      // the stop became the target.
+      const tp = projectOnChainDirected(geomInfo.chain, tgt, {
+        cum: geomInfo.cum, afterMi: geoProj.along - 0.3,
+      });
+      if (tp && tp.off < 0.5 && geoProj.along > tp.along + 0.3) passedTargetId = tgt.id;
     }
     const { nav: next, events } = navFix(destRef.current, day.waypoints, fix, { onRoute, passedTargetId });
     if (next !== destRef.current) {
@@ -1158,11 +1187,12 @@ export default function RideMode({ onClose }) {
   }, [fix, day, tl, delta, proj?.i, dest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Day's end: the machine says the final stop is what's left, and the bike
-  // is within a couple hundred yards of it.
+  // is within a couple hundred yards of it — a tighter couple at riding
+  // speed, so the arrival card can't swap in while still genuinely riding.
   const lastWp = day.waypoints[day.waypoints.length - 1];
   const arrived = !!(fix && lastWp
     && navTarget(dest, day.waypoints)?.id === lastWp.id
-    && haversineMiles(fix, lastWp) < 0.15);
+    && haversineMiles(fix, lastWp) < ((fix.speedMph ?? 0) > PARK_MPH ? 0.08 : 0.15));
 
   // The remaining stops as swipeable cards — the roadbook strip. Google gives
   // you turns; a roadbook gives you the day. Skipped stops stay visible

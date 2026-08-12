@@ -55,7 +55,18 @@
 
 import { haversineMiles } from './tripEngine.js';
 
-export const ARRIVE_MI = 0.25;     // touched the stop: it is visited
+// The arrival ring is speed-tiered (field-caught Aug 12, 2026: a flat 0.25 mi
+// declared arrival while still riding 200 m out). At riding speed the pin
+// must be practically underfoot; once the bike slows to parking pace the ring
+// widens to venue scale — POI pins sit at the building while bikes stop in a
+// lot a couple hundred meters short. Stops whose pin the road never gets this
+// close to are resolved by along-route passage (ctx.passedTargetId), which is
+// what the wide ring was originally papering over.
+export const ARRIVE_MI = 0.09;        // ~480 ft at speed: touched the stop
+export const ARRIVE_PARKED_MI = 0.21; // ~1100 ft below parking pace
+export const PARK_MPH = 6;
+export const arriveRingMi = (speedMph) =>
+  (speedMph != null && speedMph > PARK_MPH ? ARRIVE_MI : ARRIVE_PARKED_MI);
 export const PASS_NEAR_MI = 1.0;   // came at least this close to count as "approached"
 export const PASS_AWAY_MI = 0.35;  // then pulled this far past closest approach
 
@@ -119,12 +130,13 @@ export function navFix(nav, waypoints, fix, { onRoute = false, passedTargetId = 
 
   // 1. Proximity latch — any stop ordered at-or-before the target that the
   // bike is physically on becomes visited. Never the final stop.
+  const ring = arriveRingMi(fix.speedMph);
   const before = navTarget(nav, waypoints);
   const beforeIdx = waypoints.findIndex((w) => w.id === before?.id);
   for (let i = 0; i <= Math.min(beforeIdx, lastIdx - 1); i++) {
     const w = waypoints[i];
     if (visited.has(w.id) || skipped.has(w.id)) continue;
-    if (haversineMiles(fix, w) < ARRIVE_MI) {
+    if (haversineMiles(fix, w) < ring) {
       if (visited === nav.visited) visited = new Set(visited);
       visited.add(w.id);
       if (pinned === w.id) pinned = null;
