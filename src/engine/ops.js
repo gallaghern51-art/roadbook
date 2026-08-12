@@ -129,6 +129,13 @@ function applyOp(t, op) {
       const [w] = from.waypoints.splice(idx, 1);
       const at = Math.min(Math.max(op.index ?? to.waypoints.length, 0), to.waypoints.length);
       to.waypoints.splice(at, 0, w);
+      // a gate is a promise about arriving at its stop — it travels with it
+      // (left behind it would orphan: silently absent from grading and Ride)
+      const carried = (from.gates ?? []).filter((g) => g.waypointId === op.waypointId);
+      if (carried.length) {
+        from.gates = from.gates.filter((g) => g.waypointId !== op.waypointId);
+        to.gates = [...(to.gates ?? []), ...carried];
+      }
       return t;
     }
     case 'add_waypoint': {
@@ -144,6 +151,12 @@ function applyOp(t, op) {
       const idx = d.waypoints.findIndex((w) => w.id === op.waypointId);
       if (idx < 0) throw new Error(`unknown waypoint ${op.waypointId}`);
       d.waypoints.splice(idx, 1);
+      // its gates go explicitly with it — an orphaned gate half-renders in
+      // the editor while silently absent from grading and the Ride chip,
+      // which is the worst of both (field-audited Aug 12, 2026)
+      if (d.gates?.some((g) => g.waypointId === op.waypointId)) {
+        d.gates = d.gates.filter((g) => g.waypointId !== op.waypointId);
+      }
       return t;
     }
     case 'update_waypoint': {
@@ -313,7 +326,7 @@ export function describeOps(trip, ops) {
       case 'reorder_waypoints': return `Reorder stops on ${dayName(op.dayId)}`;
       case 'move_waypoint': return `Move a stop from ${dayName(op.fromDayId)} to ${dayName(op.toDayId)}`;
       case 'add_waypoint': return `Add “${op.waypoint?.name}” to ${dayName(op.dayId)}`;
-      case 'remove_waypoint': return `Remove a stop from ${dayName(op.dayId)}`;
+      case 'remove_waypoint': return `Remove a stop from ${dayName(op.dayId)} (any gate on it goes too)`;
       case 'update_waypoint': return `Edit a stop on ${dayName(op.dayId)}`;
       case 'set_day_field': return `Set ${op.field} on ${dayName(op.dayId)}`;
       case 'toggle_module': return `Turn ${op.enabled ? 'ON' : 'OFF'} ${modName(op.dayId, op.moduleId)} on ${dayName(op.dayId)}`;

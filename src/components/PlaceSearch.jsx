@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useTrip } from '../engine/store.js';
-import { bestInsertIndex } from '../engine/tripEngine.js';
+import { bestInsertIndex, insertIndexOnRoute } from '../engine/tripEngine.js';
 import { geocode } from '../engine/geocode.js';
 import { useT } from '../engine/settings.jsx';
 
@@ -8,7 +8,7 @@ import { useT } from '../engine/settings.jsx';
 // get lat/lng, and drop it into the day's route at the cheapest splice point.
 export default function PlaceSearch({ day }) {
   const t = useT();
-  const { dispatch } = useTrip();
+  const { dispatch, routes } = useTrip();
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -34,12 +34,16 @@ export default function PlaceSearch({ day }) {
 
   const add = (r) => {
     const pt = { lat: r.lat, lng: r.lng };
+    // Slot the stop by ROUTE order when the day has a routed line — the
+    // straight-line splice put stops in the wrong half of loop days.
+    const geom = !routes[day.id]?.fallback ? routes[day.id]?.geometry : null;
+    const chain = geom?.length > 1 ? geom.map(([lng, lat]) => ({ lat, lng })) : null;
     dispatch({
       type: 'apply_ops',
       ops: [{
         op: 'add_waypoint',
         dayId: day.id,
-        index: bestInsertIndex(day.waypoints, pt),
+        index: insertIndexOnRoute(day.waypoints, chain, pt) ?? bestInsertIndex(day.waypoints, pt),
         waypoint: {
           name: r.name, ...pt, kind: 'via', note: r.detail,
           // place identity rides with the stop so the route API snaps to the
