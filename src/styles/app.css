@@ -2337,6 +2337,10 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    leg figures win the width fight (rb-day's shrink factor makes the day
    yield ~4:1 first), and under 400px the day sheds its miles tail entirely
    (still in the ride sheet) instead of ellipsizing mid-number */
+.ride-bar .rb-duo { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: nowrap; }
+.ride-bar .rb-duo .rb-day { flex: 0 4 auto; min-width: 0; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 400px) { .ride-bar .rb-day-mi { display: none; } }
+@media (max-width: 359px) { .ride-bar .rb-duo .rb-day { display: none; } }
 /* footer: the next stop's name alone at full width, so it rarely marquees */
 .ride-bar .rb-foot { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ride-bar .rb-foot .rb-next { flex: 1; min-width: 0; margin-top: 0; }
@@ -2351,12 +2355,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .ride-bar .rb-next { margin-top: 3px; }
 .ride-bar .rb-next .mq-ink { font-size: 17.5px; font-weight: 500; color: var(--ink-dim); }
 /* the whole-day ETA, demoted under the leg numbers so they can't be confused */
-/* the day summary: the bar's own last line — a full row means it never
-   ellipsizes against the leg figures (field screenshot: "42 …" / "211 …") */
-.ride-bar .rb-day {
-  font-family: var(--mono); font-size: 14.5px; font-weight: 500; color: var(--ink-faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
-}
+.ride-bar .rb-day { font-family: var(--mono); font-size: 14.5px; font-weight: 500; color: var(--ink-faint); }
 .ride-bar .rb-sub { font-family: var(--mono); font-size: 14px; color: var(--ink-dim); }
 .ride-bar.arrive { border-color: var(--ok); }
 .ride-bar.arrive .rb-big { color: var(--ok); }
