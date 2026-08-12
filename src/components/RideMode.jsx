@@ -185,6 +185,7 @@ function locateOnSteps(steps, pos, cursor) {
 // version resurrected departed stops and auto-skipped chosen destinations.
 
 const NAV_AHEAD = '#ffab5c';
+const NAV_BEYOND = '#9c6a38'; // muted amber — the day beyond the current leg
 const NAV_DONE = 'rgba(122, 122, 122, 0.65)';
 const SOLID_AHEAD = ['interpolate', ['linear'], ['line-progress'], 0, NAV_AHEAD, 1, NAV_AHEAD];
 const EMPTY_LINE = { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
@@ -529,7 +530,9 @@ export default function RideMode({ onClose }) {
       maxTileCacheSize: 1024, // keep ridden-past tiles around for overview jumps
     });
     mapRef.current = map;
-    if (import.meta.env.DEV) window.__rideMap = map; // console/sim debugging, dev only
+    // console/sim debugging — the GPS-sim SOP asserts on the nav map's paint
+    // properties, and the sims drive the BUILT app, so this isn't dev-gated
+    window.__rideMap = map;
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -921,20 +924,36 @@ export default function RideMode({ onClose }) {
     return () => { dead = true; };
   }, [aheadPt?.lat?.toFixed?.(1), aheadPt?.lng?.toFixed?.(1)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // dim the part of the route already ridden (Google-style traveled line)
+  // Three-zone route line: dim gray BEHIND the bike (traveled), full-bright
+  // to the NEXT STOP, muted amber for the rest of the day. On a loop-heavy
+  // day the whole remaining route in full orange reads as spaghetti — the
+  // leg being ridden should be the one bright thing (field screenshot,
+  // Deadwood → Needles with the day's web all highlighted).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded() || !map.getLayer('ride-route-line')) return;
     const layer = reroute ? 'ride-live-line' : 'ride-route-line';
+    const { cum, total } = geomInfo;
     let frac = 0;
+    let legFrac = null;
     if (geoProj && !offRoute) {
-      const { cum, total } = geomInfo;
       frac = (cum[geoProj.i] + geoProj.f * (cum[geoProj.i + 1] - cum[geoProj.i])) / total;
+      // the next stop's position along the route — its NEXT approach at-or-
+      // past the bike, same measure passedTargetId trusts
+      const tgt = navRemaining(destRef.current, day.waypoints)[0];
+      if (tgt) {
+        const tp = projectOnChainDirected(geomInfo.chain, tgt, { cum, afterMi: frac * total - 0.3 });
+        if (tp && tp.off < 2) legFrac = Math.min(0.999, tp.along / total);
+      }
     }
     frac = Math.max(0, Math.min(0.999, frac));
+    const stops = [];
+    if (frac > 0.001) stops.push(frac, NAV_AHEAD);
+    if (legFrac != null && legFrac > frac + 0.003) stops.push(legFrac, NAV_BEYOND);
     map.setPaintProperty(layer, 'line-gradient',
-      frac <= 0.001 ? SOLID_AHEAD : ['step', ['line-progress'], NAV_DONE, frac, NAV_AHEAD]);
-  }, [geoProj, reroute, offRoute]); // eslint-disable-line react-hooks/exhaustive-deps
+      stops.length === 0 ? SOLID_AHEAD
+        : ['step', ['line-progress'], frac > 0.001 ? NAV_DONE : NAV_AHEAD, ...stops]);
+  }, [geoProj, reroute, offRoute, dest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- puck + chase camera, map-matched ----
   // Within ~30 m of the line the puck snaps onto it and takes the road's
