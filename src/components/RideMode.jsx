@@ -400,6 +400,8 @@ export default function RideMode({ onClose }) {
   const compassRef = useRef(null); // the rose needle — rotated straight on the DOM, no re-render per frame
   const destRef = useRef(null);
   destRef.current = dest;
+  const rerouteRef = useRef(null);
+  rerouteRef.current = reroute;
   const projRef = useRef(null);
   const limiterRef = useRef(null); // speed-limit tracker, one per ride
   const onPlanRef = useRef(0); // consecutive fixes back on the planned line
@@ -613,24 +615,44 @@ export default function RideMode({ onClose }) {
     return () => map.off('styledata', redraw);
   }, [navStyle]);
 
-  // turn-by-turn maneuvers for the selected day
+  // a new day is a fresh slate — routes, facts, voice, the lot
   useEffect(() => {
-    let dead = false;
-    setSteps(null);
     setReroute(null);
     setRerouteFailed(false);
     offCountRef.current = 0;
     liveRouteAtRef.current = 0;
     spokenRef.current = '';
-    // a new day is a fresh slate for the destination machine
     setDest(createNav());
     setUndoSkip(null);
     setLiveEta(null);
     onPlanRef.current = 0;
     initLatchRef.current = false;
-    routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
-    return () => { dead = true; };
   }, [day.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Turn-by-turn maneuvers for the selected day — keyed on the WAYPOINTS,
+  // not just the day id: a stop added under a live ride (DayPanel, Copilot,
+  // a sync landing) must reach the guidance chain, or nav keeps riding the
+  // old route while the map wears the new marker (field-caught adding
+  // Deadwood to a cabin loop day). Same signature the steps cache uses.
+  const wpSig = day.waypoints
+    .filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng))
+    .map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
+  const stepsSigRef = useRef('');
+  useEffect(() => {
+    let dead = false;
+    setSteps(null);
+    const prev = stepsSigRef.current;
+    const sig = `${day.id}|${wpSig}`;
+    stepsSigRef.current = sig;
+    routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
+    // A plan edit while a live reroute is up: the live route was built for
+    // the OLD stop list — re-target it from the machine's remaining stops
+    // (same-day signature change only; a day switch resets the reroute).
+    if (prev && prev !== sig && prev.startsWith(`${day.id}|`) && rerouteRef.current) {
+      goRouteRef.current(navRemaining(syncNav(destRef.current, day.waypoints), day.waypoints));
+    }
+    return () => { dead = true; };
+  }, [day.id, wpSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Plan edits under a live ride (added stop, a sync landing, Copilot):
   // facts are keyed by waypoint id — prune the ones that left the plan.
@@ -758,7 +780,11 @@ export default function RideMode({ onClose }) {
     const chain = coords.map(([lng, lat]) => ({ lat, lng }));
     const cum = [0];
     for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-    const bike = projectOnChainDirected(chain, fix, { heading: fixHeading(fix), cum });
+    // A parked bike (no heading) at a point the chain visits twice — a day
+    // that starts and ends at the lodging — projects ambiguously: take the
+    // EARLIEST copy, or the latch reads "end of day" and eats every stop.
+    const h = fixHeading(fix);
+    const bike = projectOnChainDirected(chain, fix, { heading: h, cum, ...(h == null ? { afterMi: 0 } : {}) });
     initLatchRef.current = true;
     if (!bike || bike.off > 2) return; // far off the plan — off-route handles it
     const bikeAt = bike.along;
@@ -832,7 +858,12 @@ export default function RideMode({ onClose }) {
     // arrival ring). 0.3 mi of buffer absorbs snap noise.
     let passedTargetId = null;
     const tgt = navTarget(destRef.current, day.waypoints);
-    if (onRoute && tgt && geoProj && geomInfo.chain.length > 1) {
+    // Passage is a RIDING phenomenon: it needs a moving fix whose projection
+    // agrees with the bike's heading. A parked bike can't pass anything, and
+    // a heading-opposed match means the projection is on the wrong copy of
+    // an out-and-back road — neither may resolve a stop.
+    if (onRoute && tgt && geoProj && geomInfo.chain.length > 1
+      && fixHeading(fix) != null && geoProj.aligned !== false) {
       // The route may approach this stop more than once (out-and-back).
       // Measure passage against its NEXT approach at-or-past the bike —
       // projecting onto an earlier drive-by would read "passed" the moment
