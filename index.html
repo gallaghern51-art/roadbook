@@ -11,8 +11,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Roadbook" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <!-- iOS ignores an SVG apple-touch-icon and falls back to a generated
+         letter tile (the home screen showed a plain "R"). It needs a PNG. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>
