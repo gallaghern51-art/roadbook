@@ -190,7 +190,13 @@ export function chainCursor() {
         alongMi = null;
         wrongWay = 0;
       }
-      let r = projectOnChainDirected(chain, pos, { heading, nearMi: alongMi, cum });
+      // Cold acquisition with no heading is the one unguarded moment: parked
+      // at a point the chain visits twice (a day that starts AND ends at the
+      // lodging), nothing separates the copies — take the EARLIEST. Reading
+      // "day not yet ridden" at worst under-reports progress, which riding
+      // (heading) corrects; locking the end copy silently eats every stop.
+      const cold = alongMi == null && heading == null ? { afterMi: 0 } : {};
+      let r = projectOnChainDirected(chain, pos, { heading, nearMi: alongMi, cum, ...cold });
       if (r && heading != null && !r.aligned) {
         wrongWay += 1;
         if (wrongWay >= WRONG_WAY_FIXES) {

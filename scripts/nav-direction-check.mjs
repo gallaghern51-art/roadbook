@@ -34,6 +34,7 @@ const STEP = 0.0005;
 const chain = [];
 for (let lat = LAT0; lat <= LAT1 + 1e-9; lat += STEP) chain.push({ lat, lng: LNG_OUT });
 for (let lat = LAT1; lat >= LAT0 - 1e-9; lat -= STEP) chain.push({ lat, lng: LNG_BACK });
+chain.push({ lat: LAT0, lng: LNG_BACK }); // close the return leg exactly (float stepping stops short)
 const cum = [0];
 for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
 const total = cum[cum.length - 1];
@@ -116,17 +117,44 @@ console.log('chainCursor (fix-to-fix tracking):');
   }
   check('departing south picks up the RETURN copy', south.along > apexMi, `along ${south.along.toFixed(2)}`);
 
-  // cold lock on the wrong copy (no heading on fix 1) heals within 3 moving fixes
+  // a cursor legitimately tracking the return copy that turns out to be the
+  // wrong one (rider actually outbound) heals within 3 moving fixes
   const cur2 = chainCursor();
   let t2 = 1000;
-  const cold = cur2.project(chain, drifted(44.03, { at: t2 }), { heading: null, cum });
-  check('cold start with drift CAN lock the wrong copy (setup)', cold.along > apexMi, `along ${cold.along.toFixed(2)}`);
+  let locked = null;
+  for (let k = 0; k < 2; k++) {
+    locked = cur2.project(chain, { lat: 44.032 - k * 0.001, lng: LNG_BACK - 0.00005, at: (t2 += 1000), speedMph: 45 },
+      { heading: SOUTH, cum });
+  }
+  check('cursor warmed on the RETURN copy (setup)', locked.along > apexMi, `along ${locked.along.toFixed(2)}`);
   let healed = null;
   for (let k = 1; k <= 3; k++) {
     healed = cur2.project(chain, drifted(44.03 + k * 0.001, { at: (t2 += 1000), speedMph: 50 }), { heading: NORTH, cum });
   }
   check('three heading-opposed fixes drop the memory and re-acquire OUTBOUND',
     healed.along < apexMi, `along ${healed.along.toFixed(2)}`);
+}
+
+console.log('shared start/end (a day that leaves from and returns to the lodging):');
+{
+  // parked at the cabin, drifted toward the RETURN side of the road: the
+  // chain holds this point at along ≈ 0 AND along ≈ total. A cold cursor
+  // with no heading must read "day not yet ridden" — the end-copy lock is
+  // what ate a just-added mid-loop stop (field-caught: Deadwood on a Cozy
+  // Cabin loop day).
+  const parked = { lat: LAT0, lng: LNG_BACK - 0.00003, at: 1000, speedMph: 0 };
+  const plain = projectOnChainDirected(chain, parked, { cum });
+  check('the ambiguity is real: plain nearest reads the END copy',
+    plain.along > apexMi, `along ${plain.along.toFixed(2)} of ${total.toFixed(2)}`);
+  const cur = chainCursor();
+  const cold = cur.project(chain, parked, { heading: null, cum });
+  check('cold park locks the EARLIEST copy', cold.along < 0.1, `along ${cold.along.toFixed(2)}`);
+  let t = 1000;
+  let r = null;
+  for (let k = 1; k <= 4; k++) {
+    r = cur.project(chain, { lat: LAT0 + k * 0.001, lng: LNG_OUT + 0.00015, at: (t += 1000), speedMph: 45 }, { heading: NORTH, cum });
+  }
+  check('departing outbound rides the along up from zero', r.along > 0.1 && r.along < 1, `along ${r.along.toFixed(2)}`);
 }
 
 console.log('arrival ring (speed-tiered):');
