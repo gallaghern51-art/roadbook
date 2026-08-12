@@ -8,6 +8,7 @@ import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
 import { tripPace } from '../engine/tripEngine.js';
+import { to24h, from24h } from '../engine/timeline.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
 
 // Suggestions only — riders type whatever they actually ride. (The list began
@@ -171,9 +172,11 @@ function TripSettings({ trip, dispatch }) {
           <input type="number" min="10" value={range.mpg} onChange={(e) => setRange('mpg', e.target.value)} />
         </label>
         <label className="fld">{t('Dusk (after-dark warnings)')}
-          <input defaultValue={trip.meta.dusk ?? '8:30 PM'} key={trip.meta.dusk}
-            placeholder="8:30 PM"
-            onBlur={(e) => { if (e.target.value !== (trip.meta.dusk ?? '')) set({ dusk: e.target.value }); }} />
+          <input type="time" defaultValue={to24h(trip.meta.dusk ?? '8:30 PM')} key={trip.meta.dusk}
+            onBlur={(e) => {
+              const v = from24h(e.target.value);
+              if (v && v !== (trip.meta.dusk ?? '8:30 PM')) set({ dusk: v });
+            }} />
         </label>
         <label className="fld">{t('Group pace buffer %')}
           <input type="number" min="0" max="50" step="1"

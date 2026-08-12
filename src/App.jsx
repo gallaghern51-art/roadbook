@@ -141,6 +141,19 @@ export default function App() {
     }
   }, [state.selectedDayId]);
 
+  // Mid-trip, entering a trip lands on TODAY's day — once per trip entry, and
+  // never over an explicit selection. Before/after the trip there is no
+  // "today" to land on and the trip overview stands as before.
+  const autoTodayRef = useRef(null);
+  useEffect(() => {
+    if (screen !== 'trip' || autoTodayRef.current === state.lib.activeId) return;
+    autoTodayRef.current = state.lib.activeId;
+    if (state.selectedDayId) return;
+    const today = new Date().toLocaleDateString('sv-SE');
+    const d = state.trip.days.find((x) => x.date === today);
+    if (d) dispatch({ type: 'select_day', dayId: d.id });
+  }, [screen, state.lib.activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A question queued for the AI (feasibility handoffs, PREP hero) opens the
   // dock; the chat mounts, sees the ask, and sends it.
   useEffect(() => {

@@ -786,11 +786,12 @@ export default function RideMode({ onClose }) {
     const chain = coords.map(([lng, lat]) => ({ lat, lng }));
     const cum = [0];
     for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-    // A parked bike (no heading) at a point the chain visits twice — a day
-    // that starts and ends at the lodging — projects ambiguously: take the
-    // EARLIEST copy, or the latch reads "end of day" and eats every stop.
-    const h = fixHeading(fix);
-    const bike = projectOnChainDirected(chain, fix, { heading: h, cum, ...(h == null ? { afterMi: 0 } : {}) });
+    // At a point the chain visits twice the projection is ambiguous — and a
+    // loop can ride the same stretch the same DIRECTION twice, so heading
+    // alone can't always break the tie. Take the EARLIEST heading-compatible
+    // copy: under-latching is recoverable (Go next), while a late-copy read
+    // here marks the whole day visited and eats every stop.
+    const bike = projectOnChainDirected(chain, fix, { heading: fixHeading(fix), cum, afterMi: 0 });
     initLatchRef.current = true;
     if (!bike || bike.off > 2) return; // far off the plan — off-route handles it
     const bikeAt = bike.along;

@@ -6,7 +6,7 @@ import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
 import { fuelGaps } from '../engine/tripEngine.js';
-import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
+import { dayTimeline, fmtTime, fmtDur, to24h, from24h } from '../engine/timeline.js';
 import PlaceSearch from './PlaceSearch.jsx';
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
@@ -70,10 +70,16 @@ export default function DayPanel({ day }) {
             onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'anchor', value: !day.anchor }] })}
           >{day.anchor ? `★ ${t('Anchor')}` : `☆ ${t('Anchor')}`}</button>
           <label className="chip depart-edit">{t('Depart')}
+            {/* a real time field — the native picker beats typing "AM/PM" on
+                a phone, and storage keeps the readable 12-hour string */}
             <input
-              defaultValue={day.depart}
+              type="time"
+              defaultValue={to24h(day.depart)}
               key={day.id + day.depart}
-              onBlur={(e) => { if (e.target.value !== day.depart) dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'depart', value: e.target.value }] }); }}
+              onBlur={(e) => {
+                const v = from24h(e.target.value);
+                if (v && v !== day.depart) dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'depart', value: v }] });
+              }}
               onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
             />
           </label>
@@ -225,9 +231,10 @@ function GatesSection({ day, dispatch, timeline, t, tt }) {
           />
           <input
             className="g-by"
-            defaultValue={g.by}
-            placeholder="7:00 AM"
-            onBlur={(e) => { if (e.target.value !== g.by) patch(i, { by: e.target.value }); }}
+            type="time"
+            defaultValue={to24h(g.by)}
+            key={`${i}:${g.by}`}
+            onBlur={(e) => { const v = from24h(e.target.value); if (v && v !== g.by) patch(i, { by: v }); }}
             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
           />
           <select

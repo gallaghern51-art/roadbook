@@ -157,6 +157,38 @@ console.log('shared start/end (a day that leaves from and returns to the lodging
   check('departing outbound rides the along up from zero', r.along > 0.1 && r.along < 1, `along ${r.along.toFixed(2)}`);
 }
 
+console.log('same-DIRECTION overlap (loop rides one stretch southbound twice):');
+{
+  // Field-caught at Deadwood: the morning ride out and the midnight return
+  // traverse the same road in the SAME direction, so heading cannot separate
+  // the copies. Cold acquisition must take the earliest aligned copy — the
+  // late lock read "Day · 7 mi" at 11 AM with the whole day ahead.
+  const A = -103.6;
+  const B = -103.5998;
+  const stick = [];
+  for (let lat = 44.05; lat >= 44.0 - 1e-9; lat -= 0.0005) stick.push(lat);
+  const loop = { chain: [], cum: null };
+  for (const lat of stick) loop.chain.push({ lat, lng: A });          // copy 1: southbound
+  loop.chain.push({ lat: 44.0, lng: -103.55 });                       // far detour east…
+  loop.chain.push({ lat: 44.05, lng: -103.55 });                      // …and back north
+  for (const lat of stick) loop.chain.push({ lat, lng: B });          // copy 2: southbound AGAIN
+  loop.chain.push({ lat: 43.99, lng: B });                            // tail to the day's end
+  const lcum = [0];
+  for (let i = 1; i < loop.chain.length; i++) lcum.push(lcum[i - 1] + haversineMiles(loop.chain[i - 1], loop.chain[i]));
+  const copy2Start = lcum[stick.length + 2];
+
+  // moving south mid-stick, GPS drifted toward copy 2
+  const mid = (k, t) => ({ lat: 44.03 - k * 0.001, lng: B - 0.00005, at: t, speedMph: 45 });
+  const cur = chainCursor();
+  let t = 1000;
+  const cold = cur.project(loop.chain, mid(0, t), { heading: SOUTH, cum: lcum });
+  check('cold MOVING acquisition takes the earliest aligned copy',
+    cold.along < copy2Start, `along ${cold.along.toFixed(2)} vs copy2 at ${copy2Start.toFixed(2)}`);
+  let r = null;
+  for (let k = 1; k <= 4; k++) r = cur.project(loop.chain, mid(k, (t += 1000)), { heading: SOUTH, cum: lcum });
+  check('and continuity holds it there while riding', r.along < copy2Start, `along ${r.along.toFixed(2)}`);
+}
+
 console.log('arrival ring (speed-tiered):');
 {
   const mi = (d) => d / 69.17; // degrees latitude for d miles

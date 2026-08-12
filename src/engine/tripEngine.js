@@ -143,14 +143,24 @@ export function projectOnChainDirected(chain, pos, { heading = null, nearMi = nu
       const diff = Math.abs((((brg - heading) % 360) + 540) % 360 - 180);
       aligned = diff <= HEADING_TOL_DEG;
     }
-    let score = s.d;
-    if (!aligned) score += HEADING_PENALTY_MI;
-    if (nearMi != null && Math.abs(s.along - nearMi) > CONTINUITY_WINDOW_MI) score += CONTINUITY_PENALTY_MI;
-    // afterMi projects a STATIONARY point (a stop): among contenders, the
-    // route's next approach at-or-past this along-position — or, when every
-    // approach is already behind, the LAST one, so "passed the stop" only
-    // reads true once the bike is past even the final drive-by.
-    if (afterMi != null) score = s.along >= afterMi ? s.along : 1e6 - s.along;
+    let score;
+    if (afterMi != null) {
+      // afterMi selects by ROUTE ORDER instead of distance: the first
+      // contender at-or-past this along-position — or, when every one is
+      // behind, the LAST, so "passed the stop" only reads true once the
+      // bike is past even the final drive-by. Heading still gates it: a
+      // loop can ride the same stretch the same DIRECTION twice (morning
+      // out and the midnight return both southbound on US-385 — field bug,
+      // where distance+heading alone locked the return copy and the day
+      // read "7 mi left" at 11 AM), and there earliest-aligned is the only
+      // safe cold answer.
+      score = s.along >= afterMi ? s.along : 1e6 - s.along;
+      if (!aligned) score += 1e7;
+    } else {
+      score = s.d;
+      if (!aligned) score += HEADING_PENALTY_MI;
+      if (nearMi != null && Math.abs(s.along - nearMi) > CONTINUITY_WINDOW_MI) score += CONTINUITY_PENALTY_MI;
+    }
     if (score < bestScore - 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && best && s.along < best.along)) {
       bestScore = score;
       best = { i, f: s.t, off: s.d, along: s.along, aligned };
@@ -190,19 +200,22 @@ export function chainCursor() {
         alongMi = null;
         wrongWay = 0;
       }
-      // Cold acquisition with no heading is the one unguarded moment: parked
-      // at a point the chain visits twice (a day that starts AND ends at the
-      // lodging), nothing separates the copies — take the EARLIEST. Reading
-      // "day not yet ridden" at worst under-reports progress, which riding
-      // (heading) corrects; locking the end copy silently eats every stop.
-      const cold = alongMi == null && heading == null ? { afterMi: 0 } : {};
+      // Cold acquisition is the unguarded moment: at a point the chain
+      // visits twice, distance can't separate the copies — and heading
+      // can't either when a loop rides the same stretch the same direction
+      // twice (parked at the shared lodging, or southbound on the road the
+      // return also takes southbound). Take the EARLIEST heading-compatible
+      // copy: reading "less ridden" at worst under-reports progress, which
+      // self-heals where the copies diverge; locking a late copy eats the
+      // day (visited stops, "7 mi left" at 11 AM — both field-caught).
+      const cold = alongMi == null ? { afterMi: 0 } : {};
       let r = projectOnChainDirected(chain, pos, { heading, nearMi: alongMi, cum, ...cold });
       if (r && heading != null && !r.aligned) {
         wrongWay += 1;
         if (wrongWay >= WRONG_WAY_FIXES) {
           wrongWay = 0;
           alongMi = null;
-          r = projectOnChainDirected(chain, pos, { heading, nearMi: null, cum });
+          r = projectOnChainDirected(chain, pos, { heading, nearMi: null, cum, afterMi: 0 });
         }
       } else if (r) {
         wrongWay = 0;
