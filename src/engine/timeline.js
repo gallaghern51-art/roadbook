@@ -29,6 +29,15 @@ export function fmtTime(mins) {
   return `${h}:${String(m).padStart(2, '0')} ${ap}`;
 }
 
+// Native <input type="time"> speaks "HH:MM" (24h). Storage keeps the
+// readable 12-hour string — parseTime consumers, exports, the AI context and
+// the riders' own eyes all read that — so time pickers convert at the edge.
+export const to24h = (str) => {
+  const m = parseTime(str, null);
+  return m == null ? '' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
+export const from24h = (v) => (v ? fmtTime(parseTime(v)) : '');
+
 export function fmtDur(mins) {
   mins = Math.round(mins);
   const h = Math.floor(mins / 60);

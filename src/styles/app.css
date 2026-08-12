@@ -571,8 +571,15 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .time-strip .ts-cell .n { font-family: var(--display); font-size: 19px; font-weight: 700; color: var(--rally); }
 .time-strip .ts-cell .l { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-top: 2px; }
 
-.fld { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
-.fld input, .fld textarea, .fld select { display: block; width: 100%; margin-top: 4px; font-family: var(--body); font-size: 13.5px; text-transform: none; letter-spacing: 0; }
+/* min-width: 0 on both the grid cell and the control: native date/time
+   inputs carry an intrinsic min-content width that otherwise overflows a
+   narrow grid track — the settings sheet's Start-date box ran under the
+   Riders column on a phone (field screenshot). */
+.fld { display: block; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
+.fld input, .fld textarea, .fld select { display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: 4px; font-family: var(--body); font-size: 13.5px; text-transform: none; letter-spacing: 0; }
+/* native pickers match the asphalt theme instead of flashing white */
+input[type='date'], input[type='time'] { color-scheme: dark; }
+:root[data-theme='light'] input[type='date'], :root[data-theme='light'] input[type='time'] { color-scheme: light; }
 .fld-row { display: flex; gap: 12px; align-items: flex-end; }
 .fld-row .fld { flex: 1; }
 .fld.chk { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
@@ -1007,7 +1014,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   .fld input, .fld textarea, .fld select,
   .place-search input, .chat-input textarea,
   .scen-select, .chip.depart-edit input { font-size: 16px; }
-  .chip.depart-edit input { width: 92px; }
+  .chip.depart-edit input { width: 108px; }
   .fld-row { gap: 10px; }
 
   .day-head h2 { font-size: 23px; }
