@@ -2563,6 +2563,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   padding: 4px 14px;
 }
 .ribbon .rchip.today:not(.active) { border-style: dashed; border-bottom-style: solid; }
+/* ridden days go quiet — still tappable to review, but no longer calling */
+.ribbon .rchip.past:not(.active) { opacity: 0.5; }
+.feas-day.past { opacity: 0.55; }
 
 /* ---------- sharing ---------- */
 .set-sync { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }

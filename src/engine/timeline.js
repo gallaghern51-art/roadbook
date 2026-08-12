@@ -173,16 +173,27 @@ export function gradeFor(score) {
 export function tripFeasibility(trip, routedLegsByDay) {
   const range = tripRange(trip);
   const darkMin = parseTime(trip.meta?.dusk, DARK_MIN);
-  const perDay = trip.days.map((d) => ({ id: d.id, ...dayFeasibility(d, routedLegsByDay?.[d.id], range, darkMin) }));
-  const overall = Math.round(perDay.reduce((a, p) => a + p.score, 0) / Math.max(1, perDay.length));
-  return { perDay, overall, grade: gradeFor(overall) };
+  // A ridden day is history, not a call to action: mid-trip, the overall
+  // grade scores only what is still ahead (each day keeps its row and its
+  // own score — `past` lets the views mute them). Once the whole trip is
+  // behind (or days carry no dates), all days count, as before.
+  const today = new Date().toLocaleDateString('sv-SE');
+  const perDay = trip.days.map((d) => ({
+    id: d.id,
+    past: !!d.date && d.date < today,
+    ...dayFeasibility(d, routedLegsByDay?.[d.id], range, darkMin),
+  }));
+  const ahead = perDay.filter((p) => !p.past);
+  const scored = ahead.length ? ahead : perDay;
+  const overall = Math.round(scored.reduce((a, p) => a + p.score, 0) / Math.max(1, scored.length));
+  return { perDay, overall, grade: gradeFor(overall), pastCount: ahead.length ? perDay.length - ahead.length : 0 };
 }
 
 // Plain-text feasibility digest appended to the AI context.
 export function feasibilityDigest(trip, routedLegsByDay) {
   const lines = ['## FEASIBILITY STUDY (engine-computed)'];
   const f = tripFeasibility(trip, routedLegsByDay);
-  lines.push(`Overall: ${f.overall}/100 (grade ${f.grade})`);
+  lines.push(`Overall: ${f.overall}/100 (grade ${f.grade})${f.pastCount ? ` — remaining trip only; ${f.pastCount} day(s) already ridden` : ''}`);
   for (const d of trip.days) {
     const p = f.perDay.find((x) => x.id === d.id);
     const tl = p.timeline;

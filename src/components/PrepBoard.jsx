@@ -108,7 +108,8 @@ export default function PrepBoard({ focus, setFocus, onAskAI, onSaveScenario, on
   const tt = useTT();
 
   const feas = tripFeasibility(trip, routedLegsByDay);
-  const dangerDays = feas.perDay.filter((p) => p.issues.some((i) => i.level === 'fail')).length;
+  // ridden days take no action — the hero grades and nags about what's ahead
+  const dangerDays = feas.perDay.filter((p) => !p.past && p.issues.some((i) => i.level === 'fail')).length;
   const pack = packingProgress();
   const openBookings = (trip.reserveNow ?? []).filter((r) => !r.done).length;
 
@@ -138,11 +139,14 @@ export default function PrepBoard({ focus, setFocus, onAskAI, onSaveScenario, on
     );
   }
 
-  // Top issues across the trip — fails first, then warns, each pinned to its day.
+  // Top issues across the REMAINING trip — fails first, then warns, each
+  // pinned to its day. A problem on a day already ridden is not an issue,
+  // it's a memory.
   const topIssues = [];
   for (const level of ['fail', 'warn']) {
     for (const d of trip.days) {
       const p = feas.perDay.find((x) => x.id === d.id);
+      if (p.past) continue;
       for (const i of p.issues.filter((x) => x.level === level)) {
         topIssues.push({ day: d, issue: i });
       }
