@@ -362,6 +362,11 @@ export default function RideMode({ onClose }) {
   // pinned. See src/engine/rideNav.js for the full contract.
   const [dest, setDest] = useState(() => createNav());
   const [undoSkip, setUndoSkip] = useState(null); // {id, name} — last auto-skip
+  // Gate margins are an alert, not furniture: once the rider has seen one
+  // ("Needles Hwy entry · 5h 09m LATE" pinned over Deadwood all afternoon,
+  // field feedback) it can be ✕'d away. Per gate, per ride session — a NEW
+  // next gate always announces itself.
+  const [gateHidden, setGateHidden] = useState(() => new Set());
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
   // add-a-stop search: gas, food, a place — inserted into the CURRENT leg
@@ -624,6 +629,7 @@ export default function RideMode({ onClose }) {
     spokenRef.current = '';
     setDest(createNav());
     setUndoSkip(null);
+    setGateHidden(new Set());
     setLiveEta(null);
     onPlanRef.current = 0;
     initLatchRef.current = false;
@@ -1212,7 +1218,7 @@ export default function RideMode({ onClose }) {
       if (!s) continue;
       const projected = delta != null ? s.arrive + delta : s.arrive;
       const margin = parseTime(g.by) - projected;
-      return { label: g.label, by: g.by, margin, ok: margin >= 0 };
+      return { id: g.waypointId, label: g.label, by: g.by, margin, ok: margin >= 0 };
     }
     return null;
   }, [fix, day, tl, delta, proj?.i, dest]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1608,10 +1614,15 @@ export default function RideMode({ onClose }) {
                 {u.miNum(nextFuel.miles)} {u.miUnit}
               </span>
             )}
-            {nextGate && (
+            {nextGate && !gateHidden.has(nextGate.id) && (
               <span className={`m-chip gate${nextGate.ok ? '' : ' danger'}`}>
                 <ClockIcon />
                 {tt(nextGate.label)} · {nextGate.ok ? `${fmtDur(nextGate.margin)} ${t('margin')}` : `${fmtDur(-nextGate.margin)} ${t('LATE')}`}
+                <button
+                  className="mc-x"
+                  aria-label={t('Dismiss')}
+                  onClick={() => setGateHidden((s) => new Set(s).add(nextGate.id))}
+                >✕</button>
               </span>
             )}
           </div>
@@ -1642,33 +1653,31 @@ export default function RideMode({ onClose }) {
                   {/* the LEG is the headline: time left rides alone with the
                       plan delta pinned right — sharing a row with the chip, a
                       long delta (+6h 39m) squeezed the leg miles into "99…"
-                      (field bug). The leg ETA + miles share the middle row
-                      with the small whole-day figure pinned right, so the leg
-                      and day numbers still can't be confused. */}
+                      (field bug). Every row holds ONE reading: leg ETA +
+                      miles, then the next stop, then the whole-day line last
+                      — sharing a row squeezed both sides into ellipses at
+                      phone width (field screenshot, Deadwood). */}
                   <div className="rb-main">
                     <b className="rb-big">{legRemMin != null ? fmtDur(legRemMin) : '—'}</b>
                     {deltaChip && <span className={`rb-chip ${deltaChip.cls}`}>{deltaChip.text}</span>}
                   </div>
-                  <div className="rb-duo">
-                    <span className="rb-mid">
-                      {legEta != null ? fmtTime(legEta) : '—'}
-                      {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
-                    </span>
-                    {!lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
-                      <span className="rb-day">
-                        {t('Day')} {fmtTime(eta ?? projectedEnd)}
-                        {nav && <span className="rb-day-mi">{` · ${u.miNum(nav.remMi)} ${u.miUnit}`}</span>}
-                      </span>
-                    )}
-                  </div>
+                  <span className="rb-mid">
+                    {legEta != null ? fmtTime(legEta) : '—'}
+                    {legMiles != null ? ` · ${u.miNum(legMiles)} ${u.miUnit}` : ''}
+                  </span>
                 </>
               )}
-              {/* the footer is the next stop's alone now — full width means a
-                  typical name fits still, and the marquee only runs on the
-                  rare long one */}
+              {/* the next stop gets a full row so it rarely marquees */}
               {(nextWp ?? plannedNext) && !sheetOpen && (
                 <div className="rb-foot">
                   <Marquee className="rb-next" label={lean ? null : t('Next')} text={tt((nextWp ?? plannedNext).name)} />
+                </div>
+              )}
+              {/* the day summary is the bar's last line, whole and unsqueezed */}
+              {fix && !lean && remainingNav.length > 1 && (eta ?? projectedEnd) != null && (
+                <div className="rb-day">
+                  {t('Day')} {fmtTime(eta ?? projectedEnd)}
+                  {nav && ` · ${u.miNum(nav.remMi)} ${u.miUnit}`}
                 </div>
               )}
             </button>
