@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
-import { fuelGaps } from '../engine/tripEngine.js';
+import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur, to24h, from24h } from '../engine/timeline.js';
 import PlaceSearch from './PlaceSearch.jsx';
 import ConditionsCard from './ConditionsCard.jsx';
@@ -125,9 +125,11 @@ export default function DayPanel({ day }) {
 
       <p style={{ fontSize: 13, color: 'var(--ink-dim)', marginTop: 10 }}>{tt(day.summary)}</p>
 
+      {/* narrative notes — the GRADED mechanism is Hard gates below; two
+          sections both claiming "hard" made the fake one look enforced */}
       {day.constraints?.length > 0 && (
         <div className="section">
-          <h3>{t('Hard constraints')}</h3>
+          <h3>{t('Constraints')} <span className="cnt">{t('notes — the engine grades the Hard gates below')}</span></h3>
           <ul className="ops-list">{day.constraints.map((c, i) => <li key={i}>{tt(c)}</li>)}</ul>
         </div>
       )}
@@ -152,22 +154,7 @@ export default function DayPanel({ day }) {
 
       <MealsSection day={day} dispatch={dispatch} />
 
-      {day.photos?.length > 0 && (
-        <div className="section">
-          <h3>{t('Photo stops')}</h3>
-          {day.photos.map((p) => (
-            <div key={p.id} className="photo-card">
-              <div className="p-name">{tt(p.name)}</div>
-              <div className="p-why">{tt(p.why)}</div>
-              <div className="p-meta">
-                <div><b>{t('Best light')}</b> — {tt(p.light)}</div>
-                <div><b>{t('Parking')}</b> — {tt(p.parking)}</div>
-                {p.notes && <div><b>{t('Note')}</b> — {tt(p.notes)}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <PhotoStops day={day} dispatch={dispatch} />
 
       <LodgingSection day={day} dispatch={dispatch} />
 
@@ -237,14 +224,23 @@ function GatesSection({ day, dispatch, timeline, t, tt }) {
             onBlur={(e) => { const v = from24h(e.target.value); if (v && v !== g.by) patch(i, { by: v }); }}
             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
           />
-          <select
-            className="g-stop"
-            value={g.waypointId ?? ''}
-            onChange={(e) => patch(i, { waypointId: e.target.value || null })}
-          >
-            <option value="">{t('at which stop…')}</option>
-            {day.waypoints.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
+          {/* a gate pointing at a stop that no longer exists (data from before
+              remove_waypoint pruned gates) surfaces loudly instead of
+              half-rendering while silently absent from grading */}
+          {(() => {
+            const orphaned = g.waypointId && !day.waypoints.some((w) => w.id === g.waypointId);
+            return (
+              <select
+                className={`g-stop${orphaned ? ' orphan' : ''}`}
+                value={g.waypointId ?? ''}
+                onChange={(e) => patch(i, { waypointId: e.target.value || null })}
+              >
+                <option value="">{t('at which stop…')}</option>
+                {orphaned && <option value={g.waypointId}>{t('stop removed — re-point')}</option>}
+                {day.waypoints.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            );
+          })()}
           <span className="g-eta">{g.waypointId && etaFor(g.waypointId) ? `ETA ${etaFor(g.waypointId)}` : '—'}</span>
           <button
             className="mini-edit"
@@ -273,6 +269,75 @@ function ParkBadge({ park, label }) {
       <img src="/pics/nps-arrowhead.png" alt="" aria-hidden="true" loading="lazy" />
       {park.short}
     </span>
+  );
+}
+
+// Photo stops are read from the ROUTE — waypoints of kind 'photo' are the
+// truth the map, timeline and Ride Mode already run on — enriched with the
+// day's photo notes (why / best light / parking), matched by name or by
+// proximity. Notes with no matching waypoint render as SUGGESTIONS with a
+// one-tap add. Before this the section listed day.photos verbatim, which no
+// edit ever touched: deleted photo stops kept their cards and added ones
+// never appeared (owner-audited Aug 12, 2026).
+function PhotoStops({ day, dispatch }) {
+  const t = useT();
+  const tt = useTT();
+  const { routes } = useTrip();
+  const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const metaFor = (w) => (day.photos ?? []).find((p) => {
+    const a = norm(p.name);
+    const b = norm(w.name);
+    if (a && b && (a.includes(b) || b.includes(a))) return true;
+    return Number.isFinite(p.lat) && Number.isFinite(p.lng) && haversineMiles(p, w) < 0.5;
+  });
+  const routed = day.waypoints.filter((w) => w.kind === 'photo').map((w) => ({ w, p: metaFor(w) }));
+  const used = new Set(routed.map(({ p }) => p).filter(Boolean));
+  const suggested = (day.photos ?? []).filter((p) => !used.has(p));
+  if (!routed.length && !suggested.length) return null;
+  const meta = (p) => (
+    <div className="p-meta">
+      {p.light && <div><b>{t('Best light')}</b> — {tt(p.light)}</div>}
+      {p.parking && <div><b>{t('Parking')}</b> — {tt(p.parking)}</div>}
+      {p.notes && <div><b>{t('Note')}</b> — {tt(p.notes)}</div>}
+    </div>
+  );
+  return (
+    <div className="section">
+      <h3>{t('Photo stops')} <span className="cnt">{t('read from the route — suggestions add to it')}</span></h3>
+      {routed.map(({ w, p }) => (
+        <div key={w.id} className="photo-card">
+          <div className="p-name">{tt(w.name)}</div>
+          {(p?.why || w.note) && <div className="p-why">{tt(p?.why || w.note)}</div>}
+          {p && meta(p)}
+        </div>
+      ))}
+      {suggested.map((p, i) => (
+        <div key={p.id ?? `s${i}`} className="photo-card suggested">
+          <div className="p-name">{tt(p.name)} <span className="p-tag">{t('not on the route')}</span></div>
+          {p.why && <div className="p-why">{tt(p.why)}</div>}
+          {meta(p)}
+          {Number.isFinite(p.lat) && Number.isFinite(p.lng) && (
+            <button
+              className="btn p-add"
+              onClick={() => {
+                // route order first (loop days), straight-line splice as fallback
+                const geom = !routes[day.id]?.fallback ? routes[day.id]?.geometry : null;
+                const chain = geom?.length > 1 ? geom.map(([lng, lat]) => ({ lat, lng })) : null;
+                dispatch({
+                  type: 'apply_ops',
+                  ops: [{
+                    op: 'add_waypoint',
+                    dayId: day.id,
+                    index: insertIndexOnRoute(day.waypoints, chain, p) ?? bestInsertIndex(day.waypoints, p),
+                    waypoint: { name: p.name, lat: p.lat, lng: p.lng, kind: 'photo' },
+                  }],
+                });
+              }}
+            >＋ {t('Add to route')}</button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

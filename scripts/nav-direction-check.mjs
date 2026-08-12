@@ -9,7 +9,7 @@
 // Run: node scripts/nav-direction-check.mjs
 
 import {
-  projectOnChainDirected, chainCursor, haversineMiles,
+  projectOnChainDirected, chainCursor, haversineMiles, insertIndexOnRoute,
 } from '../src/engine/tripEngine.js';
 import {
   createNav, navFix, navTarget, arriveRingMi, ARRIVE_MI, ARRIVE_PARKED_MI,
@@ -187,6 +187,26 @@ console.log('same-DIRECTION overlap (loop rides one stretch southbound twice):')
   let r = null;
   for (let k = 1; k <= 4; k++) r = cur.project(loop.chain, mid(k, (t += 1000)), { heading: SOUTH, cum: lcum });
   check('and continuity holds it there while riding', r.along < copy2Start, `along ${r.along.toFixed(2)}`);
+}
+
+console.log('insertIndexOnRoute (where a plan-side add lands in day order):');
+{
+  // out-and-back day: start (bottom) → apex stop → end (bottom, return side)
+  const wps = [
+    { id: 'a', name: 'Start', lat: LAT0, lng: LNG_OUT },
+    { id: 'b', name: 'Apex', lat: LAT1, lng: -103.6002 },
+    { id: 'c', name: 'End', lat: LAT0, lng: LNG_BACK },
+  ];
+  const mid = { lat: 44.03, lng: LNG_OUT - 0.0002 }; // beside the shared corridor
+  check('a stop on the shared corridor lands on the way OUT (first drive-by)',
+    insertIndexOnRoute(wps, chain, mid, cum) === 1, String(insertIndexOnRoute(wps, chain, mid, cum)));
+  const ret = { lat: LAT0 + 0.001, lng: LNG_BACK + 0.0003 }; // hugging the return side near the end
+  const iRet = insertIndexOnRoute(wps, chain, ret, cum);
+  check('a stop is never inserted past the day\'s destination', iRet >= 1 && iRet <= 2, String(iRet));
+  const far = { lat: 44.03, lng: -103.3 }; // ~15 mi east — a genuine detour
+  check('a genuine detour returns null (caller falls back to the splice)',
+    insertIndexOnRoute(wps, chain, far, cum) === null, String(insertIndexOnRoute(wps, chain, far, cum)));
+  check('no geometry returns null', insertIndexOnRoute(wps, null, mid) === null);
 }
 
 console.log('arrival ring (speed-tiered):');

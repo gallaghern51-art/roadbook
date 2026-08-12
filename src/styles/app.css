@@ -390,6 +390,16 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .photo-card .p-why { font-size: 12.5px; color: var(--ink-dim); margin-top: 3px; }
 .photo-card .p-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); margin-top: 6px; line-height: 1.6; }
 .photo-card .p-meta b { color: var(--return); font-weight: 500; }
+/* a photo NOTE with no matching stop on the route — a suggestion, not a plan */
+.photo-card.suggested { border-style: dashed; background: transparent; opacity: 0.85; }
+.photo-card .p-tag {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-faint); border: 1px solid var(--line); border-radius: 999px;
+  padding: 1px 7px; margin-left: 7px; vertical-align: 2px; white-space: nowrap;
+}
+.photo-card .p-add { font-size: 11px; padding: 4px 10px; margin-top: 8px; }
+/* a gate pointing at a stop that no longer exists — re-point it or delete it */
+.g-stop.orphan { border-color: var(--danger); color: var(--danger); }
 
 .module { padding: 10px 12px; border: 1px dashed var(--rally); border-radius: 6px; margin-bottom: 8px; background: rgba(245, 63, 31, 0.04); }
 .module.off { border-color: var(--line); background: transparent; opacity: 0.75; }

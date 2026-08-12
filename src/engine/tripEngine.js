@@ -229,6 +229,38 @@ export function chainCursor() {
   };
 }
 
+// Where a new stop belongs in DAY ORDER, read off the day's ROUTED line:
+// project the stop and every waypoint onto the geometry and insert before
+// the first stop the route reaches after it. The straight-line splice
+// (bestInsertIndex below) can't tell the two passes of an out-and-back
+// apart and ignores what the road does between stops — field-caught when a
+// plan-side add landed in the wrong half of a loop day. Waypoints project
+// monotonically (each at-or-after the previous one's along), the new stop
+// at its FIRST drive-by. Returns null when the stop is a genuine detour
+// (> 5 mi off the route) or there is no usable geometry — callers fall back
+// to the straight-line splice.
+export function insertIndexOnRoute(waypoints, chain, pt, cumIn = null) {
+  if (!chain || chain.length < 2 || !waypoints || waypoints.length < 2 || !pt) return null;
+  let cum = cumIn;
+  if (!cum) {
+    cum = [0];
+    for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
+  }
+  const p = projectOnChainDirected(chain, pt, { cum, afterMi: 0 });
+  if (!p || p.off > 5) return null;
+  let prev = 0;
+  for (let i = 1; i < waypoints.length; i++) {
+    const w = waypoints[i];
+    if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
+    const wp = projectOnChainDirected(chain, w, { cum, afterMi: prev });
+    if (!wp) continue;
+    if (wp.along >= p.along) return i;
+    prev = wp.along;
+  }
+  // never past the day's destination — the route ends there
+  return waypoints.length - 1;
+}
+
 // Cheapest place to splice a new point into an existing waypoint sequence.
 export function bestInsertIndex(waypoints, pt) {
   if (waypoints.length < 2) return waypoints.length;
