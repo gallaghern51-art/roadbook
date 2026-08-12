@@ -2304,6 +2304,13 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .m-chip.gate .mc-ic { color: inherit; }
 .m-chip.danger { border-color: var(--danger); color: #ffab84; }
 .m-chip.danger .mc-ic { color: var(--danger); }
+/* the gate chip's dismiss ✕ — small glyph, glove-sized invisible hit area */
+.m-chip .mc-x {
+  position: relative; border: 0; background: none; color: var(--ink-dim);
+  font-size: 13px; line-height: 1; padding: 0 0 0 4px; cursor: pointer;
+}
+.m-chip .mc-x::after { content: ''; position: absolute; inset: -14px -12px -14px -6px; }
+.m-chip.danger .mc-x { color: #ffab84; }
 
 /* THE bar — the current leg first, then the plan delta. Two text rows, tight
    type: every pixel here is map the rider is not seeing. */

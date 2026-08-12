@@ -362,6 +362,11 @@ export default function RideMode({ onClose }) {
   // pinned. See src/engine/rideNav.js for the full contract.
   const [dest, setDest] = useState(() => createNav());
   const [undoSkip, setUndoSkip] = useState(null); // {id, name} — last auto-skip
+  // Gate margins are an alert, not furniture: once the rider has seen one
+  // ("Needles Hwy entry · 5h 09m LATE" pinned over Deadwood all afternoon,
+  // field feedback) it can be ✕'d away. Per gate, per ride session — a NEW
+  // next gate always announces itself.
+  const [gateHidden, setGateHidden] = useState(() => new Set());
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
   // add-a-stop search: gas, food, a place — inserted into the CURRENT leg
@@ -624,6 +629,7 @@ export default function RideMode({ onClose }) {
     spokenRef.current = '';
     setDest(createNav());
     setUndoSkip(null);
+    setGateHidden(new Set());
     setLiveEta(null);
     onPlanRef.current = 0;
     initLatchRef.current = false;
@@ -1212,7 +1218,7 @@ export default function RideMode({ onClose }) {
       if (!s) continue;
       const projected = delta != null ? s.arrive + delta : s.arrive;
       const margin = parseTime(g.by) - projected;
-      return { label: g.label, by: g.by, margin, ok: margin >= 0 };
+      return { id: g.waypointId, label: g.label, by: g.by, margin, ok: margin >= 0 };
     }
     return null;
   }, [fix, day, tl, delta, proj?.i, dest]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1608,10 +1614,15 @@ export default function RideMode({ onClose }) {
                 {u.miNum(nextFuel.miles)} {u.miUnit}
               </span>
             )}
-            {nextGate && (
+            {nextGate && !gateHidden.has(nextGate.id) && (
               <span className={`m-chip gate${nextGate.ok ? '' : ' danger'}`}>
                 <ClockIcon />
                 {tt(nextGate.label)} · {nextGate.ok ? `${fmtDur(nextGate.margin)} ${t('margin')}` : `${fmtDur(-nextGate.margin)} ${t('LATE')}`}
+                <button
+                  className="mc-x"
+                  aria-label={t('Dismiss')}
+                  onClick={() => setGateHidden((s) => new Set(s).add(nextGate.id))}
+                >✕</button>
               </span>
             )}
           </div>
