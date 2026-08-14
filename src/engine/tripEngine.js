@@ -229,6 +229,41 @@ export function chainCursor() {
   };
 }
 
+// ---- line-progress: the metric MapLibre gradients actually use ----
+// A `line-gradient` stop is a fraction of the line's WEB-MERCATOR length, not
+// of its ground length: geojson-vt projects the line before it measures it
+// (projectX = lng/360, projectY = the mercator log), so every mile of road
+// counts as mile / cos(latitude). Handing such a gradient a ground-mile
+// fraction therefore MISPLACES it on any route that gains or loses latitude —
+// no error at either end of the line, worst in the middle, and growing with
+// every mile through the first half of the day. Field-caught riding I-90 out
+// of Sturgis toward Sheridan (Aug 14, 2026): the traveled/ahead split sat
+// 1.4 mi ahead of the puck and kept pulling away ("route marker keeps getting
+// further from my marker"); by mid-route it would have been 2.4 mi. Measure
+// the chain the way MapLibre will and the split rides ON the bike.
+const mercatorY = (lat) => {
+  const s = Math.sin((lat * Math.PI) / 180);
+  const y = 0.5 - (0.25 * Math.log((1 + s) / (1 - s))) / Math.PI;
+  return y < 0 ? 0 : y > 1 ? 1 : y;
+};
+export function mercatorCum(chain) {
+  const mcum = [0];
+  for (let i = 1; i < chain.length; i++) {
+    const dx = (chain[i].lng - chain[i - 1].lng) / 360;
+    const dy = mercatorY(chain[i].lat) - mercatorY(chain[i - 1].lat);
+    mcum.push(mcum[i - 1] + Math.sqrt(dx * dx + dy * dy));
+  }
+  return { mcum, mtotal: mcum[mcum.length - 1] || 1 };
+}
+
+// Segment index + fraction — what every projection in this file returns — to
+// the 0..1 line-progress of that point. Interpolating inside one segment is
+// safe: the projection's scale is constant across a few hundred feet.
+export function lineProgressAt({ mcum, mtotal } = {}, i, f = 0) {
+  if (!mcum || !Number.isInteger(i) || i < 0 || i > mcum.length - 2) return null;
+  return (mcum[i] + f * (mcum[i + 1] - mcum[i])) / mtotal;
+}
+
 // Where a new stop belongs in DAY ORDER, read off the day's ROUTED line:
 // project the stop and every waypoint onto the geometry and insert before
 // the first stop the route reaches after it. The straight-line splice

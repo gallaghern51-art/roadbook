@@ -4,7 +4,7 @@ import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine/timeline.js';
 import {
   haversineMiles, tripRange, tripPace, projectOnChain, projectOnChainDirected,
-  chainCursor, bestInsertIndex,
+  chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
 } from '../engine/tripEngine.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
@@ -385,6 +385,7 @@ export default function RideMode({ onClose }) {
   const wakeRef = useRef(null);
   const mapDivRef = useRef(null);
   const mapRef = useRef(null);
+  const mapReadyRef = useRef(false); // the map's own `load` has fired — see whenMapReady
   const puckRef = useRef(null);
   const followRef = useRef(true);
   followRef.current = follow;
@@ -533,6 +534,8 @@ export default function RideMode({ onClose }) {
     // console/sim debugging — the GPS-sim SOP asserts on the nav map's paint
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
+    mapReadyRef.current = false;
+    map.once('load', () => { mapReadyRef.current = true; });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -565,17 +568,29 @@ export default function RideMode({ onClose }) {
     return () => { map.remove(); mapRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Run something that touches sources and layers as soon as the map can take
+  // it. The old test was isStyleLoaded(), which is false whenever ANY tile is
+  // in flight — on satellite at 74 mph that is nearly always — so every later
+  // call fell through to `once('load')`, a one-shot that had already fired at
+  // startup and would never fire again. A route drawn after Ride opened, a day
+  // switched mid-ride, a live reroute: all silently never reached the map.
+  // What actually gates addSource/addLayer is the map's own load (mapReadyRef).
+  const whenMapReady = (map, fn) => {
+    if (!mapReadyRef.current) { map.once('load', fn); return; }
+    // the one moment layers can be missing afterwards is a basemap swap, where
+    // setStyle has dropped them and the new style is still parsing
+    try { fn(); } catch { map.once('styledata', fn); }
+  };
+
   // draw / update the day's planned route line on the nav map
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
-    const apply = () => {
+    whenMapReady(map, () => {
       ensureNavLayers(map);
       map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once('load', apply);
+    });
   }, [day.id, routes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // reroute line: draw it bright, drop the planned line to a ghost underneath
@@ -596,9 +611,8 @@ export default function RideMode({ onClose }) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (map.isStyleLoaded()) applyLiveRef.current();
-    else map.once('load', () => applyLiveRef.current());
-  }, [reroute]);
+    whenMapReady(map, () => applyLiveRef.current());
+  }, [reroute]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Changing the basemap calls setStyle, which drops every source and layer we
   // added — so the route has to be laid back down once the new style settles.
@@ -842,7 +856,10 @@ export default function RideMode({ onClose }) {
     const chain = coords.map(([lng, lat]) => ({ lat, lng }));
     const cum = [0];
     for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-    return { chain, cum, total: cum[cum.length - 1] || 1 };
+    // ...and the same chain measured in the metric the map paints gradients
+    // in (mercatorCum) — ground miles for every reading a rider sees, the
+    // projected length for anything handed to line-progress.
+    return { chain, cum, total: cum[cum.length - 1] || 1, ...mercatorCum(chain) };
   }, [reroute, routes, day]);
   const geoProj = useMemo(
     () => (fix && geomInfo.chain.length > 1
@@ -931,19 +948,29 @@ export default function RideMode({ onClose }) {
   // Deadwood → Needles with the day's web all highlighted).
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !map.getLayer('ride-route-line')) return;
     const layer = reroute ? 'ride-live-line' : 'ride-route-line';
-    const { cum, total } = geomInfo;
+    // Gate on the LAYER, never on isStyleLoaded(): the style reads "not
+    // loaded" while tiles stream, so a moving bike almost never satisfied it
+    // and the split FROZE where it was first painted while the rider kept
+    // going — the field report's "keeps getting further from my marker".
+    // Repainting one layer's gradient needs that layer and nothing else.
+    if (!map || !map.getLayer(layer)) return;
     let frac = 0;
     let legFrac = null;
     if (geoProj && !offRoute) {
-      frac = (cum[geoProj.i] + geoProj.f * (cum[geoProj.i + 1] - cum[geoProj.i])) / total;
+      // Gradient stops are line-progress, which is a MERCATOR fraction of the
+      // line — a ground-mile fraction lands further and further from the bike
+      // the deeper into a north–south day it is measured (see lineProgressAt).
+      frac = lineProgressAt(geomInfo, geoProj.i, geoProj.f) ?? 0;
       // the next stop's position along the route — its NEXT approach at-or-
       // past the bike, same measure passedTargetId trusts
       const tgt = navRemaining(destRef.current, day.waypoints)[0];
       if (tgt) {
-        const tp = projectOnChainDirected(geomInfo.chain, tgt, { cum, afterMi: frac * total - 0.3 });
-        if (tp && tp.off < 2) legFrac = Math.min(0.999, tp.along / total);
+        const tp = projectOnChainDirected(geomInfo.chain, tgt, {
+          cum: geomInfo.cum, afterMi: geoProj.along - 0.3,
+        });
+        const lp = tp && tp.off < 2 ? lineProgressAt(geomInfo, tp.i, tp.f) : null;
+        if (lp != null) legFrac = Math.min(0.999, lp);
       }
     }
     frac = Math.max(0, Math.min(0.999, frac));
