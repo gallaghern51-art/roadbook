@@ -13,10 +13,9 @@ import { viewGate } from '../engine/mapVis.js';
 // which is the whole point, since it was the route line's glow/casing/core
 // painting over the basemap's own shields that started this.
 //
-// Placements are DIFFED, not rebuilt. In Ride Mode the set slides with the
-// bike once a second; tearing every marker down and remounting it would
-// re-mount every RoadShield with it and make the signs blink all the way
-// down the road.
+// Placements are DIFFED, not rebuilt: a re-created marker re-mounts its
+// RoadShield, which re-resolves the artwork, so a rebuild on every routes
+// refresh would blink the signs down the whole line.
 //
 // Two things are culled on every camera frame:
 //   - anything off screen. MapLibre parks off-screen markers in the margins
@@ -36,7 +35,7 @@ const GAP_DIFF = 52;  // px between shields carrying different ones
 const STOP_DX = 30;
 const STOP_DY = 22;
 
-export default function RouteShields({ map, placements, avoid, mode = 'plan' }) {
+export default function RouteShields({ map, placements, avoid }) {
   const marksRef = useRef(new Map()); // id → {p, el, marker}
   const mapRef = useRef(null);
   const [, bump] = useState(0);
@@ -68,7 +67,7 @@ export default function RouteShields({ map, placements, avoid, mode = 'plan' }) 
         continue;
       }
       const el = document.createElement('div');
-      el.className = `rt-shield rt-${mode} off`; // hidden until the cull places it
+      el.className = 'rt-shield off'; // hidden until the cull places it
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([p.lng, p.lat])
         .addTo(map);
@@ -77,7 +76,7 @@ export default function RouteShields({ map, placements, avoid, mode = 'plan' }) 
     }
     if (changed) bump((v) => v + 1);
     return undefined;
-  }, [map, placements, mode]);
+  }, [map, placements]);
 
   // cull on every camera frame, and whenever the set itself changes
   useEffect(() => {
@@ -96,14 +95,12 @@ export default function RouteShields({ map, placements, avoid, mode = 'plan' }) 
         return Math.hypot(k.x - pt.x, k.y - pt.y) < gap;
       });
       // Seating order decides who survives a crowded frame. Road CHANGES go
-      // first (a shield that says "you are on US-14 now" is the only one
-      // carrying news), then what is near the bike, then repeats — and within
-      // each tier, route order, so a road is signed where it starts rather
-      // than wherever the scan happened to reach it.
+      // first — a shield that says "you are on US-14 now" is the only one
+      // carrying news — then repeats, and within each tier route order, so a
+      // road is signed where it starts rather than wherever the scan happened
+      // to reach it.
       const order = [...marksRef.current.values()].sort((a, b) =>
-        (b.p.first ? 1 : 0) - (a.p.first ? 1 : 0)
-        || (a.p.priority ?? 1) - (b.p.priority ?? 1)
-        || a.p.mi - b.p.mi);
+        (b.p.first ? 1 : 0) - (a.p.first ? 1 : 0) || a.p.mi - b.p.mi);
       const seats = order.map((rec) => {
         const pt = gate([rec.p.lng, rec.p.lat]);
         const clean = !!pt

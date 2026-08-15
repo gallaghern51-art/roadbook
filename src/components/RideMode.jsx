@@ -19,9 +19,7 @@ import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
 import RoadShield from './RoadShield.jsx';
-import RouteShields from './RouteShields.jsx';
 import { stepRoadShields } from '../engine/roads.js';
-import { shieldPlacements } from '../engine/routeShields.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
 
 // Ride Mode: a navigation HUD over a live map. Projects your GPS position onto
@@ -347,7 +345,6 @@ export default function RideMode({ onClose }) {
   const failSince = useRef(null); // when the fix started failing, for the grace period
   const [clock, setClock] = useState(nowMin());
   const [steps, setSteps] = useState(null);
-  const [mapObj, setMapObj] = useState(null); // the loaded nav map, for marker children
   const [reroute, setReroute] = useState(null); // { geometry, steps } from live position
   const [rerouting, setRerouting] = useState(false);
   const [rerouteFailed, setRerouteFailed] = useState(false);
@@ -536,7 +533,7 @@ export default function RideMode({ onClose }) {
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
     mapReadyRef.current = false;
-    map.once('load', () => { mapReadyRef.current = true; setMapObj(map); });
+    map.once('load', () => { mapReadyRef.current = true; });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -566,7 +563,7 @@ export default function RideMode({ onClose }) {
       .setLngLat(start ? [start.lng, start.lat] : [-108, 45])
       .addTo(map);
 
-    return () => { setMapObj(null); map.remove(); mapRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run something that touches sources and layers as soon as the map can take
@@ -870,22 +867,6 @@ export default function RideMode({ onClose }) {
     [fix, geomInfo] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // ---- highway shields on the road itself ----
-  // The route line's glow, casing and core paint straight over the shields
-  // the satellite tiles carry, so the map answers "where am I going" while
-  // hiding "what road is this". These put the number back, signed every mile
-  // around the bike and sparsely beyond (see engine/routeShields.js).
-  //
-  // The along-position is quantized to the half mile: without it the placement
-  // set is a new array every GPS fix and the whole window churns once a
-  // second. The shields themselves sit on a fixed quarter-mile grid, so a
-  // window that steps rather than slides changes nothing a rider can see.
-  const nearMi = geoProj ? Math.round(geoProj.along * 2) / 2 : null;
-  const shieldMarks = useMemo(() => {
-    const src = reroute?.steps ?? steps;
-    if (!src?.length || !hasRealRoute || geomInfo.chain.length < 2) return [];
-    return shieldPlacements(src, geomInfo.chain, { cum: geomInfo.cum, nearMi });
-  }, [steps, reroute, geomInfo, hasRealRoute, nearMi]);
   const goodFix = fix && (fix.accuracy == null || fix.accuracy < 200);
   const offRoute = !!(geoProj && goodFix && geoProj.off > (hasRealRoute ? 0.12 : 2.5));
 
@@ -1565,8 +1546,6 @@ export default function RideMode({ onClose }) {
     // any first tap unlocks the speech engine (ref-guarded to run once)
     <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
-      {/* the road number, back on top of the line that was covering it */}
-      <RouteShields map={mapObj} placements={shieldMarks} avoid={day.waypoints} mode="ride" />
 
       {/* ---- top: the turn OWNS the top edge; weather + close ride beneath
               it on the right ---- */}

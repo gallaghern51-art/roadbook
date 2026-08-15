@@ -1,11 +1,13 @@
 // Highway-shield placement checks (Aug 15, 2026).
 //
 // Owner request: "how can we have some overlay of road signs on the map. Right
-// now map covers road signs… we need some road signs on the maps on plan and
-// ride to see." The engine's whole job is the word SOME — a shield on every
-// maneuver is a picket fence, one per day is nothing, and what "some" means
-// differs between a plan overview framing 200 miles and a nav camera framing
-// a third of one.
+// now map covers road signs… we need some road signs on the maps." The
+// engine's whole job is the word SOME — a shield on every maneuver is a
+// picket fence and one per day is nothing.
+//
+// PLAN map only. Shields were built for Ride Mode too and taken back out the
+// same day at the owner's call, along with the along-the-bike spacing that
+// existed to serve a nav camera.
 //
 // Run: node scripts/route-shields-check.mjs
 
@@ -96,6 +98,11 @@ const DAY = [
 console.log('\nPlan overview: sparse, and every road change signed');
 {
   const p = shieldPlacements(DAY, chain, { cum });
+  check('exactly one shield per run is flagged as the road CHANGE',
+    p.filter((x) => x.first).length === 2
+    && p.filter((x) => x.first).every((f) => p.every((o) => o.key !== f.key || o.mi >= f.mi)),
+    'the flag is what stops a long interstate eating every slot in the '
+    + 'screen-space cull and leaving the next road unsigned');
   check('something is placed', p.length > 0);
   check('both real roads are signed',
     new Set(p.map((x) => x.key)).size === 2 && p.some((x) => x.key === 'I-90') && p.some((x) => x.key === 'US-14'),
@@ -121,30 +128,6 @@ console.log('\nPlan overview: sparse, and every road change signed');
     usFirst.mi < 145, `first US-14 shield at mile ${usFirst.mi.toFixed(1)}`);
 }
 
-console.log('\nRide: signed every quarter mile around the bike');
-{
-  const at = 60;
-  const p = shieldPlacements(DAY, chain, { cum, nearMi: at });
-  const near = p.filter((x) => Math.abs(x.mi - at) <= 2);
-  check('the stretch around the bike is signed repeatedly', near.length >= 12,
-    `${near.length} shields within 2 mi`);
-  check('…every quarter mile', near.every((x, i) => i === 0 || x.mi - near[i - 1].mi <= 0.26));
-  check('a nav camera showing 3/4 mi of road has one in the frame',
-    p.filter((x) => x.mi > at && x.mi < at + 0.75).length >= 2,
-    'sign spacing has to beat the camera, not the map scale');
-  check('and the far end of the day is still sparse',
-    p.filter((x) => x.mi > 150).length <= 4);
-
-  // Marker churn: the placement ids have to hold still as the bike moves,
-  // or every shield remounts (and blinks) once a second.
-  const a = shieldPlacements(DAY, chain, { cum, nearMi: 60 });
-  const b = shieldPlacements(DAY, chain, { cum, nearMi: 60.5 });
-  const held = a.filter((x) => b.some((y) => y.id === x.id));
-  check('half a mile of riding keeps most markers alive', held.length >= a.length - 3,
-    `${held.length}/${a.length} ids survived`);
-  check('…and moves the window along', b.some((y) => !a.some((x) => x.id === y.id)));
-}
-
 console.log('\nDegenerate input');
 {
   check('no steps', shieldPlacements([], chain, { cum }).length === 0);
@@ -156,7 +139,7 @@ console.log('\nDegenerate input');
   ).length === 0);
   check('the whole-day ceiling holds', shieldPlacements(
     Array.from({ length: 400 }, (_, i) => ({ dist: 2, road: `US ${i % 90}` })), chain, { cum }
-  ).length <= 40);
+  ).length <= 24);
   check('geometry shorter than the step chain still lands on the line', (() => {
     const short = chain.slice(0, 40); // 20 mi of geometry for a 200-mi step list
     const p = shieldPlacements(DAY, short, {});

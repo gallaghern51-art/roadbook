@@ -1633,6 +1633,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    tiles already carry. These are DOM markers, so they ride above the canvas
    by construction. Placement (which stretches get signed, how often) is
    engine/routeShields.js; what fits on screen is culled in RouteShields.jsx.
+   PLAN ONLY — these were tried in Ride Mode too and taken back out the same
+   day at the owner's call: a nav HUD wants the road named in one place, the
+   turn card, not scattered over the map you are glancing at.
 
    The dark plate is not decoration: signage art is white-heavy and vanishes
    into a snow field, a salt flat or a bright basemap without something to sit
@@ -1654,10 +1657,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: #fff;
   padding: 1px 2px; white-space: nowrap;
 }
-/* Bigger in Ride: read at 70 mph, from a bar mount, through a visor. */
-.rt-shield.rt-ride { padding: 3px 4px; border-radius: 6px; }
-.rt-shield.rt-ride .map-shield { height: 28px; }
-.rt-shield.rt-ride i.map-shield { font-size: 14px; }
+
 
 /* ---------- rider roster ---------- */
 
