@@ -5,6 +5,7 @@ import { tripSummary, tripPace } from './engine/tripEngine.js';
 import { tripFeasibility } from './engine/timeline.js';
 import { useIsMobile } from './hooks/useMediaQuery.js';
 import Home from './components/Home.jsx';
+import Landing from './components/Landing.jsx';
 import Ribbon from './components/Ribbon.jsx';
 import MapView from './components/MapView.jsx';
 import DayPanel from './components/DayPanel.jsx';
@@ -17,6 +18,8 @@ import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import { ConfirmSheet, InputSheet } from './components/Sheets.jsx';
 import { useTripSync } from './engine/useTripSync.js';
+import { useAuth } from './engine/auth.js';
+import { useLibraryBackup } from './engine/cloudLibrary.js';
 import { useAutoTranslate } from './engine/autoTranslate.js';
 import { collabFor, saveCollab, clearCollab, collabApi, parseJoinParam, tripIdForShare } from './engine/collab.js';
 import { useT, useUnits } from './engine/settings.jsx';
@@ -31,6 +34,10 @@ import { useT, useUnits } from './engine/settings.jsx';
 // a page of its own. Feasibility is a grade woven through every surface; the
 // full study lives one tap deep on PREP.
 const SCREEN_KEY = 'moto.screen.v1';
+// "I looked at the landing page and chose to ride without an account." Sticky,
+// or the front door would ask again on every launch — which is how a soft gate
+// turns into a hard one by attrition.
+const GUEST_KEY = 'moto.guest.v1';
 
 // Language selection is the whole instruction: this watches for a language the
 // trip is not translated into yet and fills it in, showing progress rather than
@@ -53,6 +60,25 @@ export default function App() {
   // Sync rides alongside the reducer: it drains the outbox and replays other
   // riders' ops through the same apply_ops path. No-ops when not configured.
   const sync = useTripSync(state, dispatch);
+  // Accounts sit alongside, not in the way: the reducer and localStorage are
+  // untouched by whether anyone is signed in. An account only adds a mirror of
+  // the library, so deleting the app stops being the same as losing the trips.
+  const auth = useAuth();
+  const backup = useLibraryBackup(state, dispatch, auth.account);
+  const [guest, setGuest] = useState(() => {
+    try { return localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; }
+  });
+  const continueAsGuest = () => {
+    try { localStorage.setItem(GUEST_KEY, '1'); } catch { /* non-fatal */ }
+    setGuest(true);
+  };
+  // Signing in retires the guest choice, so signing out later lands back on the
+  // front door rather than silently dropping into an unbacked-up library.
+  useEffect(() => {
+    if (!auth.account) return;
+    try { localStorage.removeItem(GUEST_KEY); } catch { /* non-fatal */ }
+    setGuest(false);
+  }, [auth.account]);
   const [routes, setRoutes] = useState({}); // dayId -> {legs, geometry}
   const [screen, setScreen] = useState(() => {
     try { return localStorage.getItem(SCREEN_KEY) || 'home'; } catch { return 'home'; }
@@ -399,7 +425,16 @@ export default function App() {
         <div className="modal-backdrop" onClick={() => setSheet(null)}>
           <div className="modal settings" onClick={(e) => e.stopPropagation()}>
             <button className="btn sheet-x" onClick={() => setSheet(null)}>✕</button>
-            <SettingsModal sync={sync} />
+            <SettingsModal
+              sync={sync}
+              auth={auth}
+              backup={backup}
+              onCreateAccount={() => {
+                try { localStorage.removeItem(GUEST_KEY); } catch { /* non-fatal */ }
+                setGuest(false);
+                setSheet(null);
+              }}
+            />
           </div>
         </div>
       )}
@@ -449,6 +484,24 @@ export default function App() {
       onClose={() => { setJoinReq(null); window.history.replaceState(null, '', location.pathname); }}
     />
   );
+
+  // ---- the front door ----
+  // Held until the stored session has been read back, or a signed-in rider gets
+  // a flash of the landing page on every launch. Nothing renders in the gap:
+  // the app's own first paint is a map, and a spinner in front of it would be
+  // slower to arrive than the real thing.
+  if (auth.status === 'loading') return <div className="landing-hold" />;
+  // A password-reset link wins over everything — the tab is carrying a recovery
+  // session and there is nothing to do in the app until it is spent.
+  if (auth.recovery || (auth.enabled && !auth.account && !guest)) {
+    return (
+      <Landing
+        onGuest={continueAsGuest}
+        recovery={auth.recovery}
+        onRecovered={auth.clearRecovery}
+      />
+    );
+  }
 
   // ---- HOME ----
   if (screen === 'home') {

@@ -63,6 +63,11 @@ export function loadLibrary() {
   try { scenarios = JSON.parse(localStorage.getItem(LEGACY_SCEN_KEY) || '[]'); } catch { /* none */ }
   const rec = freshRecord(trip?.days?.length ? trip : structuredClone(SEED_TRIP));
   rec.scenarios = Array.isArray(scenarios) ? scenarios : [];
+  // Marks a library nobody has touched yet: a fresh install opens on the
+  // bundled Sturgis template, and signing in on a new phone should restore
+  // YOUR trips rather than adding another copy of the template to the account.
+  // Cleared by the first edit of any kind (see syncTrip / touchRecord).
+  if (!trip?.days?.length) rec.seeded = true;
   const lib = { trips: [rec], activeId: rec.id };
   persistLibrary(lib);
   return lib;
@@ -92,8 +97,19 @@ function syncTrip(state, trip) {
   rec.trip = trip;
   rec.name = trip.meta?.title ?? rec.name;
   rec.updatedAt = new Date().toISOString();
+  delete rec.seeded;
   persistLibrary(lib);
   return trip;
+}
+
+// Scenario writes change the record without going through syncTrip. The cloud
+// backup merges by updatedAt, so a permutation saved and never otherwise
+// touched has to move the clock too or a stale copy on another device wins.
+function touchRecord(state) {
+  const rec = activeRecord(state.lib);
+  rec.updatedAt = new Date().toISOString();
+  delete rec.seeded;
+  return rec;
 }
 
 export const initialState = () => {
@@ -219,6 +235,47 @@ export function reducer(state, action) {
       return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], activeScenarioId: rec.activeScenarioId ?? null, history: [], selectedDayId: null };
     }
 
+    // Restoring the library from the account (src/engine/cloudLibrary.js).
+    // `records` are trips the cloud is right about, `remove` are ones deleted on
+    // another device. The decision of who is right is made there and this only
+    // applies it — the reducer has no business talking to a network.
+    case 'merge_library': {
+      const remove = new Set(action.remove ?? []);
+      const incoming = new Map((action.records ?? []).map((r) => [r.id, r]));
+      if (!remove.size && !incoming.size) return state;
+      const trips = state.lib.trips
+        .filter((r) => !remove.has(r.id))
+        .map((r) => {
+          const next = incoming.get(r.id);
+          if (!next) return r;
+          incoming.delete(r.id);
+          // The local outbox stays: those are ops this device made and has not
+          // yet handed to the crew, and no cloud copy of the trip knows them.
+          const merged = { ...r, ...next, outbox: r.outbox ?? [] };
+          delete merged.seeded;
+          return merged;
+        });
+      for (const rec of incoming.values()) trips.push(rec);
+      // A library with nothing in it has no working trip to show. Better to
+      // decline the merge than to leave the app pointing at nothing.
+      if (!trips.length) return state;
+      const activeId = trips.some((r) => r.id === state.lib.activeId) ? state.lib.activeId : trips[0].id;
+      const lib = { ...state.lib, trips, activeId };
+      persistLibrary(lib);
+      // Adopting OTHER trips must not disturb the one being planned right now.
+      const activeTouched = activeId !== state.lib.activeId
+        || remove.has(state.lib.activeId)
+        || (action.records ?? []).some((r) => r.id === activeId);
+      if (!activeTouched) return { ...state, lib };
+      const rec = activeRecord(lib);
+      return {
+        ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [],
+        remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [],
+        activeScenarioId: rec.activeScenarioId ?? null,
+        history: [], selectedDayId: null, pendingProposal: null, modal: null,
+      };
+    }
+
     // ---- UI ----
     case 'select_day':
       return { ...state, selectedDayId: action.dayId };
@@ -266,7 +323,7 @@ export function reducer(state, action) {
 
     // ---- scenarios (scoped to the active trip) ----
     case 'save_scenario': {
-      const rec = activeRecord(state.lib);
+      const rec = touchRecord(state);
       const name = action.name || `Scenario ${rec.scenarios.length + 1}`;
       // Idempotent: an identical snapshot under the same name is the same
       // save — guards double-taps (and StrictMode's dev double-invoke).
@@ -322,14 +379,14 @@ export function reducer(state, action) {
       return { ...state, trip, outbox, scenarios: rec.scenarios, activeScenarioId: scen.id, history: [state.trip, ...state.history].slice(0, 30), modal: null };
     }
     case 'delete_scenario': {
-      const rec = activeRecord(state.lib);
+      const rec = touchRecord(state);
       rec.scenarios = rec.scenarios.filter((s) => s.id !== action.id);
       if (rec.activeScenarioId === action.id) rec.activeScenarioId = null;
       persistLibrary(state.lib);
       return { ...state, scenarios: rec.scenarios, activeScenarioId: rec.activeScenarioId ?? null };
     }
     case 'overwrite_scenario': {
-      const rec = activeRecord(state.lib);
+      const rec = touchRecord(state);
       rec.scenarios = rec.scenarios.map((s) =>
         s.id === action.id ? { ...s, trip: structuredClone(state.trip), savedAt: new Date().toISOString() } : s
       );
