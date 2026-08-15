@@ -1626,6 +1626,39 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 }
 .shield-text.inherited { opacity: 0.5; }
 
+/* ---------- highway shields ON THE MAP ----------
+   Owner request, Aug 15 2026: "map covers road signs — we need some road
+   signs on the maps on plan and ride to see." The route line is a glow, a
+   casing and a core, and on satellite it lands squarely on the shields the
+   tiles already carry. These are DOM markers, so they ride above the canvas
+   by construction. Placement (which stretches get signed, how often) is
+   engine/routeShields.js; what fits on screen is culled in RouteShields.jsx.
+
+   The dark plate is not decoration: signage art is white-heavy and vanishes
+   into a snow field, a salt flat or a bright basemap without something to sit
+   on. It also reads as a marker rather than as part of the terrain. */
+.rt-shield {
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 3px; border-radius: 5px;
+  background: rgba(10, 12, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none; /* the route line underneath stays clickable */
+  cursor: default;
+}
+.rt-shield.off { display: none; }
+.rt-shield .map-shield { height: 21px; width: auto; flex: none; display: block; }
+/* the honest fallback when no artwork resolves — the number, plainly set */
+.rt-shield i.map-shield {
+  height: auto; font-family: var(--mono); font-style: normal;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: #fff;
+  padding: 1px 2px; white-space: nowrap;
+}
+/* Bigger in Ride: read at 70 mph, from a bar mount, through a visor. */
+.rt-shield.rt-ride { padding: 3px 4px; border-radius: 6px; }
+.rt-shield.rt-ride .map-shield { height: 28px; }
+.rt-shield.rt-ride i.map-shield { font-size: 14px; }
+
 /* ---------- rider roster ---------- */
 
 .roster-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
@@ -1912,6 +1945,11 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 }
 .ov-wp.above .ov-label { bottom: 8px; }
 .ov-wp.below .ov-label { top: 8px; }
+/* Off screen. MapLibre parks a marker in the margins rather than removing it,
+   so a stop 200 miles up the trip is still a live element — and the edge clamp
+   used to drag its name back into the frame every time the camera settled.
+   See viewGate() in engine/mapVis.js. */
+.ov-wp.off { display: none; }
 
 
 /* ---------- map chrome on a phone ----------

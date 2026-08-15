@@ -6,6 +6,7 @@ import {
   haversineMiles, tripRange, tripPace, projectOnChain, projectOnChainDirected,
   chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
 } from '../engine/tripEngine.js';
+import { viewGate } from '../engine/mapVis.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
@@ -18,7 +19,9 @@ import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
 import RoadShield from './RoadShield.jsx';
-import { roadShields } from '../engine/roads.js';
+import RouteShields from './RouteShields.jsx';
+import { stepRoadShields } from '../engine/roads.js';
+import { shieldPlacements } from '../engine/routeShields.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
 
 // Ride Mode: a navigation HUD over a live map. Projects your GPS position onto
@@ -112,12 +115,9 @@ function LaneStrip({ lanes }) {
   );
 }
 
-// OSRM writes route refs as "I 90" or "I 90;US 191"; roadShields() reads the
-// hyphenated form the trip notes use.
-function stepShields(step) {
-  if (!step?.road) return [];
-  return roadShields(step.road.replace(/\b([A-Z]{1,2})\s+(\d)/g, '$1-$2').replace(/;/g, ' ')).slice(0, 2);
-}
+// OSRM writes route refs as "I 90" or "I 90;US 191", Google puts the road in
+// the instruction and nowhere else — stepRoadShields reads both.
+const stepShields = (step) => stepRoadShields(step).slice(0, 2);
 
 const fmtStepDist = (mi) => {
   if (mi >= 10) return `${Math.round(mi)} mi`;
@@ -347,6 +347,7 @@ export default function RideMode({ onClose }) {
   const failSince = useRef(null); // when the fix started failing, for the grace period
   const [clock, setClock] = useState(nowMin());
   const [steps, setSteps] = useState(null);
+  const [mapObj, setMapObj] = useState(null); // the loaded nav map, for marker children
   const [reroute, setReroute] = useState(null); // { geometry, steps } from live position
   const [rerouting, setRerouting] = useState(false);
   const [rerouteFailed, setRerouteFailed] = useState(false);
@@ -535,7 +536,7 @@ export default function RideMode({ onClose }) {
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
     mapReadyRef.current = false;
-    map.once('load', () => { mapReadyRef.current = true; });
+    map.once('load', () => { mapReadyRef.current = true; setMapObj(map); });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -565,7 +566,7 @@ export default function RideMode({ onClose }) {
       .setLngLat(start ? [start.lng, start.lat] : [-108, 45])
       .addTo(map);
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { setMapObj(null); map.remove(); mapRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run something that touches sources and layers as soon as the map can take
@@ -868,6 +869,23 @@ export default function RideMode({ onClose }) {
       : null),
     [fix, geomInfo] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // ---- highway shields on the road itself ----
+  // The route line's glow, casing and core paint straight over the shields
+  // the satellite tiles carry, so the map answers "where am I going" while
+  // hiding "what road is this". These put the number back, signed every mile
+  // around the bike and sparsely beyond (see engine/routeShields.js).
+  //
+  // The along-position is quantized to the half mile: without it the placement
+  // set is a new array every GPS fix and the whole window churns once a
+  // second. The shields themselves sit on a fixed quarter-mile grid, so a
+  // window that steps rather than slides changes nothing a rider can see.
+  const nearMi = geoProj ? Math.round(geoProj.along * 2) / 2 : null;
+  const shieldMarks = useMemo(() => {
+    const src = reroute?.steps ?? steps;
+    if (!src?.length || !hasRealRoute || geomInfo.chain.length < 2) return [];
+    return shieldPlacements(src, geomInfo.chain, { cum: geomInfo.cum, nearMi });
+  }, [steps, reroute, geomInfo, hasRealRoute, nearMi]);
   const goodFix = fix && (fix.accuracy == null || fix.accuracy < 200);
   const offRoute = !!(geoProj && goodFix && geoProj.off > (hasRealRoute ? 0.12 : 2.5));
 
@@ -1452,7 +1470,7 @@ export default function RideMode({ onClose }) {
     wpMarkersRef.current.forEach((m) => m.remove());
     wpMarkersRef.current = [];
 
-    const labels = [];
+    const marks = [];
     day.waypoints.forEach((w, i) => {
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) return;
       const mark = stopMarks.find((m) => m.name === w.name);
@@ -1466,44 +1484,78 @@ export default function RideMode({ onClose }) {
       // alternate sides so consecutive labels along a line do not stack
       el.classList.add(i % 2 ? 'below' : 'above');
       el.append(dot, label);
-      labels.push(label);
+      marks.push({ el, label, ll: [w.lng, w.lat] });
       wpMarkersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([w.lng, w.lat]).addTo(map));
     });
+
+    // A stop that is not on screen has no business being drawn. MapLibre parks
+    // its marker off in the margins rather than removing it, and a pitched nav
+    // camera folds ground beyond the horizon back into the top of the frame —
+    // so "off screen" is a question only viewGate can answer. Everything below
+    // (the clamp especially) applies to on-screen stops ONLY.
+    const cull = () => {
+      const on = viewGate(map, { pad: 4 });
+      let any = false;
+      marks.forEach((m) => {
+        m.on = !!on(m.ll);
+        m.el.classList.toggle('off', !m.on);
+        any = any || m.on;
+      });
+      return any;
+    };
 
     // A label is centred on its stop, so a stop near the edge of the screen
     // hangs half its name off it — the first and last stop of a day, every
     // time. Slide those back inside instead of letting them get cut.
+    //
+    // Only the ON-SCREEN ones. Clamping by measured rectangle alone is what
+    // fired stop names across the screen every second of a ride (field report,
+    // Aug 15 2026): a stop 200 miles up the trip measures at x = -700000px, so
+    // the "slide it back inside" nudge is +700006px, and the whole rest of the
+    // day piled onto the left edge — re-thrown on every camera settle, which
+    // under a chase camera is once a second, forever.
     const clamp = () => {
       const box = map.getContainer().getBoundingClientRect();
-      labels.forEach((el) => {
-        const prev = Number(el.dataset.dx || 0);
-        const r = el.getBoundingClientRect();
+      marks.forEach(({ label, on }) => {
+        const prev = Number(label.dataset.dx || 0);
+        if (!on) {
+          if (prev) { label.dataset.dx = '0'; label.style.transform = ''; }
+          return;
+        }
+        const r = label.getBoundingClientRect();
         const left = r.left - box.left - prev; // where it would sit untranslated
         const dx = left < 6 ? 6 - left
           : left + r.width > box.width - 6 ? box.width - 6 - (left + r.width)
             : 0;
         if (dx !== prev) {
-          el.dataset.dx = String(dx);
-          el.style.transform = dx ? `translateX(${dx}px)` : '';
+          label.dataset.dx = String(dx);
+          label.style.transform = dx ? `translateX(${dx}px)` : '';
         }
       });
     };
     // Clamp only when the map SETTLES. Re-translating labels on every move
     // frame made them drift away from their dots mid-zoom; during a gesture
     // the label stays anchored, and slides inside the viewport when it lands.
+    // Culling is cheap arithmetic and carries no such hazard, so it rides
+    // every frame — a stop must appear the moment it enters the frame, not a
+    // second later when the camera stops.
     const unclamp = () => {
-      labels.forEach((el) => {
-        if (el.dataset.dx) { el.dataset.dx = '0'; el.style.transform = ''; }
+      marks.forEach(({ label }) => {
+        if (label.dataset.dx) { label.dataset.dx = '0'; label.style.transform = ''; }
       });
     };
-    clamp();
-    map.on('movestart', unclamp);
-    map.on('moveend', clamp);
-    map.on('zoomend', clamp);
+    const settle = () => { cull(); clamp(); };
+    const moving = () => { cull(); unclamp(); };
+    settle();
+    map.on('movestart', moving);
+    map.on('move', cull);
+    map.on('moveend', settle);
+    map.on('zoomend', settle);
     return () => {
-      map.off('movestart', unclamp);
-      map.off('moveend', clamp);
-      map.off('zoomend', clamp);
+      map.off('movestart', moving);
+      map.off('move', cull);
+      map.off('moveend', settle);
+      map.off('zoomend', settle);
       wpMarkersRef.current.forEach((m) => m.remove());
       wpMarkersRef.current = [];
     };
@@ -1513,6 +1565,8 @@ export default function RideMode({ onClose }) {
     // any first tap unlocks the speech engine (ref-guarded to run once)
     <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
+      {/* the road number, back on top of the line that was covering it */}
+      <RouteShields map={mapObj} placements={shieldMarks} avoid={day.waypoints} mode="ride" />
 
       {/* ---- top: the turn OWNS the top edge; weather + close ride beneath
               it on the right ---- */}

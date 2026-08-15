@@ -240,7 +240,8 @@ try {
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i);
     if ((k?.startsWith('sturgis.routeCache.') && k !== CACHE_KEY)
-      || (k?.startsWith('moto.stepsCache.') && k !== STEP_CACHE)) {
+      || (k?.startsWith('moto.stepsCache.') && k !== STEP_CACHE)
+      || (k?.startsWith('moto.roadCache.') && k !== 'moto.roadCache.v1')) {
       localStorage.removeItem(k);
     }
   }
@@ -297,13 +298,14 @@ function laneCells(step) {
 }
 
 // Google returns no lane guidance on any web API — it is Navigation-SDK-only —
-// but lane markings are static, so they can be fetched from OSRM once and
-// matched onto Google's maneuver chain by position. Best effort: if this fails
-// the HUD is exactly what it was before.
+// and no route REF either: the road number is only ever prose inside the
+// instruction ("Merge onto I-90 E"). Both are static facts about the road, so
+// both can be fetched from OSRM once and matched onto Google's maneuver chain
+// by position. Best effort: if this fails the HUD is exactly what it was.
 const LANE_MATCH_MI = 0.03; // ~50 m: same junction, different router's idea of where
 
-export async function attachLanes(steps, wps) {
-  if (!steps?.length || steps.some((s) => s.lanes)) return steps;
+export async function attachRoadDetail(steps, wps) {
+  if (!steps?.length || steps.some((s) => s.lanes || s.road)) return steps;
   try {
     const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
     const res = await fetch(`${OSRM}/${coords}?overview=false&steps=true&annotations=false`);
@@ -315,7 +317,8 @@ export async function attachLanes(steps, wps) {
     for (const leg of route.legs) {
       for (const st of leg.steps) {
         const cells = laneCells(st);
-        if (cells) points.push({ lat: st.maneuver.location[1], lng: st.maneuver.location[0], cells });
+        const ref = st.ref || null;
+        if (cells || ref) points.push({ lat: st.maneuver.location[1], lng: st.maneuver.location[0], cells, ref });
       }
     }
     if (!points.length) return steps;
@@ -324,9 +327,10 @@ export async function attachLanes(steps, wps) {
       let best = null;
       for (const p of points) {
         const d = haversineMiles(s, p);
-        if (d <= LANE_MATCH_MI && (!best || d < best.d)) best = { d, cells: p.cells };
+        if (d <= LANE_MATCH_MI && (!best || d < best.d)) best = { d, ...p };
       }
-      return best ? { ...s, lanes: best.cells } : s;
+      if (!best) return s;
+      return { ...s, lanes: best.cells ?? s.lanes, road: s.road ?? best.ref };
     });
   } catch {
     return steps;
@@ -386,7 +390,7 @@ export async function routeDaySteps(day, pace = 1) {
   // Traffic-aware first; OSRM below is the always-works fallback.
   try {
     const g = await googleRoute(wps[0], wps.slice(1));
-    const steps = await attachLanes(googleCompactSteps(g, wps.slice(1)), wps);
+    const steps = await attachRoadDetail(googleCompactSteps(g, wps.slice(1)), wps);
     saveStepCache(key, { g: 1, at: Date.now(), steps });
     return paceSteps(steps, pace);
   } catch { /* fall through to OSRM */ }
@@ -402,6 +406,39 @@ export async function routeDaySteps(day, pace = 1) {
   const steps = compactSteps(route, wps.slice(1).map((w) => w.name));
   saveStepCache(key, steps);
   return paceSteps(steps, pace);
+}
+
+// ---- road numbers for the PLAN map ----
+// Shields on the planning map need one thing the planning route does not
+// carry: which route number each stretch runs on. Deliberately NOT served by
+// routeDaySteps — that one tries Google first (billable, per selected day,
+// and Google has no ref field anyway), while OSRM answers with real OSM refs
+// for free. Only the ref and the length it holds are kept, so the whole cache
+// for an 11-day trip is a few KB.
+const ROAD_CACHE = 'moto.roadCache.v1';
+
+export async function routeDayRoads(day) {
+  const wps = (day.waypoints ?? []).filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
+  if (wps.length < 2) return [];
+  const key = wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
+  let store = {};
+  try { store = JSON.parse(localStorage.getItem(ROAD_CACHE) || '{}'); } catch { store = {}; }
+  if (store[key]) return store[key];
+
+  const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
+  const res = await fetch(`${OSRM}/${coords}?overview=false&steps=true&annotations=false`);
+  if (!res.ok) throw new Error(`roads ${res.status}`);
+  const route = (await res.json()).routes?.[0];
+  if (!route) throw new Error('no route');
+  const out = [];
+  for (const leg of route.legs) {
+    for (const st of leg.steps) {
+      out.push({ dist: st.distance / 1609.34, road: st.ref || null });
+    }
+  }
+  store[key] = out;
+  try { localStorage.setItem(ROAD_CACHE, JSON.stringify(store)); } catch { localStorage.removeItem(ROAD_CACHE); }
+  return out;
 }
 
 // Live reroute: current GPS position → the day's remaining waypoints.
