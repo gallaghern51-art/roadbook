@@ -65,6 +65,31 @@ export function legKey(a, b) {
   return `${a.lat.toFixed(4)},${a.lng.toFixed(4)}|${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
 }
 
+// A day's prose is written ABOUT a route: "US-212 to the WY-296 junction,
+// Chief Joseph down to WY-120". Change the stops and the words keep their
+// old confidence while describing a ride nobody is taking. This fingerprint
+// is what a summary is stamped against (day.summaryFor) so the panel can say
+// so. Stops in order, id + name + position at 3 decimals (~110 m) — a marker
+// nudged inside a parking lot is not a new route; a stop added, removed,
+// reordered, renamed, or moved down the road is.
+export function routeFingerprint(day) {
+  return (day?.waypoints ?? [])
+    .map((w) => {
+      const at = Number.isFinite(w.lat) && Number.isFinite(w.lng)
+        ? `${w.lat.toFixed(3)},${w.lng.toFixed(3)}` : '—';
+      return `${w.id}@${at}#${(w.name ?? '').trim().toLowerCase()}`;
+    })
+    .join('|');
+}
+
+// True when the day carries prose that was stamped against a DIFFERENT route.
+// Unstamped days (seed data, freshly generated trips, anything never edited)
+// read as fine: the flag is for drift we can prove, not for suspicion.
+export function summaryIsStale(day) {
+  if (!day?.summary?.trim() || !day.summaryFor) return false;
+  return day.summaryFor !== routeFingerprint(day);
+}
+
 // Project a position onto a coordinate chain: the nearest segment, the
 // fraction along it, and the offset in miles. Shared by Ride Mode (plan
 // position, off-route checks) and the speed-limit road matcher.
