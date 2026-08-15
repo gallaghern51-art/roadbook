@@ -1,24 +1,44 @@
-/* Sturgis 2026 — rally field guide design system
-   Palette: Harley-Davidson (black, white, light gray, orange, red-orange).
-   Black base throughout; orange = outbound, red-orange = rally, light gray = return/prep. */
+/* Roadbook — field-guide design system
+   Palette: Sodium & Slate. Built from what a rider actually sees after dark —
+   sodium-vapour amber over the interstate, tail-lights ahead, and the cold
+   silver a headlight throws — on a blue-black ground rather than a neutral one.
+   outbound = sodium, rally = tail-light rose, return = headlight beam.
+   Adopted 15 Aug 2026, replacing the Harley colors the app was born in.
+
+   Rally and danger used to be the SAME hex, so the rally leg of a trip and a
+   day that would hurt you were painted identically — and since the A–F grade
+   badges read from those tokens, a B day and an F day were too. They are
+   separate colors now; keep them that way. */
 
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
-  --asphalt-0: #000000;
-  --asphalt-1: #0d0d0d;
-  --asphalt-2: #1a1a1a;
-  --asphalt-3: #262626;
-  --line: #333333;
-  --ink: #ffffff;
-  --ink-dim: #cecece;
-  --ink-faint: #7a7a7a;
-  --outbound: #f48322;
-  --rally: #f53f1f;
-  --return: #cecece;
-  --prep: #7a7a7a;
-  --danger: #f53f1f;
-  --ok: #7fb069;
+  --asphalt-0: #07090e;
+  --asphalt-1: #0c1016;
+  --asphalt-2: #141a23;
+  --asphalt-3: #1e2733;
+  --line: #2c3846;
+  --ink: #f0f4f8;
+  --ink-dim: #aebccb;
+  --ink-faint: #6b7b8f;
+  --outbound: #ffa92e;
+  --rally: #ff5470;
+  --return: #86d9f0;
+  --prep: #6b7b8f;
+  --danger: #ff3b30;
+  --ok: #4fd68a;
+
+  /* Derived, so the palette really is the block above. These were hand-mixed
+     hexes and rgba() literals scattered over forty-odd rules, which is how the
+     app ended up with a "palette" that took a day to change and still got
+     missed in three places. Mixed from the tokens instead. */
+  --outbound-hover: color-mix(in srgb, var(--outbound) 80%, #ffffff);
+  --rally-hover:    color-mix(in srgb, var(--rally) 80%, #ffffff);
+  --danger-hover:   color-mix(in srgb, var(--danger) 80%, #ffffff);
+  /* pale inks for text on the dark translucent panels — flipped to pigment in
+     the light theme, where a pale wash on paper is unreadable */
+  --warn-ink:   color-mix(in srgb, var(--outbound) 55%, #ffffff);
+  --danger-ink: color-mix(in srgb, var(--danger) 45%, #ffffff);
   --display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --body: 'Barlow', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -168,9 +188,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .btn:hover { color: var(--ink); border-color: var(--ink-faint); }
 .btn.primary { background: var(--outbound); border-color: var(--outbound); color: #000000; }
-.btn.primary:hover { background: #f7a256; }
+.btn.primary:hover { background: var(--outbound-hover); }
 .btn.gold { background: var(--rally); border-color: var(--rally); color: #000000; }
-.btn.gold:hover { background: #f76a4a; }
+.btn.gold:hover { background: var(--rally-hover); }
 .btn.danger-ghost:hover { color: var(--danger); border-color: var(--danger); }
 .btn:disabled { opacity: 0.45; cursor: default; }
 
@@ -269,7 +289,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .map-hint b { color: var(--rally); font-weight: 500; }
 
-.wp-marker { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #000000; cursor: pointer; box-shadow: 0 0 0 1px rgba(206, 206, 206, 0.35); }
+.wp-marker { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #000000; cursor: pointer; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink-dim) 35%, transparent); }
 .wp-marker.fuel { border-radius: 3px; }
 .wp-marker.photo { transform: rotate(45deg); border-radius: 3px; }
 /* Alternating above/below the route line (set in drawMarkers) — side-anchored
@@ -332,9 +352,10 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .warning {
   display: flex; gap: 8px; align-items: flex-start;
   font-size: 13px; padding: 8px 10px; border-radius: 5px; margin: 6px 0;
-  border: 1px solid rgba(245, 63, 31, 0.4); background: rgba(245, 63, 31, 0.07); color: #ffab84;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent); color: var(--warn-ink);
 }
-.warning.danger { border-color: rgba(245, 63, 31, 0.5); background: rgba(245, 63, 31, 0.08); color: #ffab84; }
+.warning.danger { border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger-ink); }
 
 .section { margin-top: 22px; }
 .section > h3 {
@@ -366,10 +387,10 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .wp-row .mile { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); text-align: right; }
 .wp-row .nm { font-weight: 500; font-size: 13.5px; }
 .wp-row .nm .tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: 1px; }
-.wp-row .nm .tag.fuel { background: rgba(244, 131, 34, 0.18); color: var(--outbound); }
-.wp-row .nm .tag.photo { background: rgba(206, 206, 206, 0.12); color: var(--return); }
+.wp-row .nm .tag.fuel { background: color-mix(in srgb, var(--outbound) 18%, transparent); color: var(--outbound); }
+.wp-row .nm .tag.photo { background: color-mix(in srgb, var(--return) 12%, transparent); color: var(--return); }
 /* pin sits off the road network — the router detours to touch it */
-.wp-row .nm .tag.offroad { background: rgba(214, 69, 51, 0.16); color: #ffab84; cursor: help; }
+.wp-row .nm .tag.offroad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--warn-ink); cursor: help; }
 .wp-row .note { font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
 .wp-row .rm { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); opacity: 0; }
 .wp-row:hover .rm { opacity: 1; }
@@ -401,7 +422,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 /* a gate pointing at a stop that no longer exists — re-point it or delete it */
 .g-stop.orphan { border-color: var(--danger); color: var(--danger); }
 
-.module { padding: 10px 12px; border: 1px dashed var(--rally); border-radius: 6px; margin-bottom: 8px; background: rgba(245, 63, 31, 0.04); }
+.module { padding: 10px 12px; border: 1px dashed var(--rally); border-radius: 6px; margin-bottom: 8px; background: color-mix(in srgb, var(--rally) 4%, transparent); }
 .module.off { border-color: var(--line); background: transparent; opacity: 0.75; }
 /* Title on its own row. As a flex row it had to share the line with the timing
    text and three controls, which squeezed a long name like "Crazy Horse night
@@ -429,7 +450,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 /* Squared off, not an iOS pill: every other control in the app is a rectangle
    with a 6px corner, and a lozenge with a round knob read as borrowed. */
 .toggle::after { content: ''; position: absolute; top: 1px; left: 2px; width: 13px; height: 13px; border-radius: 3px; background: var(--ink-faint); transition: left 0.15s, background 0.15s; }
-.toggle.on { background: rgba(245, 63, 31, 0.35); border-color: var(--rally); }
+.toggle.on { background: color-mix(in srgb, var(--rally) 35%, transparent); border-color: var(--rally); }
 .toggle.on::after { left: 17px; background: var(--rally); }
 
 .lodging { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--asphalt-2); }
@@ -503,7 +524,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    flex column, so an uncapped card used to shove both off-screen with
    nothing scrollable left to reach them.) */
 .proposal {
-  margin: 0 14px 10px; border: 1px solid var(--rally); border-radius: 8px; background: rgba(245, 63, 31, 0.06); padding: 10px 12px;
+  margin: 0 14px 10px; border: 1px solid var(--rally); border-radius: 8px; background: color-mix(in srgb, var(--rally) 6%, transparent); padding: 10px 12px;
   display: flex; flex-direction: column; min-height: 0;
   max-height: min(46vh, 46dvh);
 }
@@ -601,10 +622,10 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   font-family: var(--display); font-weight: 700; font-size: 15px;
   padding: 1px 9px; border-radius: 4px; letter-spacing: 0.04em;
 }
-.grade-A { background: rgba(127, 176, 105, 0.2); color: var(--ok); }
-.grade-B { background: rgba(245, 63, 31, 0.18); color: var(--rally); }
-.grade-C { background: rgba(244, 131, 34, 0.18); color: var(--outbound); }
-.grade-D, .grade-F { background: rgba(245, 63, 31, 0.2); color: var(--danger); }
+.grade-A { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+.grade-B { background: color-mix(in srgb, var(--rally) 18%, transparent); color: var(--rally); }
+.grade-C { background: color-mix(in srgb, var(--outbound) 18%, transparent); color: var(--outbound); }
+.grade-D, .grade-F { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
 
 .feas-day { margin-bottom: 12px; }
 .feas-head {
@@ -620,7 +641,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .feas-ok { font-size: 12px; color: var(--ok); padding: 3px 10px 0; opacity: 0.85; }
 .split-rec {
   margin: 7px 0 0; padding: 9px 11px; border: 1px dashed var(--rally); border-radius: 6px;
-  background: rgba(245, 63, 31, 0.05); font-size: 12.5px; color: var(--ink-dim);
+  background: color-mix(in srgb, var(--rally) 5%, transparent); font-size: 12.5px; color: var(--ink-dim);
 }
 .split-rec .sr-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--rally); margin-bottom: 3px; }
 .split-rec .btn { margin-top: 7px; font-size: 12px; padding: 4px 10px; }
@@ -902,7 +923,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
     border-top: 2px solid transparent;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .tabnav button.active { color: var(--rally); border-top-color: var(--rally); background: rgba(245, 63, 31, 0.07); }
+  .tabnav button.active { color: var(--rally); border-top-color: var(--rally); background: color-mix(in srgb, var(--rally) 7%, transparent); }
 
   /* Ride is the app's one action and it is pressed with a glove on, so it is
      sized like a button and not like a link. */
@@ -1140,10 +1161,14 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   /* the surface scale pins dark too — in the light theme these flip to
      paper, and paper cards under the pinned white ink made the ride sheet
      white-on-white. The HUD is dark in every theme, so it pins everything. */
-  --asphalt-0: #000000;
-  --asphalt-1: #0d0d0d;
-  --asphalt-2: #1a1a1a;
-  --asphalt-3: #262626;
+  --asphalt-0: #05070b;
+  --asphalt-1: #0c1016;
+  --asphalt-2: #141a23;
+  --asphalt-3: #1e2733;
+  /* the pale inks are pinned for the same reason the surfaces are: in the light
+     theme they resolve to pigment, which vanishes on a dark HUD panel */
+  --warn-ink:   color-mix(in srgb, var(--outbound) 55%, #ffffff);
+  --danger-ink: color-mix(in srgb, var(--danger) 45%, #ffffff);
   /* re-APPLY color, not just the variable: body resolves color:var(--ink) at
      the root, so inherited text arrives pre-resolved to the light theme's
      near-black unless the HUD sets its own. */
@@ -1164,8 +1189,13 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   --asphalt-1: #f6f6f6;
   --asphalt-2: #ffffff;
   --asphalt-3: #e2e2e2;
-  --ok: #2e7d32; /* the dark-glass green washes out on white */
-  background: #dcdcdc;
+  --ok: #1f7a4d; /* the dark-glass green washes out on white */
+  /* The base .ride-mode rule pins these PALE, because the HUD is normally dark
+     glass. This HUD is white, so they flip back to pigment — without this a
+     "behind plan" chip and every warning render as pale pink on white. */
+  --warn-ink:   color-mix(in srgb, var(--outbound) 88%, #000000);
+  --danger-ink: color-mix(in srgb, var(--danger) 88%, #000000);
+  background: #d9dfe7;
 }
 :root[data-theme='light'] .ride-mode .turn-card {
   background: rgba(255, 255, 255, 0.96);
@@ -1195,12 +1225,12 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 /* pale-orange accents tuned for dark glass need pigment on white */
 :root[data-theme='light'] .ride-mode .m-chip.danger,
 :root[data-theme='light'] .ride-mode .m-chip.danger .mc-ic,
-:root[data-theme='light'] .ride-mode .rb-chip.behind { color: #b3200a; }
+:root[data-theme='light'] .ride-mode .rb-chip.behind { color: var(--danger-ink); }
 :root[data-theme='light'] .ride-mode .sc-actions button { background: rgba(0, 0, 0, 0.04); }
 :root[data-theme='light'] .ride-mode .sc-actions button:active { background: rgba(0, 0, 0, 0.12); color: var(--ink); }
 :root[data-theme='light'] .ride-mode .warning,
 :root[data-theme='light'] .ride-mode .warning.danger {
-  background: rgba(255, 255, 255, 0.94); color: #b3200a;
+  background: rgba(255, 255, 255, 0.94); color: var(--danger-ink);
 }
 
 .ride-map { position: absolute; inset: 0; }
@@ -1317,7 +1347,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   background: var(--danger); border-color: var(--danger); color: #000;
   font-size: 18px; letter-spacing: 0.08em;
 }
-.ride-menu .end-nav:hover { background: #f76a4a; border-color: #f76a4a; color: #000; }
+.ride-menu .end-nav:hover { background: var(--rally-hover); border-color: var(--rally-hover); color: #000; }
 
 .ride-topbar select {
   flex: 1; font-family: var(--mono); font-size: 12px; min-height: 42px;
@@ -1397,12 +1427,12 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   width: 0; height: 0;
   border-left: 13px solid transparent; border-right: 13px solid transparent;
   border-bottom: 30px solid var(--outbound);
-  filter: drop-shadow(0 0 7px rgba(244, 131, 34, 0.85)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85));
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--outbound) 85%, transparent)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85));
 }
 .nav-puck::after {
   content: ''; position: absolute; left: -13px; top: 30px;
   border-left: 13px solid transparent; border-right: 13px solid transparent;
-  border-top: 10px solid #8f4406;
+  border-top: 10px solid color-mix(in srgb, var(--outbound) 55%, #000000);
 }
 
 .recenter { align-self: center; box-shadow: 0 4px 18px rgba(0,0,0,0.5); }
@@ -1521,16 +1551,25 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    light HUD (white panels, near-black type — see the ride section). */
 
 :root[data-theme='light'] {
-  --asphalt-0: #f2f2f2;
+  --asphalt-0: #f1f3f6;
   --asphalt-1: #ffffff;
-  --asphalt-2: #ebebeb;
-  --asphalt-3: #dcdcdc;
-  --line: #c9c9c9;
-  --ink: #141414;
-  --ink-dim: #454545;
-  --ink-faint: #8a8a8a;
-  --return: #6f6f6f; /* light-gray phase text vanishes on paper */
-  --prep: #6f6f6f;
+  --asphalt-2: #e9edf2;
+  --asphalt-3: #d9dfe7;
+  --line: #c4ccd6;
+  --ink: #101418;
+  --ink-dim: #414a55;
+  --ink-faint: #7b8794;
+  /* Every hue the dark theme picked for a black ground is too light for paper:
+     sodium amber, tail-light rose and beam blue all fall under 4.5:1 on white.
+     Same colors, more pigment. */
+  --outbound: #b26a00;
+  --rally: #c81e45;
+  --return: #0f5875; /* beam blue vanishes on paper */
+  --prep: #66707c;
+  --danger: #c41e12;
+  --ok: #1f7a4d;
+  --warn-ink:   color-mix(in srgb, var(--outbound) 88%, #000000);
+  --danger-ink: color-mix(in srgb, var(--danger) 88%, #000000);
 }
 /* panels that hardcode a dark glass background */
 :root[data-theme='light'] .basemap-switch,
@@ -1538,11 +1577,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 :root[data-theme='light'] .map-hint {
   background: rgba(255, 255, 255, 0.92);
 }
-/* warning text tuned for dark glass needs more pigment on paper */
-:root[data-theme='light'] .warning { color: #a03d0c; }
-:root[data-theme='light'] .warning.danger { color: #b3200a; }
-/* pale-orange accents tuned for dark panels need pigment on paper too */
-:root[data-theme='light'] .wp-row .nm .tag.offroad { color: #b3341f; }
+/* (warning/offroad text used to be re-stated here for the light theme; it now
+   rides --warn-ink / --danger-ink, which flip pale-on-dark to pigment-on-paper
+   in the light token block above.) */
 
 
 /* ---------- ribbon day number ---------- */
@@ -1850,7 +1887,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .ride-menu .rm-toggle { flex: none; }
 /* orange, not red: it belongs to the map segments above it, and red is the
    colour End Navigation owns in this menu */
-.ride-menu .rm-toggle.on { background: rgba(244, 131, 34, 0.28); border-color: var(--outbound); }
+.ride-menu .rm-toggle.on { background: color-mix(in srgb, var(--outbound) 28%, transparent); border-color: var(--outbound); }
 .ride-menu .rm-toggle.on::after { background: var(--outbound); }
 .ride-menu .rm-switch:has(.rm-toggle.on) .spk-icon { color: var(--outbound); }
 
@@ -1951,7 +1988,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .datebar .chip.link { cursor: pointer; }
 .datebar .chip.link:hover { border-color: var(--ink-faint); }
 .datebar .chip.ok { color: var(--ok); }
-.datebar .chip.warn { color: var(--danger); border-color: rgba(245, 63, 31, 0.5); }
+.datebar .chip.warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
 
 
 /* ---------- desktop view bar ----------
@@ -2073,7 +2110,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 /* mode bar — PLAN and PREP are places, RIDE is the action and keeps its color */
 .tabnav .ride-seat { display: inline-flex; align-items: center; gap: 6px; color: var(--outbound); }
 .tabnav .ride-seat .play-tri { width: 12px; height: 12px; display: block; }
-.tabnav .ride-seat:hover { color: #f7a256; }
+.tabnav .ride-seat:hover { color: var(--outbound-hover); }
 .tabnav.deskbar .ride-seat { margin-left: auto; }
 
 .btn.icon { font-size: 15px; padding: 4px 9px; line-height: 1.2; }
@@ -2130,7 +2167,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 /* sheets — the dialogs that replaced window.prompt/confirm */
 .sheet-body { font-size: 13.5px; color: var(--ink-dim); line-height: 1.5; }
 .btn.danger-solid { background: var(--danger); border-color: var(--danger); color: #000000; }
-.btn.danger-solid:hover { background: #ff5c3c; }
+.btn.danger-solid:hover { background: var(--danger-hover); }
 .modal { position: relative; }
 .modal .sheet-x { position: absolute; top: 10px; right: 10px; z-index: 2; }
 .modal.settings .panel-view { padding: 16px 18px; }
@@ -2160,7 +2197,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   border: 1px solid var(--line); border-radius: 6px;
   padding: 4px 6px; margin-bottom: 10px;
 }
-.trip-card.active .silhouette { border-color: rgba(245, 63, 31, 0.35); }
+.trip-card.active .silhouette { border-color: color-mix(in srgb, var(--rally) 35%, transparent); }
 
 /* the hero is a question set in highway type */
 .home-hero h2 { font-size: 52px; letter-spacing: 0.01em; }
@@ -2193,8 +2230,8 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .ai-dock { animation: dock-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1); }
 @keyframes dock-in { from { transform: translateX(40px); opacity: 0; } }
 
-.chip.ask-ai { color: var(--rally); border-color: rgba(245, 63, 31, 0.45); cursor: pointer; }
-.chip.ask-ai:hover { border-color: var(--rally); background: rgba(245, 63, 31, 0.08); }
+.chip.ask-ai { color: var(--rally); border-color: color-mix(in srgb, var(--rally) 45%, transparent); cursor: pointer; }
+.chip.ask-ai:hover { border-color: var(--rally); background: color-mix(in srgb, var(--rally) 8%, transparent); }
 
 @media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
   .home-hero h2 { font-size: 34px; }
@@ -2322,7 +2359,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .m-chip .mc-ic { width: 15px; height: 15px; color: var(--outbound); }
 .m-chip.gate { color: var(--ink-dim); }
 .m-chip.gate .mc-ic { color: inherit; }
-.m-chip.danger { border-color: var(--danger); color: #ffab84; }
+.m-chip.danger { border-color: var(--danger); color: var(--danger-ink); }
 .m-chip.danger .mc-ic { color: var(--danger); }
 /* the gate chip's dismiss ✕ — small glyph, glove-sized invisible hit area */
 .m-chip .mc-x {
@@ -2330,7 +2367,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   font-size: 13px; line-height: 1; padding: 0 0 0 4px; cursor: pointer;
 }
 .m-chip .mc-x::after { content: ''; position: absolute; inset: -14px -12px -14px -6px; }
-.m-chip.danger .mc-x { color: #ffab84; }
+.m-chip.danger .mc-x { color: var(--danger-ink); }
 
 /* THE bar — the current leg first, then the plan delta. Two text rows, tight
    type: every pixel here is map the rider is not seeing. */
@@ -2370,7 +2407,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   white-space: nowrap;
 }
 .ride-bar .rb-chip.ahead { color: var(--ok); border-color: var(--ok); }
-.ride-bar .rb-chip.behind { color: #ffab84; border-color: var(--danger); }
+.ride-bar .rb-chip.behind { color: var(--danger-ink); border-color: var(--danger); }
 .ride-bar .rb-chip.on-time { color: var(--rally); border-color: var(--rally); }
 .ride-bar .rb-next { margin-top: 3px; }
 .ride-bar .rb-next .mq-ink { font-size: 17.5px; font-weight: 500; color: var(--ink-dim); }
@@ -2399,7 +2436,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   background: var(--asphalt-2); border: 1px solid var(--line); border-radius: 9px;
   overflow: hidden;
 }
-.stop-card.fuel { border-color: rgba(244, 131, 34, 0.5); }
+.stop-card.fuel { border-color: color-mix(in srgb, var(--outbound) 50%, transparent); }
 .stop-card.skipped { opacity: 0.55; border-style: dashed; }
 .stop-card .sc-main {
   display: flex; flex-direction: column; gap: 2px; text-align: left;
@@ -2440,7 +2477,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   border: 1px solid var(--line); border-radius: 7px; color: var(--ink-dim);
 }
 .rs-row button:active { background: rgba(255, 255, 255, 0.1); color: var(--ink); }
-.rs-row .rs-fuel { color: var(--outbound); border-color: rgba(244, 131, 34, 0.5); }
+.rs-row .rs-fuel { color: var(--outbound); border-color: color-mix(in srgb, var(--outbound) 50%, transparent); }
 
 .day-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .day-chips::-webkit-scrollbar { display: none; }
@@ -2493,7 +2530,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .crew-concern-list { list-style: none; margin-top: 8px; font-size: 12.5px; color: var(--ink-dim); }
 .crew-concern-list li { padding: 3px 0 3px 14px; position: relative; }
 .crew-concern-list li::before { content: '⚠'; position: absolute; left: 0; color: var(--outbound); font-size: 10px; }
-.crew-unsent { border: 1px solid var(--outbound); border-radius: 10px; padding: 12px; background: rgba(244, 131, 34, 0.05); }
+.crew-unsent { border: 1px solid var(--outbound); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--outbound) 5%, transparent); }
 .crew-ops { list-style: none; margin-top: 6px; }
 .crew-ops li { font-size: 12.5px; color: var(--ink-dim); padding: 2px 0 2px 14px; position: relative; }
 .crew-ops li::before { content: '→'; position: absolute; left: 0; color: var(--rally); font-size: 10px; }
@@ -2578,8 +2615,8 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 /* published-plan strip + today's chip */
 .pub-strip {
   font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
-  color: var(--ok); background: rgba(127, 176, 105, 0.08);
-  border-bottom: 1px solid rgba(127, 176, 105, 0.35);
+  color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
   padding: 4px 14px;
 }
 .ribbon .rchip.today:not(.active) { border-style: dashed; border-bottom-style: solid; }
@@ -2711,7 +2748,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 
 /* leg figures are tappable — the numbers ARE the leg */
 .wp-row .eta.leg-tap { cursor: pointer; border-radius: 5px; }
-.wp-row .eta.leg-tap:hover { background: rgba(245, 63, 31, 0.08); }
+.wp-row .eta.leg-tap:hover { background: color-mix(in srgb, var(--rally) 8%, transparent); }
 @media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
   /* centered on the panel edge and sized for gloves (owner request — the
      62% thumb-zone offset read as misplaced, not ergonomic) */

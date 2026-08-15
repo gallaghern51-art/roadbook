@@ -464,7 +464,7 @@ export default function MapView() {
         if (!showAll && !isEnd) continue;
         const el = document.createElement('div');
         el.className = `wp-marker${w.fuel ? ' fuel' : ''}${w.kind === 'photo' ? ' photo' : ''}`;
-        el.style.background = w.fuel ? '#f48322' : w.kind === 'photo' ? '#cecece' : color;
+        el.style.background = w.fuel ? PHASES.outbound.color : w.kind === 'photo' ? PHASES.return.color : color;
         if (isEnd) {
           const size = isTouch() ? '20px' : '16px';
           el.style.width = size;
@@ -581,8 +581,8 @@ export default function MapView() {
         {Object.entries(PHASES).map(([k, p]) => (
           <span key={k} className="key"><i style={{ background: p.color }} />{t(p.label)}</span>
         ))}
-        <span className="key"><i style={{ background: '#f48322', height: 8, width: 8, borderRadius: 2 }} />{t('Fuel')}</span>
-        <span className="key"><i style={{ background: '#cecece', height: 8, width: 8, borderRadius: 2, transform: 'rotate(45deg)' }} />{t('Photo')}</span>
+        <span className="key"><i style={{ background: PHASES.outbound.color, height: 8, width: 8, borderRadius: 2 }} />{t('Fuel')}</span>
+        <span className="key"><i style={{ background: PHASES.return.color, height: 8, width: 8, borderRadius: 2, transform: 'rotate(45deg)' }} />{t('Photo')}</span>
       </div>
     </div>
   );

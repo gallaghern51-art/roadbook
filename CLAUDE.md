@@ -81,6 +81,18 @@ Where things stand so a fresh session can pick up without archaeology:
 - Engine truth vs seed data: routed totals ~2,730 mi for the Sturgis trip; the field guide's own mile markers under-count (Missoula→Bozeman is ~203 mi, not 110).
 - Roadmap candidates discussed with the owner, not yet built: offline tile cache/service worker, ride track recording with actual-vs-plan replay, live rerouting in Ride Mode, native wrapper (Capacitor) for background GPS.
 
+## Palette: Sodium & Slate (Aug 15, 2026)
+
+The Harley colors the app was born in are gone. Roadbook is a planner for any bike now, and the palette was one brand's. **Sodium & Slate** is built from what a rider actually sees after dark — sodium-vapour amber over the interstate, tail-lights ahead, the cold silver a headlight throws — on a blue-black ground rather than a neutral one. The cold ground is the change that does the work; the warm accent needs something to sit against.
+
+- Dark: `--asphalt-0…3` `#07090e/#0c1016/#141a23/#1e2733`, `--line #2c3846`, ink `#f0f4f8/#aebccb/#6b7b8f`, **outbound `#ffa92e`** (sodium), **rally `#ff5470`** (tail-light rose), **return `#86d9f0`** (beam), `--danger #ff3b30`, `--ok #4fd68a`.
+- **rally and danger used to be the SAME hex** (`#f53f1f`), so the rally leg of a trip and a day that would hurt you were painted identically — and since the A–F grade badges read from those tokens, a **B day and an F day were the same color**. They are separate now. Keep them separate.
+- **The palette is now actually one block.** It wasn't: ~40 rules hardcoded `rgba(244,131,34,…)` / `rgba(245,63,31,…)` / hand-mixed hovers (`#f76a4a`, `#f7a256`, `#ffab84`, `#8f4406`). Those are `color-mix(in srgb, var(--token) N%, transparent)` now, plus derived tokens `--outbound-hover/--rally-hover/--danger-hover` and `--warn-ink/--danger-ink`. **Don't reintroduce a literal** — mix from the token or the next palette change misses it again.
+- `--warn-ink`/`--danger-ink` are pale-on-dark at `:root`, pigment in the light theme, **and pinned twice more**: `.ride-mode` re-pins them pale (the HUD is dark glass in every theme) and `:root[data-theme='light'] .ride-mode` re-pins them dark (that HUD is white). Miss either and warnings render pale-pink on white.
+- The light theme got a cool bias to match (`#f1f3f6` ground) and now overrides `--outbound/--rally/--danger/--ok` too: every dark-theme hue falls under 4.5:1 on paper.
+- Also updated: `PHASES` (seedTrip.js), `LIGHT_SAFE` (basemaps.js, `return: #0f5875`), MapView's fuel/photo markers + legend (read `PHASES` now, not literals), RideMode `NAV_AHEAD/NAV_BEYOND/NAV_DONE` + route glow, PWA `theme_color`/`background_color` and the `theme-color` meta. `RouteSilhouette` strokes from `var(--<phase>)` instead of the PHASES hex, so trip cards follow the theme (its endpoint dots were hardcoded `#ffffff` — invisible on a white card).
+- Verified: token resolution + `color-mix` support in both themes, and a Ride Mode GPS sim at 375px per the SOP (10/10 — HUD ink correct per theme, bottom-bar contrast >4.5:1, alert ink pale/pigment matching its panel). Engine suites unaffected and green (account 25/25, gate 11/11, nav-direction 31/31, line-progress 14/14). Palette options reviewed at https://claude.ai/code/artifact/3a906c3d-9757-4877-8fe4-d73019935f18.
+
 ## Accounts + library backup (Aug 15, 2026)
 
 The one failure the app could not survive: localStorage is the device's truth, so deleting the PWA deleted the roadbook. An account gives the library a second home.

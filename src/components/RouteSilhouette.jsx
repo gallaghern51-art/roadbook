@@ -34,20 +34,22 @@ export default function RouteSilhouette({ trip, height = 56 }) {
   const last = lastDay?.waypoints[lastDay.waypoints.length - 1];
   return (
     <svg className="silhouette" viewBox={`0 0 ${W} ${H}`} style={{ height }} aria-hidden="true">
+      {/* Stroke from the CSS var rather than the PHASES hex: both themes define
+          these tokens, and the dark-theme hues wash out on a white trip card. */}
       {trip.days.map((d) => d.waypoints.length > 1 && (
         <polyline
           key={d.id}
           points={d.waypoints.map((p) => `${x(p).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
           fill="none"
-          stroke={PHASES[d.phase]?.color ?? '#888888'}
+          stroke={PHASES[d.phase] ? `var(--${d.phase})` : 'var(--ink-faint)'}
           strokeWidth="2.2"
           strokeLinecap="round"
           strokeLinejoin="round"
           opacity="0.9"
         />
       ))}
-      {first && <circle cx={x(first)} cy={y(first)} r="2.6" fill="#ffffff" />}
-      {last && last !== first && <circle cx={x(last)} cy={y(last)} r="2.6" fill="none" stroke="#ffffff" strokeWidth="1.4" />}
+      {first && <circle cx={x(first)} cy={y(first)} r="2.6" fill="var(--ink)" />}
+      {last && last !== first && <circle cx={x(last)} cy={y(last)} r="2.6" fill="none" stroke="var(--ink)" strokeWidth="1.4" />}
     </svg>
   );
 }
