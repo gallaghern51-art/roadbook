@@ -5,6 +5,9 @@ import { PHASES } from '../data/seedTrip.js';
 import { haversineMiles, bestInsertIndex } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
 import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
+import { routeDayRoads } from '../engine/routing.js';
+import { shieldPlacements } from '../engine/routeShields.js';
+import RouteShields from './RouteShields.jsx';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 
 // Basemap roster: Google tiles headline when a session exists, free styles otherwise.
@@ -65,6 +68,8 @@ export default function MapView() {
   const [basemap, setBasemap] = React.useState(() => (cachedGoogleStyle('hybrid') ? 'gsat' : 'sat'));
   const basemapRef = useRef(basemap);
   basemapRef.current = basemap;
+  const [mapObj, setMapObj] = React.useState(null); // the loaded map, for marker children
+  const [dayRoads, setDayRoads] = React.useState(null); // OSRM refs for the selected day
   const [terrain3d, setTerrain3d] = React.useState(false);
   const [switchOpen, setSwitchOpen] = React.useState(false); // basemap row collapsed to a layers pill
   const terrainRef = useRef(false);
@@ -137,6 +142,7 @@ export default function MapView() {
     });
     map.on('load', () => {
       readyRef.current = true;
+      setMapObj(map); // shield markers mount against a loaded map
       drawAllRef.current();
     });
     map.on('styledata', () => {
@@ -168,8 +174,41 @@ export default function MapView() {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0) map.resize();
     });
     ro.observe(containerRef.current);
-    return () => { ro.disconnect(); map.remove(); };
+    return () => { ro.disconnect(); setMapObj(null); map.remove(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- highway shields along the day you are editing ----
+  // Only the selected day: at whole-trip zoom eleven days of shields is the
+  // picket fence routeShields.js exists to avoid, and the road numbers are
+  // not what you are reading at that scale anyway.
+  //
+  // The refs come from a separate OSRM fetch (routeDayRoads) rather than from
+  // routeDaySteps — that one tries Google first, which is billable per day and
+  // carries no ref field to begin with.
+  useEffect(() => {
+    if (!selectedDayId) { setDayRoads(null); return undefined; }
+    const day = trip.days.find((d) => d.id === selectedDayId);
+    if (!day) { setDayRoads(null); return undefined; }
+    let dead = false;
+    setDayRoads(null);
+    routeDayRoads(day)
+      .then((r) => { if (!dead) setDayRoads(r); })
+      .catch(() => { if (!dead) setDayRoads([]); });
+    return () => { dead = true; };
+  }, [selectedDayId, trip.days]);
+
+  const shieldMarks = React.useMemo(() => {
+    if (!selectedDayId || !dayRoads?.length) return [];
+    const geom = routes[selectedDayId]?.geometry;
+    if (!geom || routes[selectedDayId]?.fallback || geom.length < 2) return [];
+    return shieldPlacements(dayRoads, geom.map(([lng, lat]) => ({ lat, lng })));
+  }, [selectedDayId, dayRoads, routes]);
+
+  // the day's stops, so a shield never lands on one
+  const shieldAvoid = React.useMemo(
+    () => trip.days.find((d) => d.id === selectedDayId)?.waypoints ?? [],
+    [trip.days, selectedDayId]
+  );
 
   // the map scale bar follows the units setting
   useEffect(() => {
@@ -530,6 +569,8 @@ export default function MapView() {
   return (
     <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}`}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {/* Real signage on the line the route line was covering up */}
+      <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
       <div className="map-hint">
         {selectedDay
           ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {t('— click map to add a stop · drag markers · click stops & legs for details')}</span></>
