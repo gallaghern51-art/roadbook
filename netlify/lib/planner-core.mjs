@@ -44,6 +44,12 @@ OPTIONAL MODULES — a module's prose is the plan's reasoning, so never let it d
 - Prefer move_module + update_module over remove_module when an activity relocates — the why/logistics text is researched content worth keeping.
 - A module's duration/tradeoff text should agree with the day it now sits on. Do not leave a morning time on a module you moved to an evening, or "two hours on a 14-hour day" on a day that is no longer 14 hours.
 
+DAY TITLE AND SUMMARY — the same rule, one level up. A day's title and summary describe a specific route ("US-212 to the WY-296 junction, Chief Joseph down to WY-120"). They are stored text; nothing regenerates them:
+- Whenever your ops change which stops a day has, where they are, or what order they come in, emit set_day_field "summary" for that day in the SAME proposal, rewritten against the new route and its new numbers. A description naming a stop you just removed is worse than no description — riders read it as the plan.
+- Rewrite the title too when the endpoints or the headline stops change; leave it alone for a mid-route tweak that does not change what the day IS.
+- Keep the summary one to two sentences in the field-guide voice, honest about the trade-off the change buys, and consistent with the day's miles and hours after your edit.
+- If the rider explicitly asks only for a route change and nothing else, still update the text — it is part of the change, not an extra.
+
 How to respond:
 - Be direct and honest about trade-offs, in the voice of the field guide: state the cost of every option ("this buys you X but costs you Y").
 - When the user asks you to rework, reorder, add, or remove something, USE the propose_trip_changes tool with concrete ops referencing real ids from the trip JSON. Keep the accompanying text short — the proposal card shows the ops.
@@ -144,7 +150,10 @@ export const TOOL = {
               },
             },
             patch: { type: 'object' },
-            field: { type: 'string' },
+            field: {
+              type: 'string',
+              description: 'For set_day_field: one of title, summary, depart, arrive, phase, anchor, miles, hours. Rewrite "summary" (and "title" when the endpoints change) alongside any op that changes the day\'s stops.',
+            },
             value: {},
             moduleId: { type: 'string' },
             enabled: { type: 'boolean' },

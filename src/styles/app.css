@@ -336,6 +336,34 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .warning.danger { border-color: rgba(245, 63, 31, 0.5); background: rgba(245, 63, 31, 0.08); color: #ffab84; }
 
+/* the day's description: read-only prose until you touch it, plus the drift
+   flag when the route has moved on without the words */
+.day-summary { margin-top: 10px; }
+.day-summary .summary-text { font-size: 13px; color: var(--ink-dim); white-space: pre-wrap; }
+.day-summary .summary-text.empty { color: var(--ink-faint); font-style: italic; }
+.day-summary.stale .summary-text { opacity: 0.66; }
+.summary-flag {
+  border: 1px solid rgba(245, 63, 31, 0.4); background: rgba(245, 63, 31, 0.07);
+  border-radius: 5px; padding: 8px 10px; margin-bottom: 8px;
+}
+.summary-flag .sf-head { font-size: 12.5px; color: #ffab84; line-height: 1.35; }
+.summary-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.summary-acts .chip { cursor: pointer; background: none; }
+.summary-acts .chip:hover { border-color: var(--ink-faint); color: var(--ink); }
+.summary-acts .chip.ghost { color: var(--ink-faint); }
+.summary-edit {
+  width: 100%; min-height: 140px; font: inherit; font-size: 13px; line-height: 1.5;
+  color: var(--ink); background: var(--asphalt-2); border: 1px solid var(--line);
+  border-radius: 5px; padding: 8px 10px; resize: vertical;
+}
+.summary-edit:focus { outline: none; border-color: var(--rally); }
+.summary-edit-link {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--ink-faint); background: none; border: 0; padding: 4px 0 0; cursor: pointer;
+}
+.summary-edit-link:hover { color: var(--rally); }
+:root[data-theme='light'] .summary-flag .sf-head { color: #a03d0c; }
+
 .section { margin-top: 22px; }
 .section > h3 {
   font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;

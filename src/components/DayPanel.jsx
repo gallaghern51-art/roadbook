@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
-import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute } from '../engine/tripEngine.js';
+import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute, summaryIsStale } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur, to24h, from24h } from '../engine/timeline.js';
 import PlaceSearch from './PlaceSearch.jsx';
 import ConditionsCard from './ConditionsCard.jsx';
@@ -123,7 +123,7 @@ export default function DayPanel({ day }) {
         <div key={i} className={`warning${w.level === 'danger' ? ' danger' : ''}`}>⚠ {tt(w.text)}</div>
       ))}
 
-      <p style={{ fontSize: 13, color: 'var(--ink-dim)', marginTop: 10 }}>{tt(day.summary)}</p>
+      <DaySummary day={day} per={per} dispatch={dispatch} t={t} tt={tt} u={u} />
 
       {/* narrative notes — the GRADED mechanism is Hard gates below; two
           sections both claiming "hard" made the fake one look enforced */}
@@ -168,6 +168,80 @@ export default function DayPanel({ day }) {
       <div className="section" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
         <RemoveDayButton day={day} state={state} dispatch={dispatch} t={t} />
       </div>
+    </div>
+  );
+}
+
+// The day's description — prose about a route, and therefore the one output
+// in this panel with no input until now: change the stops and the paragraph
+// kept describing the ride you cancelled (field-caught Aug 15, 2026, on the
+// Beartooth day). Three doors, in the order a rider wants them: ask Copilot to
+// rewrite it from the stops that are actually there, write it yourself, or say
+// it still reads true — which re-stamps it against the current route and
+// clears the flag. Unstamped days never nag; the flag only fires on drift the
+// engine can prove (see routeFingerprint / summaryIsStale).
+function DaySummary({ day, per, dispatch, t, tt, u }) {
+  const [draft, setDraft] = useState(null); // non-null while editing
+  const stale = summaryIsStale(day);
+  const text = (day.summary ?? '').trim();
+  const write = (value) => dispatch({
+    type: 'apply_ops',
+    ops: [{ op: 'set_day_field', dayId: day.id, field: 'summary', value }],
+  });
+
+  if (draft !== null) {
+    return (
+      <div className="day-summary editing">
+        <textarea
+          className="summary-edit"
+          rows={8}
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setDraft(null); }}
+          placeholder={t('What this day is, and what it costs.')}
+        />
+        <div className="summary-acts">
+          <button className="chip" onClick={() => { write(draft.trim()); setDraft(null); }}>{t('Save')}</button>
+          <button className="chip ghost" onClick={() => setDraft(null)}>{t('Cancel')}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // The stop list and the engine's numbers ride along with the ask — the model
+  // rewrites from the route that exists now, not from the paragraph it reads.
+  const askRewrite = () => {
+    const stops = day.waypoints.map((w) => w.name).filter(Boolean).join(' → ');
+    const miles = u.mi(per?.miles ?? day.miles ?? 0);
+    const hrs = per ? per.rideHours.toFixed(1) : day.hours;
+    dispatch({
+      type: 'ask_optimizer',
+      text: `${t('Rewrite this day\'s description to match the route it actually has now — set_day_field summary, and the title too if the endpoints no longer match. One or two honest sentences in the field-guide voice, trade-offs included. Do not change the route.')}`
+        + ` (${day.dow} ${day.date} — ${day.title}. ${t('Stops now')}: ${stops}. ${miles}, ${hrs} ${t('ride hrs')}.)`,
+    });
+  };
+
+  return (
+    <div className={`day-summary${stale ? ' stale' : ''}`}>
+      {stale && (
+        <div className="summary-flag">
+          <div className="sf-head">⚠ {t('The route changed after this description was written.')}</div>
+          <div className="summary-acts">
+            <button className="chip ask-ai" onClick={askRewrite}>✦ {t('Rewrite with Copilot')}</button>
+            <button className="chip" onClick={() => setDraft(day.summary ?? '')}>✎ {t('Edit')}</button>
+            <button className="chip ghost" onClick={() => write(day.summary ?? '')}>{t('Still accurate')}</button>
+          </div>
+        </div>
+      )}
+      {text
+        ? <p className="summary-text">{tt(day.summary)}</p>
+        : <p className="summary-text empty">{t('No description for this day yet.')}</p>}
+      {!stale && (
+        <button className="summary-edit-link" onClick={() => setDraft(day.summary ?? '')}>
+          ✎ {text ? t('Edit description') : t('Write a description')}
+        </button>
+      )}
     </div>
   );
 }
