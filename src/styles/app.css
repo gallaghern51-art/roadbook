@@ -67,7 +67,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    shells size off that truth. Fallback is plain dvh for the moment before
    the first measurement lands. */
 @media all and (display-mode: standalone) {
-  .app, .home { height: 100vh; height: var(--app-h, 100dvh); }
+  .app, .home, .landing { height: 100vh; height: var(--app-h, 100dvh); }
   /* the ride overlay is fixed inset:0 — its bottom edge pins to the same
      stale viewport, so swap the bottom anchor for the measured height */
   .ride-mode { bottom: auto; height: 100vh; height: var(--app-h, 100dvh); }
@@ -777,6 +777,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .reserve-item input[type="checkbox"] { width: 20px; height: 20px; }
   .tabbar button { min-height: 44px; }
   .ps-results button { min-height: 44px; }
+  /* the front door is typed on, and it is the FIRST thing a new rider touches —
+     the 16px also stops iOS zoom-jumping into the email field */
+  .auth-field input { min-height: 44px; font-size: 16px; }
   .chat-suggest button { padding: 8px 12px; }
   .basemap-switch button { padding: 9px 12px; }
   .wp-marker { width: 16px; height: 16px; }
@@ -2788,3 +2791,130 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   background: var(--asphalt-2); border: 1px solid var(--line);
   border-radius: 4px; padding: 3px 8px;
 }
+
+/* ---------- LANDING — the front door for anyone not signed in ---------- */
+/* A soft gate: the pitch argues for the account, the card takes the signup,
+   and "continue without an account" is always right there. The app is
+   offline-first and a login wall would quietly trade that away. */
+
+/* held while the stored session is read back — a black frame, not a spinner,
+   so a signed-in rider never sees a flash of the front door */
+.landing-hold { position: fixed; inset: 0; background: var(--asphalt-0); }
+
+.landing { height: 100vh; height: 100dvh; overflow-y: auto; background: var(--asphalt-0); }
+.landing-mast {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 22px; border-bottom: 1px solid var(--line);
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  background: var(--asphalt-1); position: sticky; top: 0; z-index: 5;
+}
+.landing-mast .brand {
+  font-family: var(--display); font-weight: 700; font-size: 30px;
+  letter-spacing: 0.06em; line-height: 1;
+}
+.landing-mast .brand .yr { color: var(--rally); }
+
+.landing-inner {
+  max-width: 1080px; margin: 0 auto; padding: 44px 22px 80px;
+  display: grid; gap: 34px 56px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-areas: "pitch auth" "points auth";
+  /* A front door on a 900px-tall desktop screen was two thirds black nothing.
+     `safe` so a short window still scrolls from the top instead of clipping. */
+  min-height: calc(100dvh - 62px);
+  align-content: safe center;
+}
+.land-pitch { grid-area: pitch; }
+.land-points { grid-area: points; }
+.land-auth { grid-area: auth; position: sticky; top: 84px; }
+
+.land-pitch h2 {
+  font-family: var(--display); font-size: 56px; font-weight: 700;
+  letter-spacing: 0.01em; line-height: 0.98; margin-top: 8px;
+}
+.land-sub { color: var(--ink-dim); font-size: 15px; margin-top: 12px; max-width: 54ch; }
+
+.land-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.land-points li {
+  display: grid; gap: 3px;
+  border-left: 2px solid var(--line); padding-left: 14px;
+}
+.land-points .lp-k {
+  font-family: var(--display); font-size: 17px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink);
+}
+.land-points .lp-v { color: var(--ink-dim); font-size: 13.5px; line-height: 1.5; }
+
+.auth-card {
+  background: var(--asphalt-1); border: 1px solid var(--line);
+  border-radius: 12px; padding: 20px;
+}
+.auth-card h3 {
+  font-family: var(--display); font-size: 24px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.auth-why { color: var(--ink-dim); font-size: 12.5px; line-height: 1.5; margin-top: 8px; }
+.auth-card form { display: grid; gap: 12px; margin-top: 16px; }
+.auth-field { display: grid; gap: 4px; }
+.auth-field > span {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.auth-field input { width: 100%; }
+.auth-go { width: 100%; justify-content: center; text-align: center; }
+.auth-msg { font-size: 12.5px; line-height: 1.45; }
+.auth-msg.err { color: var(--danger); }
+.auth-msg.ok { color: var(--ok); }
+.auth-alt {
+  display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px;
+  padding-top: 14px; border-top: 1px solid var(--line);
+}
+.auth-alt button {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em;
+  color: var(--ink-dim); text-decoration: underline; text-underline-offset: 3px;
+}
+.auth-alt button:hover { color: var(--rally); }
+
+.land-skip {
+  display: grid; gap: 4px; text-align: left; width: 100%; margin-top: 14px;
+  padding: 12px 14px; border: 1px dashed var(--line); border-radius: 10px;
+  font-family: var(--display); font-size: 15px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim);
+}
+.land-skip:hover { border-color: var(--ink-faint); color: var(--ink); }
+.land-skip > span {
+  font-family: var(--body); font-size: 12px; font-weight: 400;
+  letter-spacing: 0; text-transform: none; color: var(--ink-faint); line-height: 1.45;
+}
+
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  /* the card comes up under the headline: the pitch earns the tap, the card
+     takes it, and the detail stays for anyone still deciding */
+  .landing-inner {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "pitch" "auth" "points";
+    gap: 26px; padding: 28px 16px 70px;
+  }
+  .land-auth { position: static; }
+  .land-pitch h2 { font-size: 38px; }
+  .land-sub { font-size: 14px; }
+  /* a phone scrolls the front door — centring it would only push the card down */
+  .landing-inner { min-height: 0; align-content: start; }
+}
+@media (max-width: 380px) {
+  .land-pitch h2 { font-size: 32px; }
+}
+
+/* ---------- account, in Settings ---------- */
+.set-account { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+.acct-who {
+  font-family: var(--display); font-size: 20px; font-weight: 600;
+  letter-spacing: 0.03em; margin-top: 4px;
+}
+.acct-mail { margin-top: 0; }
+.acct-backup { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; margin-top: 6px; }
+.acct-backup.saved { color: var(--ok); }
+.acct-backup.syncing { color: var(--outbound); }
+.acct-backup.error { color: var(--danger); }
+.acct-backup.off { color: var(--ink-faint); }
+.acct-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }

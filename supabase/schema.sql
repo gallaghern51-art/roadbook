@@ -113,3 +113,47 @@ $$;
 -- ------------------------------------------------------------- realtime ----
 -- What makes another rider's edit appear on your screen.
 alter publication supabase_realtime add table public.trip_ops;
+
+-- ------------------------------------------------- the rider's library ----
+-- Accounts (src/engine/auth.js) exist for one reason: localStorage is the
+-- device's truth, so deleting the PWA used to delete the roadbook. This is the
+-- second home for a rider's OWN trips — one row per trip in their library.
+--
+-- It is not the same thing as public.trips above, and the difference is the
+-- whole design. public.trips is a CREW's shared plan, joined by code, with
+-- everyone appending to one op log. This is one rider's private shelf. The only
+-- conflict possible is the same person editing on two phones, so it resolves
+-- last-write-wins per trip on updated_at rather than by merging histories.
+--
+-- trip_id is the client's own library id (moto.trips.v1), not a uuid: the point
+-- is that a restored trip is the SAME record it was before the phone died, so
+-- its scenarios, chat and crew binding all still line up.
+create table if not exists public.user_trips (
+  user_id    uuid not null references auth.users on delete cascade,
+  trip_id    text not null,
+  name       text not null,
+  trip       jsonb not null,
+  scenarios  jsonb not null default '[]'::jsonb,
+  chat       jsonb not null default '[]'::jsonb,
+  -- the crew binding ({tripId, joinCode, seq}), so a restored trip rejoins the
+  -- shared plan by itself instead of asking the rider for the code again
+  remote     jsonb,
+  -- soft delete: a trip removed on one phone has to stop coming back on the
+  -- other, and a tombstone is the only way a pull can tell "deleted" from
+  -- "not yet uploaded"
+  deleted_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, trip_id)
+);
+
+create index if not exists user_trips_user_idx on public.user_trips (user_id);
+
+alter table public.user_trips enable row level security;
+
+drop policy if exists user_trips_own on public.user_trips;
+
+-- Your shelf, and nobody else's. There is no sharing path here on purpose —
+-- sharing a trip is what the join code and public.trips are for.
+create policy user_trips_own on public.user_trips for all
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
