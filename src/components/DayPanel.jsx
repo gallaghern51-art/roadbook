@@ -16,6 +16,27 @@ import RoadShield from './RoadShield.jsx';
 import { parksForDay } from '../data/parks.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
 
+// Did the places database confirm this stop is the real thing?
+// `verified` is written server-side by netlify/lib/verify-places.mjs after the
+// AI proposes a station, property, or restaurant. Three states, and the third
+// is the reason this is a component rather than a boolean: UNSTAMPED means
+// nobody ever checked (seed trips, hand-built stops, a site with no places
+// key) and must render nothing — flagging those would nag every rider about
+// stops that were never in question.
+function VerifyTag({ on, t }) {
+  if (on === false) {
+    return (
+      <span className="tag unverified" title={t('The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.')}>
+        ⚠ {t('unverified')}
+      </span>
+    );
+  }
+  if (on === 'google' || on === 'model') {
+    return <span className="tag verified" title={t('Checked against the live places database — this is a real business at these coordinates.')}>✓</span>;
+  }
+  return null;
+}
+
 export default function DayPanel({ day }) {
   const { state, dispatch, summary, routedLegsByDay, routes } = useTrip();
   const per = summary.perDay.find((p) => p.id === day.id);
@@ -448,7 +469,7 @@ function MealsSection({ day, dispatch }) {
                 <button className="mini-edit" onClick={() => startEdit(m.meal)}>✎</button>
                 <button className="mini-edit" title={t('Remove meal')} onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'remove_meal', dayId: day.id, meal: m.meal }] })}>✕</button>
               </div>
-              <div className="m-name">{m.name || '—'}</div>
+              <div className="m-name">{m.name || '—'}<VerifyTag on={m.verified} t={t} /></div>
               {m.where && <div className="m-where">{m.where}</div>}
               {m.note && <div className="m-note">{tt(m.note)}</div>}
               {m.alt && <div className="m-alt">{tt(m.alt)}</div>}
@@ -626,7 +647,7 @@ function LodgingSection({ day, dispatch }) {
             {lodging.status === 'booked' ? t('● Confirmed booking') : lodging.status === 'reserve' ? t('▲ Not yet booked — reserve now') : t('○ No lodging set')}
             <button className="mini-edit" onClick={() => { setForm(lodging); setEditing(true); }}>{t('✎ edit')}</button>
           </div>
-          <div className="l-name">{tt(lodging.name) || t('Nothing planned yet')}</div>
+          <div className="l-name">{tt(lodging.name) || t('Nothing planned yet')}{lodging.name ? <VerifyTag on={lodging.verified} t={t} /> : null}</div>
           {lodging.where && <div className="l-where">{lodging.where}</div>}
           {lodging.note && <div className="l-note">{tt(lodging.note)}</div>}
         </div>
@@ -712,6 +733,7 @@ function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt,
               ⚠ {snapM} m {t('off road')}
             </span>
           )}
+          <VerifyTag on={w.verified} t={t} />
         </span>
         {w.note && <span className="note">{tt(w.note)}</span>}
       </div>

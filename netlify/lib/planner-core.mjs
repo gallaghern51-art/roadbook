@@ -6,6 +6,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { searchPlacesGoogle } from './places-core.mjs';
+import { verifyTrip, verifyProposal, describeVerification } from './verify-places.mjs';
 
 export const SYSTEM = `You are the planning brain of a motorcycle trip planner — the tool riders use to plan multi-day trips end to end (routes, stops, fuel, lodging, meals, timing). The active trip's identity, dates, riders, bike range, and constraints all come from the provided trip state — read them there, never assume.
 
@@ -58,6 +59,7 @@ How to respond:
 - When a search_places result becomes a waypoint, copy its id into the waypoint's placeId — routing then snaps to the place itself instead of the raw coordinate (which can force absurd exit-and-re-enter maneuvers).
 - The search_places tool returns verified names, addresses, exact coordinates, and weekly opening hours from the live places database. Use it whenever you add or move a stop whose coordinates you are not fully certain of (restaurants, gas stations, small attractions, lodging) — one focused query per place, then emit the ops using the returned lat/lng. Do not call propose_trip_changes and search_places in the same reply; search first, propose after the results come back. Skip searching for places you already know precisely (major cities, famous landmarks).
 - FUEL STOPS ARE STATIONS, NOT TOWNS: when you add or move a fuel stop, search_places for an actual gas station ("gas station <town>") and emit the station's name, exact coordinates, and placeId. Prefer a station at the highway exit or directly on the route so the group is never dragged through town for gas. A bare town-center pin flagged fuel is not acceptable.
+- THIS IS ENFORCED, NOT TRUSTED: any fuel stop, lodging, or restaurant in your proposal that arrives WITHOUT a placeId is looked up server-side before the rider sees it — a real one is snapped to its true coordinates, an invented one is flagged "unverified" in the plan and the correction is stated in your reply. Searching first is how you avoid being corrected in public.
 - HOURS MUST LINE UP: before recommending a restaurant, lodging, or any stop the plan puts a time on, compare its opening hours (in the search_places result) against the day's simulated ETA at that stop — never propose a place that will be closed when the riders arrive, and if hours are missing say the pick is unverified.`;
 
 // Live place lookup for the model — verified coordinates instead of recalled ones.
@@ -205,6 +207,7 @@ export const GENERATE_SYSTEM = `You are the itinerary builder for a motorcycle t
 Rules:
 - Real places, accurate lat/lng (4+ decimals). Route days along roads riders actually take; favor the famous riding roads of the region when they fit.
 - 4–10 waypoints per riding day: start point, the best scenic/riding stops (kind "photo"), fuel stops every 100–150 miles at real gas stations you know — the station's own coordinates at the highway exit, never a bare town-center pin (kind "fuel", fuel: true) — lunch-town stops, and the day's end point. First waypoint kind "start", last kind "end".
+- EVERY gas station, hotel, and restaurant you name is checked against the live places database after you answer: real ones get snapped to their exact coordinates, and anything that does not exist is flagged "unverified" in the rider's plan. So name the specific businesses you are actually confident about (brand and town — "Sinclair, Ten Sleep WY"), and where you are NOT confident, say so in the note or write an honest placeholder ("best option in town") rather than inventing a name. A guessed station is worse than an unnamed one: riders plan fuel around it.
 - Keep daily distance realistic: 150–300 mi for scenic days, up to 450 for transit days, and note it in the summary.
 - Every day gets: an honest one-to-two-sentence summary (trade-offs included), a depart time, lunch and dinner meal entries with real restaurant-quality picks when you know them (or the honest "best option in town" note), and lodging (real town + property suggestion, status "reserve").
 - Phases: use "outbound" for the way out, "rally" for event/destination days, "return" for the way home, "prep" for travel/arrival days.
@@ -283,7 +286,8 @@ export const GENERATE_TOOL = {
                     type: 'object',
                     properties: {
                       meal: { type: 'string', enum: ['breakfast', 'lunch', 'dinner'] },
-                      name: { type: 'string' }, where: { type: 'string' }, note: { type: 'string' }, alt: { type: 'string' },
+                      name: { type: 'string', description: 'A real, specific restaurant — or an honest placeholder like "best option in town" when you are not confident one exists. Named picks are verified against the places database.' },
+                      where: { type: 'string' }, note: { type: 'string' }, alt: { type: 'string' },
                     },
                   },
                 },
@@ -291,7 +295,8 @@ export const GENERATE_TOOL = {
                   type: 'object',
                   properties: {
                     status: { type: 'string', enum: ['booked', 'reserve', 'none'] },
-                    name: { type: 'string' }, where: { type: 'string' }, note: { type: 'string' },
+                    name: { type: 'string', description: 'A real, specific property — verified against the places database after you answer.' },
+                    where: { type: 'string' }, note: { type: 'string' },
                   },
                 },
               },
@@ -409,7 +414,10 @@ export function buildChatMessages({ messages, tripDigest, tripJson, scenarios })
 
 // One optimizer turn. `emit` receives the same event shapes on both transports,
 // so the client reads a streamed run and a polled run identically.
-export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, background = false }) {
+// `verifyOpts` is a test seam: it overrides the places key and search
+// implementation so the verification wiring can be exercised without a live
+// Google account. Production passes nothing and gets the real database.
+export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {} }) {
   const { messages = [], tripDigest = '', tripJson = null, scenarios = [] } = body;
   const convo = buildChatMessages({ messages, tripDigest, tripJson, scenarios });
   const t0 = Date.now();
@@ -468,6 +476,25 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
     if (text.trim()) allText += (allText ? '\n\n' : '') + text.trim();
 
     if (!searched) {
+      // The prompt ASKS the model to search before it commits a station or a
+      // property; this is what makes it true. Only stops that arrived without
+      // a placeId cost a lookup — a model that used the tool pays nothing.
+      // Corrections are announced, never applied behind the rider's back.
+      if (proposal?.ops?.length) {
+        try {
+          const left = budgetMs - (Date.now() - t0);
+          const check = await verifyProposal(proposal, {
+            trip: tripJson,
+            deadline: Date.now() + (background ? 60000 : Math.max(0, Math.min(12000, left + 3000))),
+            emit,
+            ...verifyOpts,
+          });
+          const line = describeVerification(check);
+          if (line) allText += (allText ? '\n\n' : '') + line;
+        } catch {
+          /* the proposal stands unverified rather than not at all */
+        }
+      }
       emit({ type: 'done', text: allText, proposal });
       return;
     }
@@ -481,8 +508,16 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
 }
 
 // Square-zero trip generation.
-export async function runGenerate({ client, body, emit, budgetMs = BUDGET_MS }) {
+//
+// Generate mode is single-shot and tool_choice-forced, so unlike chat it has
+// no search tool and the model's places are RECALLED, not looked up. That is
+// how an invented gas station reached a real trip (Great Falls, Aug 2026).
+// Every generated itinerary therefore goes through verify-places before it is
+// handed over: real stations, real properties, real restaurants — and an
+// explicit unverified flag on anything the places database cannot confirm.
+export async function runGenerate({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {} }) {
   const { prompt, basics = {} } = body;
+  const t0 = Date.now();
   const ask = `Build this motorcycle trip:\n\n"${prompt}"\n\nBasics (respect exactly): name: ${basics.name || '(you pick a good one)'}, start date: ${basics.startDate}, days: ${basics.numDays}, riders: ${basics.riders}. Use the generate_trip tool.`;
   const stream = client.messages.stream({
     model: 'claude-sonnet-5',
@@ -517,6 +552,24 @@ export async function runGenerate({ client, body, emit, budgetMs = BUDGET_MS }) 
     return;
   }
   const block = response.content.find((b) => b.type === 'tool_use' && b.name === 'generate_trip');
-  if (!block?.input?.trip) emit({ type: 'error', message: 'No itinerary produced — try a more specific description.' });
-  else emit({ type: 'done', trip: block.input.trip });
+  if (!block?.input?.trip) {
+    emit({ type: 'error', message: 'No itinerary produced — try a more specific description.' });
+    return;
+  }
+
+  // Resolve the recalled places against the live database. The background
+  // transport has a 15-minute ceiling and gives this all the room it needs;
+  // the streaming fallback gets whatever is left of its ~58s window plus a
+  // small grace, and anything it cannot reach is left UNSTAMPED rather than
+  // marked failed. Verification never costs us the itinerary: verifyTrip
+  // swallows its own failures and the trip goes out either way.
+  const left = budgetMs - (Date.now() - t0);
+  const verifyMs = background ? 90000 : Math.max(0, Math.min(12000, left + 3000));
+  let verify = null;
+  try {
+    verify = await verifyTrip(block.input.trip, { deadline: Date.now() + verifyMs, emit, ...verifyOpts });
+  } catch {
+    /* best-effort by design — a places outage must not lose a built trip */
+  }
+  emit({ type: 'done', trip: block.input.trip, verify });
 }

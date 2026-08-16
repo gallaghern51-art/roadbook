@@ -398,6 +398,15 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .wp-row .nm .tag.photo { background: rgba(206, 206, 206, 0.12); color: var(--return); }
 /* pin sits off the road network — the router detours to touch it */
 .wp-row .nm .tag.offroad { background: rgba(214, 69, 51, 0.16); color: #ffab84; cursor: help; }
+/* Place verification (see netlify/lib/verify-places.mjs). Only stops the
+   server actually checked wear a tag: an AI-authored pin the places database
+   could not confirm shouts, a confirmed one whispers, and anything unchecked
+   (seed data, hand-built stops) says nothing at all. */
+.tag.unverified { background: rgba(214, 69, 51, 0.16); color: #ffab84; cursor: help; }
+.tag.verified { background: rgba(122, 160, 122, 0.14); color: #8fbf8f; cursor: help; }
+.m-name .tag, .l-name .tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: 1px; }
+:root[data-theme='light'] .tag.unverified { color: #b3341f; }
+:root[data-theme='light'] .tag.verified { color: #2f6b34; }
 .wp-row .note { font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
 .wp-row .rm { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); opacity: 0; }
 .wp-row:hover .rm { opacity: 1; }

@@ -1399,7 +1399,8 @@ export default function RideMode({ onClose }) {
       name: r.name, lat: r.lat, lng: r.lng,
       kind: fuel ? 'fuel' : 'via',
       ...(fuel ? { fuel: true } : {}),
-      ...(r.source === 'google' && r.id ? { placeId: r.id } : {}),
+      // straight out of the live places database — proved on arrival
+      ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
     };
     dispatch({ type: 'apply_ops', ops: [{ op: 'add_waypoint', dayId: day.id, index: at, waypoint: wp }] });
     setQ('');
