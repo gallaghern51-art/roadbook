@@ -52,13 +52,25 @@ export const BASEMAPS = {
 // free basemaps above when the key is absent or a session can't be created.
 
 export const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || '';
-const GT_CACHE = 'moto.gtiles.v1';
+const GT_CACHE = 'moto.gtiles.v2';
+try { localStorage.removeItem('moto.gtiles.v1'); } catch { /* older, unstyled sessions */ }
 
 // mapType key → createSession body. hybrid = satellite imagery + road overlay.
 const G_SESSION_SPECS = {
   hybrid: { mapType: 'satellite', layerTypes: ['layerRoadmap'] },
   roadmap: { mapType: 'roadmap' },
 };
+
+// Google bakes its own route shields into the roadmap layer, and we now draw
+// our own on top — so the rider gets two of everything, at Google's spacing
+// rather than ours (owner, Aug 16 2026: "on street mode there is the underlying
+// road map native icon, ideally I would like those removed"). The tiles are one
+// flat image with no layer to reach into, so the only door is asking Google not
+// to draw them: `styles` on the tile session is the Maps JSON style language,
+// and road `labels.icon` is exactly the shields. Road NAMES stay.
+const NO_ROAD_SHIELDS = [
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+];
 
 function loadGtCache() {
   try { return JSON.parse(localStorage.getItem(GT_CACHE) || '{}'); } catch { return {}; }
@@ -101,13 +113,21 @@ export async function googleStyle(kind) {
   if (hit) return styleFromSession(kind, hit);
   const spec = G_SESSION_SPECS[kind];
   if (!spec) return null;
-  const res = await fetch(`https://tile.googleapis.com/v1/createSession?key=${GOOGLE_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...spec, language: 'en-US', region: 'US' }),
-  });
-  if (!res.ok) throw new Error(`tiles session ${res.status}`);
-  const json = await res.json();
+  const open = async (body) => {
+    const res = await fetch(`https://tile.googleapis.com/v1/createSession?key=${GOOGLE_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, language: 'en-US', region: 'US' }),
+    });
+    if (!res.ok) throw new Error(`tiles session ${res.status}`);
+    return res.json();
+  };
+  // Styling is the only way to drop Google's baked-in shields, but a session
+  // that will not open at all costs the whole basemap — so a rejected style
+  // falls back to a plain session (doubled shields, still a map) rather than
+  // dropping the rider onto Esri.
+  const json = await open({ ...spec, styles: NO_ROAD_SHIELDS })
+    .catch(() => open(spec));
   const rec = { session: json.session, expiry: Number(json.expiry) };
   try {
     const c = loadGtCache();
@@ -115,6 +135,42 @@ export async function googleStyle(kind) {
     localStorage.setItem(GT_CACHE, JSON.stringify(c));
   } catch { /* cache full — session still usable this page-load */ }
   return styleFromSession(kind, rec);
+}
+
+// ---- the basemap's own route shields ----
+// We draw shields on the route (RouteShields.jsx) at OUR spacing, on the road
+// the rider is actually on. The vector basemaps post their own on every
+// numbered road at their own spacing, so the two together read as clutter —
+// which is what the owner saw in Streets: "there is the underlying road map
+// native icon, ideally I would like those removed."
+//
+// A vector style has a layer to reach into, so this is exact: hide the symbol
+// layers that carry shield artwork and leave road NAMES, place labels and
+// everything else alone. Raster basemaps have no such door — Esri's hybrid
+// bakes shields into the World_Transportation overlay and Google's tiles bake
+// everything into one image (which is why the Google path asks the server not
+// to draw them at session time instead; see NO_ROAD_SHIELDS above).
+//
+// Idempotent and cheap to call again: run it after every style application,
+// since setStyle replaces the layer list wholesale.
+export function hideNativeRoadShields(map) {
+  let layers;
+  try { layers = map.getStyle()?.layers ?? []; } catch { return 0; }
+  let hidden = 0;
+  for (const layer of layers) {
+    if (layer.type !== 'symbol') continue;
+    // by id (liberty posts `highway-shield`, `highway-shield-us-interstate`)
+    // and by artwork, so a style that names its layers differently but draws
+    // from a shield sprite is still caught.
+    const icon = JSON.stringify(layer.layout?.['icon-image'] ?? '');
+    if (!/shield/i.test(layer.id) && !/shield|interstate/i.test(icon)) continue;
+    try {
+      if (map.getLayoutProperty(layer.id, 'visibility') === 'none') continue;
+      map.setLayoutProperty(layer.id, 'visibility', 'none');
+      hidden += 1;
+    } catch { /* the style moved on under us — the next pass gets it */ }
+  }
+  return hidden;
 }
 
 // The light-gray "return"/"prep" phases disappear on a light basemap — swap in dark tones.

@@ -4,7 +4,7 @@ import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import { haversineMiles, bestInsertIndex } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
@@ -297,6 +297,8 @@ export default function MapView() {
     if (!map || !map.isStyleLoaded()) return;
     const { trip: t, selectedDayId: sel } = stateRef.current;
     ensureTerrain(map, terrainRef.current);
+    // our shields are the ones on this map — setStyle brings the basemap's back
+    hideNativeRoadShields(map);
     if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage());
 
     for (const day of t.days) {
