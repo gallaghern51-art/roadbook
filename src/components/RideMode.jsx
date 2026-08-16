@@ -22,6 +22,7 @@ import RoadShield from './RoadShield.jsx';
 import RouteShields from './RouteShields.jsx';
 import { stepRoadShields } from '../engine/roads.js';
 import { shieldPlacements } from '../engine/routeShields.js';
+import { stepAlongs, navAlongRoute } from '../engine/rideDistance.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
 
 // Ride Mode: a navigation HUD over a live map. Projects your GPS position onto
@@ -760,10 +761,11 @@ export default function RideMode({ onClose }) {
   const activeSteps = reroute?.steps ?? steps;
   const proj = fix ? planPosition(day, tl, fix, (planCursorRef.current ??= chainCursor())) : null;
   projRef.current = proj;
-  const nav = fix && activeSteps?.length
-    ? locateOnSteps(activeSteps, fix, (stepsCursorRef.current ??= chainCursor()))
-    : null;
   const delta = proj ? clock - proj.plannedMin : null; // + = behind plan
+  // `nav` — the turn, and every mileage a rider reads — is built further down,
+  // once the routed geometry has been measured: the maneuver chain can say
+  // WHICH turn is next but it cannot say how far, and that was the field bug
+  // (see engine/rideDistance.js).
 
   // What navigation actually aims for — read straight off the fact machine.
   // The projection above is DISPLAY (plan delta, mileage); it never targets.
@@ -876,6 +878,33 @@ export default function RideMode({ onClose }) {
       : null),
     [fix, geomInfo] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // ---- how far, measured on the road ----
+  // Every mileage on this screen used to come from projecting the bike onto
+  // the MANEUVER chain — turn points with a straight chord between them. On an
+  // interstate that is one chord a hundred miles long standing for a road that
+  // bends fifteen miles off it, and the readout inherits the error directly:
+  // it runs fast where the road agrees with the chord and STOPS where the road
+  // crosses it. Field report, Aug 16 2026, I-90 out of Bozeman: "it shows me
+  // it's ninety three miles away, but as I'm watching the mile markers, I've
+  // been stuck on ninety three miles for about two to three miles" — and the
+  // same ride's screenshots show the fast half, 33 miles of readout in 22
+  // minutes at an indicated 90 mph.
+  //
+  // So the maneuvers are pinned to the routed geometry once, and after that a
+  // distance is a subtraction along the line the bike is actually riding. The
+  // maneuver chain keeps what it is good at: which turn is next and what it
+  // says. `locateOnSteps` stays as the fallback for a day with no real routed
+  // geometry (an OSRM failure draws straight lines between stops), where there
+  // is nothing better to measure against.
+  const stepAlong = useMemo(
+    () => (hasRealRoute ? stepAlongs(activeSteps, geomInfo) : null),
+    [activeSteps, geomInfo, hasRealRoute]
+  );
+  const nav = !fix || !activeSteps?.length ? null
+    : (stepAlong && geoProj
+      ? navAlongRoute(activeSteps, stepAlong, geoProj.along, geomInfo.total, geoProj.off)
+      : locateOnSteps(activeSteps, fix, (stepsCursorRef.current ??= chainCursor())));
 
   // ---- ONE highway shield on the road ahead ----
   // The route line's glow, casing and core paint over the shields the
