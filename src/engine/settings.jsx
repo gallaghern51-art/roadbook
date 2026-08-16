@@ -607,6 +607,10 @@ const ES = {
   'The pace buffer slows every planned leg for group riding — set 0 for a solo trip, 15+ for a big group.': 'El margen de ritmo ralentiza cada tramo planificado para rodar en grupo — usa 0 para un viaje solo, 15+ para un grupo grande.',
   'This pin sits off the road network, so routing detours to reach it. Drag it onto the road or re-pick the stop via search.': 'Este pin está fuera de la red de caminos, así que el ruteo se desvía para tocarlo. Arrástralo al camino o vuelve a elegir la parada con el buscador.',
   'off road': 'fuera del camino',
+  // place verification — AI-authored stops checked against the places database
+  'unverified': 'sin verificar',
+  'The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.': 'La base de datos de lugares no encontró ningún negocio real en este pin, así que la parada no está confirmada. Vuelve a elegirla con el buscador antes de rodar.',
+  'Checked against the live places database — this is a real business at these coordinates.': 'Verificado contra la base de datos de lugares — es un negocio real en estas coordenadas.',
   // plans strip: saved-plan switching on the PLAN surface
   'Plans': 'Planes',
   'Current': 'Actual',

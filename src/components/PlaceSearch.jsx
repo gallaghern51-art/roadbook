@@ -48,7 +48,9 @@ export default function PlaceSearch({ day }) {
           name: r.name, ...pt, kind: 'via', note: r.detail,
           // place identity rides with the stop so the route API snaps to the
           // place, not to whatever pavement is nearest the coordinate
-          ...(r.source === 'google' && r.id ? { placeId: r.id } : {}),
+          // A Google result IS the live places database answering, so the stop
+          // arrives already proved — same stamp verify-places writes server-side.
+          ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
         },
       }],
     });

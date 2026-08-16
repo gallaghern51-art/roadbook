@@ -60,7 +60,13 @@ function StopDetail({ day, waypointId, trip, dispatch, routedLegsByDay, close })
 
   const save = () => {
     const patch = { name: form.name, note: form.note, dwell: Number(form.dwell) || 0, fuel: form.fuel };
-    if (moved) { patch.lat = form.lat; patch.lng = form.lng; patch.mile = null; patch.placeId = form.placeId ?? null; }
+    if (moved) {
+      patch.lat = form.lat; patch.lng = form.lng; patch.mile = null; patch.placeId = form.placeId ?? null;
+      // Picked from search → proved; typed in by hand → the stamp no longer
+      // describes this coordinate, so it goes (ops.js clears it either way,
+      // this is what re-earns it).
+      patch.verified = form.placeId ? 'google' : null;
+    }
     dispatch({ type: 'apply_ops', ops: [{ op: 'update_waypoint', dayId: day.id, waypointId: w.id, patch }] });
     close();
   };

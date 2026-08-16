@@ -184,9 +184,17 @@ function applyOp(t, op) {
       const w = d.waypoints.find((x) => x.id === op.waypointId);
       if (!w) throw new Error(`unknown waypoint ${op.waypointId}`);
       // relocating or renaming a stop rewrites the route the prose describes;
-      // a dwell or fuel-flag edit does not
-      if (['lat', 'lng', 'name'].some((k) => k in (op.patch ?? {}))) markRouteText(d);
+      // a dwell or fuel-flag edit does not. Compared by VALUE, not by key
+      // presence: editors send the whole form back, so a dwell-only edit
+      // arrives carrying an unchanged name.
+      const moved = ['lat', 'lng', 'name'].some((k) => k in (op.patch ?? {}) && op.patch[k] !== w[k]);
+      if (moved) markRouteText(d);
       Object.assign(w, op.patch);
+      // A place-verification stamp belongs to the coordinate it was proved at
+      // (see netlify/lib/verify-places.mjs). Move or rename the stop and the
+      // stamp is no longer evidence of anything — clear it unless the edit
+      // carries its own verdict, which is how a verified re-pick keeps its ✓.
+      if (moved && !('verified' in (op.patch ?? {}))) delete w.verified;
       return t;
     }
     case 'set_day_field': {

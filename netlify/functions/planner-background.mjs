@@ -58,11 +58,17 @@ export default async (req) => {
     else if (obj.type === 'building') {
       record.chars = obj.chars ?? record.chars;
       record.thinking = obj.thinking ?? record.thinking;
+    } else if (obj.type === 'beat' && obj.note) {
+      // Phase labels (place verification) — the streaming transport shows
+      // these as they arrive; here they have to ride the polled record or a
+      // background build looks stalled through the whole check.
+      record.note = obj.note;
     } else if (obj.type === 'done') {
       record.status = 'done';
       if (obj.text) record.text = obj.text;
       if (obj.proposal !== undefined) record.proposal = obj.proposal;
       if (obj.trip !== undefined) record.trip = obj.trip;
+      if (obj.verify !== undefined) record.verify = obj.verify;
     } else if (obj.type === 'error') {
       record.status = 'error';
       record.message = obj.message;
@@ -78,7 +84,7 @@ export default async (req) => {
     }
     const client = makeClient();
     if (body.mode === 'generate') {
-      await runGenerate({ client, body, emit, budgetMs: BACKGROUND_BUDGET_MS });
+      await runGenerate({ client, body, emit, budgetMs: BACKGROUND_BUDGET_MS, background: true });
     } else {
       await runChat({ client, body, emit, budgetMs: BACKGROUND_BUDGET_MS, background: true });
     }
