@@ -49,39 +49,3 @@ export function viewGate(map, { pad = 0 } = {}) {
     return p;
   };
 }
-
-// ---- where the route line belongs in the layer stack ----
-// Field observation, Aug 16 2026: "it actually looks like the maps already
-// have road signs but they are just covered by the route marker. Is it
-// possible to just have the map native road markers lay above route marker?"
-// Correct, and worth doing wherever the style allows it — the basemap's own
-// signage is complete (every road, not just the one you are routed down),
-// properly collided by the renderer, and free.
-//
-// Whether it is possible depends entirely on how the basemap is built:
-//
-//   vector (liberty / positron / dark) — every label, road shields included,
-//     is a SYMBOL layer sitting above the fills and lines. Insert the route
-//     before the first one and the whole label set paints over it.
-//   Esri hybrid — the imagery is one opaque raster, but the road network and
-//     the place names ride above it as TRANSPARENT raster overlays. The route
-//     belongs between them.
-//   Google Map Tiles — satellite, roads, shields and labels are baked into
-//     ONE opaque image. There is no layer to raise, at any price. This is the
-//     case RouteShields exists for, and the reason it cannot simply be
-//     deleted in favour of reordering.
-//
-// Our own layers are skipped when scanning: the route's direction chevrons
-// are themselves a symbol layer, and finding those would walk the floor down
-// a notch on every redraw.
-const OUR_LAYERS = /^(route-|leg-hi|ride-route|ride-live)/;
-
-export function labelFloorId(map) {
-  const layers = map?.getStyle?.()?.layers ?? [];
-  const theirs = layers.filter((l) => !OUR_LAYERS.test(l.id));
-  if (!theirs.length) return null;
-  const sym = theirs.find((l) => l.type === 'symbol');
-  if (sym) return sym.id;
-  const overlay = theirs.slice(1).find((l) => l.type === 'raster');
-  return overlay ? overlay.id : null;
-}

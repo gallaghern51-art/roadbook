@@ -6,7 +6,7 @@ import {
   haversineMiles, tripRange, tripPace, projectOnChain, projectOnChainDirected,
   chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
 } from '../engine/tripEngine.js';
-import { viewGate, labelFloorId } from '../engine/mapVis.js';
+import { viewGate } from '../engine/mapVis.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
@@ -197,16 +197,11 @@ function ensureNavLayers(map) {
   map.addSource('ride-route', { type: 'geojson', data: EMPTY_LINE, lineMetrics: true });
   map.addSource('ride-live', { type: 'geojson', data: EMPTY_LINE, lineMetrics: true });
   const round = { 'line-cap': 'round', 'line-join': 'round' };
-  // Under the basemap's own labels, so its road shields keep painting over
-  // the route rather than vanishing beneath it — the same grammar Google's
-  // own nav uses. Null on a basemap with nothing to insert before (Google's
-  // single baked tile), where addLayer appends as before.
-  const floor = labelFloorId(map);
-  map.addLayer({ id: 'ride-route-glow', type: 'line', source: 'ride-route', paint: { 'line-color': '#f48322', 'line-width': 14, 'line-opacity': 0.3, 'line-blur': 4 }, layout: round }, floor);
-  map.addLayer({ id: 'ride-route-casing', type: 'line', source: 'ride-route', paint: { 'line-color': '#000000', 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round }, floor);
-  map.addLayer({ id: 'ride-route-line', type: 'line', source: 'ride-route', paint: { 'line-color': NAV_AHEAD, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round }, floor);
-  map.addLayer({ id: 'ride-live-casing', type: 'line', source: 'ride-live', paint: { 'line-color': '#000000', 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round }, floor);
-  map.addLayer({ id: 'ride-live-line', type: 'line', source: 'ride-live', paint: { 'line-color': NAV_AHEAD, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round }, floor);
+  map.addLayer({ id: 'ride-route-glow', type: 'line', source: 'ride-route', paint: { 'line-color': '#f48322', 'line-width': 14, 'line-opacity': 0.3, 'line-blur': 4 }, layout: round });
+  map.addLayer({ id: 'ride-route-casing', type: 'line', source: 'ride-route', paint: { 'line-color': '#000000', 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round });
+  map.addLayer({ id: 'ride-route-line', type: 'line', source: 'ride-route', paint: { 'line-color': NAV_AHEAD, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round });
+  map.addLayer({ id: 'ride-live-casing', type: 'line', source: 'ride-live', paint: { 'line-color': '#000000', 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round });
+  map.addLayer({ id: 'ride-live-line', type: 'line', source: 'ride-live', paint: { 'line-color': NAV_AHEAD, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round });
 }
 
 
@@ -353,7 +348,6 @@ export default function RideMode({ onClose }) {
   const [clock, setClock] = useState(nowMin());
   const [steps, setSteps] = useState(null);
   const [mapObj, setMapObj] = useState(null); // the loaded nav map, for marker children
-  const [nativeLabels, setNativeLabels] = useState(false); // basemap signs itself
   const [reroute, setReroute] = useState(null); // { geometry, steps } from live position
   const [rerouting, setRerouting] = useState(false);
   const [rerouteFailed, setRerouteFailed] = useState(false);
@@ -596,10 +590,9 @@ export default function RideMode({ onClose }) {
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     whenMapReady(map, () => {
       ensureNavLayers(map);
-      setNativeLabels(!!labelFloorId(map));
       map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
     });
-  }, [day.id, routes, navStyle]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [day.id, routes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // reroute line: draw it bright, drop the planned line to a ghost underneath
   const applyLiveRef = useRef(() => {});
@@ -1577,11 +1570,8 @@ export default function RideMode({ onClose }) {
     // any first tap unlocks the speech engine (ref-guarded to run once)
     <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
-      {/* one sign, one number, on the road ahead — only where the basemap
-          cannot show its own (see labelFloorId in engine/basemaps.js) */}
-      {!nativeLabels && (
-        <RouteShields map={mapObj} placements={shieldMarks} avoid={day.waypoints} max={1} perSign={1} mode="ride" />
-      )}
+      {/* one sign, one number, on the road ahead */}
+      <RouteShields map={mapObj} placements={shieldMarks} avoid={day.waypoints} max={1} perSign={1} mode="ride" />
 
       {/* ---- top: the turn OWNS the top edge; weather + close ride beneath
               it on the right ---- */}
