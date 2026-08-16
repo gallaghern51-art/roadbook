@@ -14,7 +14,7 @@ import {
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
 import { geocode } from '../engine/geocode.js';
-import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
+import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
@@ -536,7 +536,12 @@ export default function RideMode({ onClose }) {
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
     mapReadyRef.current = false;
-    map.once('load', () => { mapReadyRef.current = true; setMapObj(map); });
+    map.once('load', () => {
+      mapReadyRef.current = true;
+      // one set of shields on this screen, ours — see hideNativeRoadShields
+      hideNativeRoadShields(map);
+      setMapObj(map);
+    });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -622,6 +627,8 @@ export default function RideMode({ onClose }) {
     const map = mapRef.current;
     if (!map) return;
     ensureNavLayers(map);
+    hideNativeRoadShields(map); // the new style arrived with its own set
+
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
     applyLiveRef.current();

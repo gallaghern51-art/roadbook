@@ -1643,43 +1643,51 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    by construction. Placement (which stretches get signed, how often) is
    engine/routeShields.js; what fits on screen is culled in RouteShields.jsx.
 
-   The dark plate is not decoration: signage art is white-heavy and vanishes
-   into a snow field, a salt flat or a bright basemap without something to sit
-   on. It also reads as a marker rather than as part of the terrain. */
+   NO PLATE. These first shipped sitting on a dark rounded chip, on the
+   reasoning that white-heavy signage vanishes into a snow field or a bright
+   basemap without something to sit on. Owner, Aug 16 2026, riding: "the road
+   signs that we added had an SVG behind them — on street mode there's like a
+   dim brown area behind the road icon. I want the backing removed and only
+   have the road sign." He is right, and the contrast problem is real — so it
+   is solved the way a real sign solves it, with a shadow that follows the
+   artwork's OWN outline (drop-shadow reads the SVG's alpha, unlike box-shadow)
+   instead of a box drawn around it. A shield reads as a shield now, standing
+   on the road, rather than as a chip pinned over it. */
 .rt-shield {
   display: flex; align-items: center; gap: 3px;
-  padding: 2px 3px; border-radius: 5px;
-  background: rgba(10, 12, 16, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  padding: 0; background: none; border: 0; box-shadow: none;
   pointer-events: none; /* the route line underneath stays clickable */
   cursor: default;
 }
 .rt-shield.off { display: none; }
-.rt-shield .map-shield { height: 21px; width: auto; flex: none; display: block; }
-/* the honest fallback when no artwork resolves — the number, plainly set */
+.rt-shield .map-shield {
+  height: 21px; width: auto; flex: none; display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.5));
+}
+/* the honest fallback when no artwork resolves — the number, plainly set.
+   Same trick: a dark halo rather than a plate, so it belongs with the rest. */
 .rt-shield i.map-shield {
   height: auto; font-family: var(--mono); font-style: normal;
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: #fff;
-  padding: 1px 2px; white-space: nowrap;
+  padding: 0; white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 3px rgba(0, 0, 0, 0.85);
 }
 
 /* Ride: ONE sign carrying ONE number, and it has to earn its pixels on a
-   screen a rider glances at at 70 mph. Big enough to read in that glance,
-   quieter than the plan map's — no border, a softer plate, and it fades in
-   and out rather than popping as it is culled, because a sign that blinks
-   pulls the eye harder than a sign that is simply there. Sizing and count are
-   the restraint the owner asked for after the first, unbounded attempt.
-   Placement is `aheadMi` in engine/routeShields.js. */
+   screen a rider glances at at 70 mph. Big enough to read in that glance, and
+   it fades in and out rather than popping as it is culled, because a sign that
+   blinks pulls the eye harder than a sign that is simply there. Sizing and
+   count are the restraint the owner asked for after the first, unbounded
+   attempt; how OFTEN one comes round is `aheadMi` in engine/routeShields.js. */
 .rt-shield.rt-ride {
-  padding: 2px 4px; border-radius: 6px;
-  background: rgba(10, 12, 16, 0.55);
-  border-color: transparent;
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
-  opacity: 0.92;
+  opacity: 0.95;
   transition: opacity 260ms ease;
 }
-.rt-shield.rt-ride .map-shield { height: 26px; }
+.rt-shield.rt-ride .map-shield {
+  height: 26px;
+  /* a touch deeper than the plan map's: this one stands on satellite at speed */
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
+}
 .rt-shield.rt-ride i.map-shield { font-size: 13px; }
 /* the fade needs the element to stay laid out, so ride hides by opacity —
    plan keeps display:none, where there is nothing to animate between */
@@ -2447,13 +2455,30 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* middle row: leg ETA + miles, with the whole-day figure pinned right — the
-   leg figures win the width fight (rb-day's shrink factor makes the day
-   yield ~4:1 first), and under 400px the day sheds its miles tail entirely
-   (still in the ride sheet) instead of ellipsizing mid-number */
+   leg figures win the width fight (rb-day's shrink factor makes the day yield
+   ~4:1 first), and the day sheds its miles tail rather than ellipsizing
+   mid-number (the figure is in the ride sheet either way).
+
+   WHEN it sheds was a viewport media query at 400px, and that was the bug the
+   owner shot: "the second row of the bottom footer does not fit — sometimes it
+   will fit, sometimes it won't, right now it is just showing dot dot dot."
+   Two reasons it read as intermittent. The viewport is not the row: the bar
+   sits inside the overlay's padding, its own padding, and the safe-area inset,
+   so a 402px phone offers well under 380px of row. And the content changes as
+   you ride — "9 mi" fits where "194 mi" does not, so the same screen truncates
+   in the morning and is fine by evening.
+
+   So the row asks its OWN width, and the tail is opt-in: hidden by default,
+   shown only when the bar can prove it has room for the worst case (two 3-digit
+   mileages and two clock times ≈ 380px). A browser without container queries
+   simply keeps the safe layout. */
+.ride-bar { container-type: inline-size; container-name: ridebar; }
 .ride-bar .rb-duo { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex-wrap: nowrap; }
 .ride-bar .rb-duo .rb-day { flex: 0 4 auto; min-width: 0; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 400px) { .ride-bar .rb-day-mi { display: none; } }
-@media (max-width: 359px) { .ride-bar .rb-duo .rb-day { display: none; } }
+.ride-bar .rb-day-mi { display: none; }
+@container ridebar (min-width: 380px) { .ride-bar .rb-day-mi { display: inline; } }
+/* narrower than the leg figures alone need, the day clock stands down too */
+@container ridebar (max-width: 300px) { .ride-bar .rb-duo .rb-day { display: none; } }
 /* footer: the next stop's name alone at full width, so it rarely marquees */
 .ride-bar .rb-foot { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .ride-bar .rb-foot .rb-next { flex: 1; min-width: 0; margin-top: 0; }

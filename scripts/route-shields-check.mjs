@@ -14,7 +14,7 @@
 // Run: node scripts/route-shields-check.mjs
 
 import { roadShields, normalizeRoadRef, stepRoadShields } from '../src/engine/roads.js';
-import { roadRuns, shieldPlacements } from '../src/engine/routeShields.js';
+import { roadRuns, shieldPlacements, AHEAD_SPAN_MI } from '../src/engine/routeShields.js';
 import { haversineMiles } from '../src/engine/tripEngine.js';
 
 let pass = 0;
@@ -134,17 +134,52 @@ console.log('\nRide: a sparse ladder on the road AHEAD');
 {
   const at = 60;
   const p = shieldPlacements(DAY, chain, { cum, aheadMi: at });
-  const ladder = p.filter((x) => x.mi > at && x.mi < at + 2).sort((a, b) => a.mi - b.mi);
+  const base = shieldPlacements(DAY, chain, { cum });   // the same day, no bike
+  const added = (mi) => shieldPlacements(DAY, chain, { cum, aheadMi: mi })
+    .filter((x) => !base.some((y) => y.id === x.id)).sort((a, b) => a.mi - b.mi);
 
-  check('there are candidates ahead of the bike', ladder.length >= 2,
-    ladder.map((x) => x.mi.toFixed(2)).join(' '));
-  check('…a few hundred yards apart', ladder.every((x, i) => i === 0 || x.mi - ladder[i - 1].mi <= 0.51));
+  // A sparse grid means a bike is often BETWEEN candidates — that is the point
+  // now — so the guarantee is per two miles ridden, not per position.
+  const window = [];
+  for (let mi = 58; mi < 60; mi += 0.05) window.push(...added(mi).map((x) => x.mi));
+  check('two miles of riding always brings a sign round', window.length > 0);
   check('none is signed on the ground under the puck', !p.some((x) => Math.abs(x.mi - at) < 0.15),
     'a shield at the bike sits under the marker that matters most');
-  check('nothing new BEHIND the bike', p.filter((x) => x.mi < at - 0.01).length
-    === shieldPlacements(DAY, chain, { cum }).filter((x) => x.mi < at - 0.01).length,
+  check('nothing new BEHIND the bike',
+    added(at).every((x) => x.mi > at),
     'a sign behind you has been ridden past, and with one slot it would take it');
-  check('the nearest candidate is within a nav camera\'s reach', ladder[0].mi - at <= 0.75);
+  check('nothing new beyond a nav camera\'s horizon either',
+    added(at).every((x) => x.mi <= at + AHEAD_SPAN_MI + 0.01),
+    'the ladder is a look-ahead, not the whole day');
+
+  // THE frequency test. Owner, Aug 16 2026, having ridden the half-mile grid:
+  // "the road signs are appearing too frequently, I want them at one third to
+  // one fourth the frequency." Ride draws ONE sign, so the number a rider
+  // experiences is how many distinct signs they pass in a stretch of road —
+  // measured here by riding the ladder rather than by reading the constant.
+  {
+    const seen = new Set();
+    for (let mi = 40; mi <= 60; mi += 0.05) {
+      for (const x of shieldPlacements(DAY, chain, { cum, aheadMi: mi })) {
+        if (x.mi > mi && x.mi <= mi + AHEAD_SPAN_MI) seen.add(x.id);
+      }
+    }
+    check('a rider passes ~1 sign every 2 miles, not 1 every half mile',
+      seen.size >= 9 && seen.size <= 12, `${seen.size} signs over 20 mi of I-90`);
+  }
+  // …and the clear stretches are the other half of that ask: at half-mile
+  // spacing there was always something on screen, which is wallpaper.
+  {
+    let bare = 0;
+    let total = 0;
+    for (let mi = 40; mi <= 60; mi += 0.05) {
+      total += 1;
+      const p2 = shieldPlacements(DAY, chain, { cum, aheadMi: mi });
+      if (!p2.some((x) => x.mi > mi && x.mi <= mi + 0.75)) bare += 1; // 0.75 mi ≈ what a nav camera frames
+    }
+    check('most of the ride has no sign on screen at all', bare / total > 0.5,
+      `${Math.round((bare / total) * 100)}% of the stretch is clear`);
+  }
 
   // Marker churn: the ids sit on a fixed grid, so riding slides the ladder
   // rather than tearing every marker down and remounting it (which re-fetches
@@ -160,6 +195,21 @@ console.log('\nRide: a sparse ladder on the road AHEAD');
   check('past the road change, every sign ahead names the NEW road',
     near.length > 0 && near.every((x) => x.key === 'US-14'),
     near.map((x) => `${x.key}@${x.mi.toFixed(2)}`).join(' '));
+
+  // The grid got 4× sparser; the one message that must NOT wait for it is the
+  // road change. It is placed off-grid, just past the change, and flagged
+  // `first` so the screen-space cull seats it ahead of any repeat.
+  {
+    // US-14 starts at mile 120.9; the next 2-mile grid point is 122, so on the
+    // grid alone the new road would go unsigned for its first mile.
+    const approach = shieldPlacements(DAY, chain, { cum, aheadMi: 120.4 })
+      .filter((x) => x.key === 'US-14');
+    check('the road change is signed the moment it is in reach',
+      approach.length > 0 && approach[0].mi < 122 && approach[0].first,
+      approach.map((x) => `${x.mi.toFixed(2)}${x.first ? '*' : ''}`).join(' '));
+    check('…and it sits on the NEW road, past the change', approach.every((x) => x.mi > 120.9),
+      'signed one foot early it names US-14 while the bike is still on I-90');
+  }
 }
 
 console.log('\nDegenerate input');

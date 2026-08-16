@@ -37,13 +37,31 @@ export const MAX_SHIELDS = 24;   // a whole-day ceiling on markers; what is
                                  // actually DRAWN is thinned again in screen
                                  // space, where the zoom is known
 
-// The nav ladder: candidates from the bike forward, on a fixed half-mile grid
-// so their ids hold steady as the bike moves and the markers slide instead of
-// being torn down and rebuilt. 1.5 mi is past anything a nav camera shows, so
-// three candidates is enough for one of them to be in frame.
-export const AHEAD_SPAN_MI = 1.5;
-export const AHEAD_REPEAT_MI = 0.5;
+// The nav ladder: candidates from the bike forward, on a fixed grid so their
+// ids hold steady as the bike moves and the markers slide instead of being
+// torn down and rebuilt.
+//
+// The grid spacing IS the frequency a rider experiences — one sign comes round
+// every AHEAD_REPEAT_MI of riding. It shipped at half a mile, and the owner
+// rode it (Aug 16 2026): "the road signs are appearing too frequently, I want
+// them at one third to one fourth the frequency." Two miles is the quarter, and
+// it changes the character of the thing: at half a mile there was always a
+// shield somewhere on screen, which is wallpaper. At two, the road you are on
+// says so every few minutes and the screen is otherwise clear.
+//
+// The span is the other half of it, and it is deliberately shorter than the
+// grid: a sign is a candidate only for the last mile of its approach, so it
+// slides in, passes, and the screen is empty again. Sim-measured on the built
+// app, a sign is up for about a third of the fixes on a highway stretch; at
+// the half-mile grid with a 1.5-mi span there was one up on nearly every one.
+// 0.9 mi is ~50 seconds of warning at an interstate cruise.
+export const AHEAD_SPAN_MI = 0.9;
+export const AHEAD_REPEAT_MI = 2;
 export const AHEAD_LEAD_MI = 0.2;   // never sign the ground under the puck
+// A road CHANGE is exempt from the grid. "You are on US-14 now" is the one
+// thing this ladder exists to say, and a two-mile grid could hold it back for
+// two miles; it gets signed just past the change, as soon as it is in reach.
+export const AHEAD_CHANGE_MI = 0.25;
 
 /**
  * Contiguous stretches of one route number, measured along the step chain.
@@ -107,7 +125,7 @@ function pointAtMile(chain, cum, mi) {
 export function shieldPlacements(steps, chain, {
   cum = null, minRunMi = MIN_RUN_MI, repeatMi = REPEAT_MI, max = MAX_SHIELDS,
   aheadMi = null, aheadSpanMi = AHEAD_SPAN_MI, aheadRepeatMi = AHEAD_REPEAT_MI,
-  aheadLeadMi = AHEAD_LEAD_MI,
+  aheadLeadMi = AHEAD_LEAD_MI, aheadChangeMi = AHEAD_CHANGE_MI,
 } = {}) {
   if (!steps?.length || !chain || chain.length < 2) return [];
   let c = cum;
@@ -141,7 +159,13 @@ export function shieldPlacements(steps, chain, {
   };
 
   for (const r of runs) {
-    const n = Math.max(1, Math.ceil(r.miles / repeatMi));
+    // A nav camera frames about a mile, so the plan map's every-30-miles
+    // repeats are never the sign a rider sees — but they ARE a second source
+    // of candidates competing for Ride's single slot, and one parked mid-run
+    // put a shield back on screen in the middle of a stretch the ladder had
+    // deliberately left clear. When there is a bike, the ladder is the whole
+    // answer.
+    const n = ahead != null ? 0 : Math.max(1, Math.ceil(r.miles / repeatMi));
     for (let k = 0; k < n; k++) {
       // The FIRST shield of a run is the one that carries information — it is
       // where the road number changes. Marked so the screen-space cull seats
@@ -160,6 +184,10 @@ export function shieldPlacements(steps, chain, {
       // reading a rider would call wrong.
       const lo = Math.max(r.startMi, ahead + aheadLeadMi);
       const hi = Math.min(r.endMi, ahead + aheadSpanMi);
+      // The road change itself, off-grid and flagged `first` so the screen-space
+      // cull seats it ahead of any repeat competing for Ride's single slot.
+      const change = r.startMi + Math.min(aheadChangeMi, r.miles / 4);
+      if (change > ahead + aheadLeadMi && change <= ahead + aheadSpanMi) put(r, change, true);
       for (let m = Math.ceil(lo / aheadRepeatMi) * aheadRepeatMi; m <= hi; m += aheadRepeatMi) {
         if (m < r.endMi) put(r, m, false);
       }
