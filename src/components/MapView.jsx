@@ -5,6 +5,7 @@ import { PHASES } from '../data/seedTrip.js';
 import { haversineMiles, bestInsertIndex } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
 import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
+import { labelFloorId } from '../engine/mapVis.js';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
@@ -70,6 +71,10 @@ export default function MapView() {
   basemapRef.current = basemap;
   const [mapObj, setMapObj] = React.useState(null); // the loaded map, for marker children
   const [dayRoads, setDayRoads] = React.useState(null); // OSRM refs for the selected day
+  // Does this basemap carry its own road signage that we can uncover? When it
+  // does, our shield overlay stands down rather than double-signing the road.
+  const [nativeLabels, setNativeLabels] = React.useState(false);
+  const floorRef = useRef(undefined);
   const [terrain3d, setTerrain3d] = React.useState(false);
   const [switchOpen, setSwitchOpen] = React.useState(false); // basemap row collapsed to a layers pill
   const terrainRef = useRef(false);
@@ -112,7 +117,10 @@ export default function MapView() {
       attributionControl: false,
     });
     mapRef.current = map;
-    if (import.meta.env.DEV) window.__map = map; // console access while developing
+    // Un-gated, like Ride Mode's __rideMap: the sims drive the BUILT app and
+    // assert on real layer order and paint properties, which a DEV-only handle
+    // puts out of reach. Console debugging comes along for free.
+    window.__map = map;
     // On touch, pinch-zoom replaces the +/− control and the screen is too
     // small to spend on it.
     if (!isTouch()) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -298,6 +306,12 @@ export default function MapView() {
     const { trip: t, selectedDayId: sel } = stateRef.current;
     ensureTerrain(map, terrainRef.current);
     if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage());
+    // Everything we draw goes UNDER the basemap's own labels, so its road
+    // shields and place names keep painting over the route instead of
+    // disappearing beneath it. Null on a basemap with nothing to insert
+    // before (Google's single baked image) — addLayer then appends as before.
+    const floor = labelFloorId(map);
+    if (floor !== floorRef.current) { floorRef.current = floor; setNativeLabels(!!floor); }
 
     for (const day of t.days) {
       const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
@@ -317,17 +331,17 @@ export default function MapView() {
           id: `${srcId}-glow`, type: 'line', source: srcId,
           paint: { 'line-color': color, 'line-width': lineWidth(8), 'line-opacity': 0.18, 'line-blur': 4 },
           layout: round,
-        });
+        }, floor);
         map.addLayer({
           id: `${srcId}-casing`, type: 'line', source: srcId,
           paint: { 'line-color': '#000000', 'line-width': lineWidth(5.5), 'line-opacity': 0.7 },
           layout: round,
-        });
+        }, floor);
         map.addLayer({
           id: `${srcId}-line`, type: 'line', source: srcId,
           paint: { 'line-color': color, 'line-width': lineWidth(3), 'line-opacity': 0.9 },
           layout: round,
-        });
+        }, floor);
         map.addLayer({
           id: `${srcId}-arrows`, type: 'symbol', source: srcId,
           layout: {
@@ -336,7 +350,7 @@ export default function MapView() {
             'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
           },
           paint: { 'icon-opacity': 0.9 },
-        });
+        }, floor);
         wireLegEvents(map, day.id, `${srcId}-line`);
       }
       const lineOpacity = active ? 0.95 : 0.25;
@@ -358,12 +372,12 @@ export default function MapView() {
         id: 'leg-hi-glow', type: 'line', source: 'leg-hi',
         paint: { 'line-color': '#ffffff', 'line-width': lineWidth(11), 'line-opacity': 0.3, 'line-blur': 6 },
         layout: round,
-      });
+      }, floor);
       map.addLayer({
         id: 'leg-hi-line', type: 'line', source: 'leg-hi',
         paint: { 'line-color': '#ffffff', 'line-width': lineWidth(4.5), 'line-opacity': 0.95 },
         layout: round,
-      });
+      }, floor);
     }
     // prune sources for deleted days
     drawMarkers();
@@ -570,7 +584,9 @@ export default function MapView() {
     <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}`}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
-      <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
+      {!nativeLabels && (
+        <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
+      )}
       <div className="map-hint">
         {selectedDay
           ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {t('— click map to add a stop · drag markers · click stops & legs for details')}</span></>

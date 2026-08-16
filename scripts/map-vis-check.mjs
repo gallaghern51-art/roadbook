@@ -20,6 +20,7 @@
 // Run: node scripts/map-vis-check.mjs
 
 import { viewGate } from '../src/engine/mapVis.js';
+import { labelFloorId } from '../src/engine/mapVis.js';
 
 let pass = 0;
 let fail = 0;
@@ -160,6 +161,54 @@ console.log('\nRobustness');
 
   const zero = fakeMap({ w: 0, h: 0 });
   check('a zero-size container rejects everything', viewGate(zero)(at(0, 0.1)) === null);
+}
+
+console.log('\nWhere the route line belongs in the layer stack');
+{
+  // Field observation: "the maps already have road signs but they are just
+  // covered by the route marker — can the map native road markers lay above
+  // it?" Yes, wherever the basemap keeps its labels in a layer of their own.
+  const styled = (layers) => ({ getStyle: () => ({ layers }) });
+
+  const vector = styled([
+    { id: 'background', type: 'background' },
+    { id: 'landuse', type: 'fill' },
+    { id: 'highway-motorway', type: 'line' },
+    { id: 'highway-shield', type: 'symbol' },
+    { id: 'place-city', type: 'symbol' },
+  ]);
+  check('vector style: the route goes under the first symbol layer',
+    labelFloorId(vector) === 'highway-shield');
+
+  const esri = styled([
+    { id: 'satellite', type: 'raster' },
+    { id: 'esri-roads', type: 'raster' },
+    { id: 'esri-places', type: 'raster' },
+  ]);
+  check('Esri hybrid: under the transparent road/label overlays',
+    labelFloorId(esri) === 'esri-roads',
+    'the imagery is opaque, but the signage above it is its own raster');
+
+  const google = styled([{ id: 'gtiles', type: 'raster' }]);
+  check('Google tiles: nothing to insert before', labelFloorId(google) === null,
+    'satellite, roads, shields and labels are baked into ONE image — this is '
+    + 'the case RouteShields exists for');
+
+  // Our own chevrons are a symbol layer. Finding those would walk the floor
+  // down a notch on every redraw until the route sank under its own arrows.
+  const redrawn = styled([
+    { id: 'satellite', type: 'raster' },
+    { id: 'route-a-line', type: 'line' },
+    { id: 'route-a-arrows', type: 'symbol' },
+    { id: 'leg-hi-line', type: 'line' },
+    { id: 'esri-roads', type: 'raster' },
+  ]);
+  check('our own layers are never mistaken for the basemap\'s',
+    labelFloorId(redrawn) === 'esri-roads');
+
+  check('an empty or unloaded style is answered safely',
+    labelFloorId(styled([])) === null && labelFloorId(undefined) === null
+    && labelFloorId({}) === null);
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed${fail ? ' — FAILURES ABOVE' : ''}`);
