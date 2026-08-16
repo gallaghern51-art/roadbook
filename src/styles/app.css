@@ -1633,9 +1633,6 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    tiles already carry. These are DOM markers, so they ride above the canvas
    by construction. Placement (which stretches get signed, how often) is
    engine/routeShields.js; what fits on screen is culled in RouteShields.jsx.
-   PLAN ONLY — these were tried in Ride Mode too and taken back out the same
-   day at the owner's call: a nav HUD wants the road named in one place, the
-   turn card, not scattered over the map you are glancing at.
 
    The dark plate is not decoration: signage art is white-heavy and vanishes
    into a snow field, a salt flat or a bright basemap without something to sit
@@ -1656,6 +1653,30 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   height: auto; font-family: var(--mono); font-style: normal;
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: #fff;
   padding: 1px 2px; white-space: nowrap;
+}
+
+/* Ride: ONE sign carrying ONE number, and it has to earn its pixels on a
+   screen a rider glances at at 70 mph. Big enough to read in that glance,
+   quieter than the plan map's — no border, a softer plate, and it fades in
+   and out rather than popping as it is culled, because a sign that blinks
+   pulls the eye harder than a sign that is simply there. Sizing and count are
+   the restraint the owner asked for after the first, unbounded attempt.
+   Placement is `aheadMi` in engine/routeShields.js. */
+.rt-shield.rt-ride {
+  padding: 2px 4px; border-radius: 6px;
+  background: rgba(10, 12, 16, 0.55);
+  border-color: transparent;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+  opacity: 0.92;
+  transition: opacity 260ms ease;
+}
+.rt-shield.rt-ride .map-shield { height: 26px; }
+.rt-shield.rt-ride i.map-shield { font-size: 13px; }
+/* the fade needs the element to stay laid out, so ride hides by opacity —
+   plan keeps display:none, where there is nothing to animate between */
+.rt-shield.rt-ride.off { display: flex; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .rt-shield.rt-ride { transition: none; }
 }
 
 

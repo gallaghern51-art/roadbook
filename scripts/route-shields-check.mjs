@@ -5,9 +5,11 @@
 // engine's whole job is the word SOME — a shield on every maneuver is a
 // picket fence and one per day is nothing.
 //
-// PLAN map only. Shields were built for Ride Mode too and taken back out the
-// same day at the owner's call, along with the along-the-bike spacing that
-// existed to serve a nav camera.
+// Ride Mode gets the same runs through a different door: `aheadMi` builds a
+// sparse ladder of candidates on the road IN FRONT of the bike, of which the
+// HUD draws exactly one ("add the signs to ride mode but I don't want it to
+// be overbearing on the view"). Shields went into Ride unbounded on the first
+// pass and came straight back out, so the cap is the feature.
 //
 // Run: node scripts/route-shields-check.mjs
 
@@ -126,6 +128,38 @@ console.log('\nPlan overview: sparse, and every road change signed');
   const usFirst = p.filter((x) => x.key === 'US-14').sort((a, b) => a.mi - b.mi)[0];
   check('the US-14 shield lands where US-14 actually starts, not 40 mi in',
     usFirst.mi < 145, `first US-14 shield at mile ${usFirst.mi.toFixed(1)}`);
+}
+
+console.log('\nRide: a sparse ladder on the road AHEAD');
+{
+  const at = 60;
+  const p = shieldPlacements(DAY, chain, { cum, aheadMi: at });
+  const ladder = p.filter((x) => x.mi > at && x.mi < at + 2).sort((a, b) => a.mi - b.mi);
+
+  check('there are candidates ahead of the bike', ladder.length >= 2,
+    ladder.map((x) => x.mi.toFixed(2)).join(' '));
+  check('…a few hundred yards apart', ladder.every((x, i) => i === 0 || x.mi - ladder[i - 1].mi <= 0.51));
+  check('none is signed on the ground under the puck', !p.some((x) => Math.abs(x.mi - at) < 0.15),
+    'a shield at the bike sits under the marker that matters most');
+  check('nothing new BEHIND the bike', p.filter((x) => x.mi < at - 0.01).length
+    === shieldPlacements(DAY, chain, { cum }).filter((x) => x.mi < at - 0.01).length,
+    'a sign behind you has been ridden past, and with one slot it would take it');
+  check('the nearest candidate is within a nav camera\'s reach', ladder[0].mi - at <= 0.75);
+
+  // Marker churn: the ids sit on a fixed grid, so riding slides the ladder
+  // rather than tearing every marker down and remounting it (which re-fetches
+  // the artwork and blinks the sign).
+  const a = shieldPlacements(DAY, chain, { cum, aheadMi: 60 });
+  const b = shieldPlacements(DAY, chain, { cum, aheadMi: 60.25 });
+  check('a quarter mile of riding keeps the markers alive',
+    a.filter((x) => b.some((y) => y.id === x.id)).length >= a.length - 1);
+
+  // At a road change the old number must not be the one still standing.
+  const near = shieldPlacements(DAY, chain, { cum, aheadMi: 120.3 })
+    .filter((x) => x.mi > 120.3 && x.mi < 122);
+  check('past the road change, every sign ahead names the NEW road',
+    near.length > 0 && near.every((x) => x.key === 'US-14'),
+    near.map((x) => `${x.key}@${x.mi.toFixed(2)}`).join(' '));
 }
 
 console.log('\nDegenerate input');

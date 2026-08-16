@@ -35,7 +35,7 @@ const GAP_DIFF = 52;  // px between shields carrying different ones
 const STOP_DX = 30;
 const STOP_DY = 22;
 
-export default function RouteShields({ map, placements, avoid }) {
+export default function RouteShields({ map, placements, avoid, max = Infinity, perSign = 2, mode = 'plan' }) {
   const marksRef = useRef(new Map()); // id → {p, el, marker}
   const mapRef = useRef(null);
   const [, bump] = useState(0);
@@ -67,7 +67,7 @@ export default function RouteShields({ map, placements, avoid }) {
         continue;
       }
       const el = document.createElement('div');
-      el.className = 'rt-shield off'; // hidden until the cull places it
+      el.className = `rt-shield rt-${mode} off`; // hidden until the cull places it
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([p.lng, p.lat])
         .addTo(map);
@@ -76,7 +76,7 @@ export default function RouteShields({ map, placements, avoid }) {
     }
     if (changed) bump((v) => v + 1);
     return undefined;
-  }, [map, placements]);
+  }, [map, placements, mode]);
 
   // cull on every camera frame, and whenever the set itself changes
   useEffect(() => {
@@ -104,6 +104,7 @@ export default function RouteShields({ map, placements, avoid }) {
       const seats = order.map((rec) => {
         const pt = gate([rec.p.lng, rec.p.lat]);
         const clean = !!pt
+          && kept.length < max
           && !stops.some((s) => Math.abs(s.x - pt.x) < STOP_DX && Math.abs(s.y - pt.y) < STOP_DY)
           && clearOfKept(pt, rec.p.key);
         if (clean) kept.push({ x: pt.x, y: pt.y, key: rec.p.key });
@@ -117,7 +118,7 @@ export default function RouteShields({ map, placements, avoid }) {
       const named = new Set(kept.map((k) => k.key));
       for (const seat of seats) {
         if (seat.ok || !seat.pt || named.has(seat.rec.p.key)) continue;
-        if (!clearOfKept(seat.pt, seat.rec.p.key)) continue;
+        if (kept.length >= max || !clearOfKept(seat.pt, seat.rec.p.key)) continue;
         seat.ok = true;
         named.add(seat.rec.p.key);
         kept.push({ x: seat.pt.x, y: seat.pt.y, key: seat.rec.p.key });
@@ -131,7 +132,7 @@ export default function RouteShields({ map, placements, avoid }) {
       map.off('move', cull);
       map.off('moveend', cull);
     };
-  }, [map, placements, avoid]);
+  }, [map, placements, avoid, max]);
 
   // unmount: markers are imperative, so they need taking down by hand
   useEffect(() => () => {
@@ -142,9 +143,12 @@ export default function RouteShields({ map, placements, avoid }) {
   return (
     <>
       {[...marksRef.current.values()].map(({ p, el }) => createPortal(
-        // Two at most: "US-14/16/20" is three shields, and a wall of them on a
-        // moving map reads as clutter rather than as signage.
-        p.shields.slice(0, 2).map((s) => <RoadShield key={s.key} road={s} className="map-shield" />),
+        // A concurrency — one stretch of pavement carrying two route numbers,
+        // "US 14;US 16" — is posted as two signs, and on the plan map that is
+        // worth knowing. In Ride it is the second sign a rider has to read at
+        // 70 mph to learn nothing they can act on, so Ride passes perSign 1
+        // and gets the primary number only. Three numbers is never anyone's.
+        p.shields.slice(0, perSign).map((s) => <RoadShield key={s.key} road={s} className="map-shield" />),
         el,
         p.id
       ))}

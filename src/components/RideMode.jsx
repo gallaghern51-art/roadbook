@@ -19,7 +19,9 @@ import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
 import RoadShield from './RoadShield.jsx';
+import RouteShields from './RouteShields.jsx';
 import { stepRoadShields } from '../engine/roads.js';
+import { shieldPlacements } from '../engine/routeShields.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
 
 // Ride Mode: a navigation HUD over a live map. Projects your GPS position onto
@@ -345,6 +347,7 @@ export default function RideMode({ onClose }) {
   const failSince = useRef(null); // when the fix started failing, for the grace period
   const [clock, setClock] = useState(nowMin());
   const [steps, setSteps] = useState(null);
+  const [mapObj, setMapObj] = useState(null); // the loaded nav map, for marker children
   const [reroute, setReroute] = useState(null); // { geometry, steps } from live position
   const [rerouting, setRerouting] = useState(false);
   const [rerouteFailed, setRerouteFailed] = useState(false);
@@ -533,7 +536,7 @@ export default function RideMode({ onClose }) {
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
     mapReadyRef.current = false;
-    map.once('load', () => { mapReadyRef.current = true; });
+    map.once('load', () => { mapReadyRef.current = true; setMapObj(map); });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -563,7 +566,7 @@ export default function RideMode({ onClose }) {
       .setLngLat(start ? [start.lng, start.lat] : [-108, 45])
       .addTo(map);
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { setMapObj(null); map.remove(); mapRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run something that touches sources and layers as soon as the map can take
@@ -866,6 +869,27 @@ export default function RideMode({ onClose }) {
       : null),
     [fix, geomInfo] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // ---- ONE highway shield on the road ahead ----
+  // The route line's glow, casing and core paint over the shields the
+  // satellite tiles carry, so the nav map showed where you were going while
+  // hiding what road you were on. This puts the number back — and puts back
+  // exactly one of it. Shields went into Ride unbounded first and came
+  // straight out again ("take road markers off ride mode"); the ask on the
+  // way back in was that they not be overbearing, so RouteShields draws a
+  // single sign (max 1) carrying a single number (perSign 1), standing on the
+  // road a few hundred yards ahead and sliding past as it is ridden. The turn
+  // card still names the road you are turning ONTO; this names the one you
+  // are on.
+  //
+  // Quantized to the quarter mile: without it the ladder is a new array every
+  // GPS fix and the marker churns once a second.
+  const aheadMi = geoProj ? Math.round(geoProj.along * 4) / 4 : null;
+  const shieldMarks = useMemo(() => {
+    const src = reroute?.steps ?? steps;
+    if (!src?.length || !hasRealRoute || geomInfo.chain.length < 2) return [];
+    return shieldPlacements(src, geomInfo.chain, { cum: geomInfo.cum, aheadMi });
+  }, [steps, reroute, geomInfo, hasRealRoute, aheadMi]);
 
   const goodFix = fix && (fix.accuracy == null || fix.accuracy < 200);
   const offRoute = !!(geoProj && goodFix && geoProj.off > (hasRealRoute ? 0.12 : 2.5));
@@ -1546,6 +1570,8 @@ export default function RideMode({ onClose }) {
     // any first tap unlocks the speech engine (ref-guarded to run once)
     <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
+      {/* one sign, one number, on the road ahead */}
+      <RouteShields map={mapObj} placements={shieldMarks} avoid={day.waypoints} max={1} perSign={1} mode="ride" />
 
       {/* ---- top: the turn OWNS the top edge; weather + close ride beneath
               it on the right ---- */}
