@@ -1,8 +1,10 @@
 // Road routing. Planning uses the public OSRM demo server (free, cached hard).
-// Ride Mode navigation tries the Google Routes API first via the
+// Ride Mode navigation runs a three-tier chain: Google Routes first via the
 // google-route Netlify function (live-traffic ETAs; needs GOOGLE_MAPS_API_KEY
-// in the Netlify env) and falls back to OSRM whenever the function is absent,
-// unconfigured, or failing — the app never depends on the paid path.
+// in the Netlify env), then Valhalla on the FOSSGIS public server (open
+// source, real motorcycle costing, heading-aware), then OSRM — each tier
+// backs off on failure and falls through, so the app never depends on any
+// single router.
 
 import { legKey, haversineMiles } from './tripEngine.js';
 
@@ -106,6 +108,121 @@ async function googleRoute(origin, waypoints) {
   const json = await res.json();
   if (!json.geometry?.length) throw new Error('google-route empty');
   return json;
+}
+
+// ---------- Valhalla (FOSSGIS public server) ----------
+// The open-source engine tier between Google and OSRM: real MOTORCYCLE
+// costing, heading-aware departures, and rich maneuver text. Community
+// server, fair-use policy like the OSRM demo — every failure backs off and
+// falls through, so it can only ever add quality, never remove a fallback.
+const VALHALLA = 'https://valhalla1.openstreetmap.de/route';
+let vSkipUntil = 0;
+
+// Valhalla shapes are encoded polylines with SIX decimal digits (not five).
+function decodePolyline6(str) {
+  const out = [];
+  let lat = 0, lng = 0, i = 0;
+  while (i < str.length) {
+    for (const which of [0, 1]) {
+      let shift = 0, result = 0, byte;
+      do { byte = str.charCodeAt(i++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+      const delta = (result & 1) ? ~(result >> 1) : (result >> 1);
+      if (which === 0) lat += delta; else lng += delta;
+    }
+    out.push([lng / 1e6, lat / 1e6]);
+  }
+  return out;
+}
+
+// Valhalla maneuver-type enum → our OSRM-flavored {type, mod}.
+const V_MANEUVER = {
+  1: ['depart', null], 2: ['depart', null], 3: ['depart', null],
+  4: ['arrive', null], 5: ['arrive', null], 6: ['arrive', null],
+  7: ['new name', null], 8: ['continue', 'straight'],
+  9: ['turn', 'slight right'], 10: ['turn', 'right'], 11: ['turn', 'sharp right'],
+  12: ['turn', 'uturn'], 13: ['turn', 'uturn'],
+  14: ['turn', 'sharp left'], 15: ['turn', 'left'], 16: ['turn', 'slight left'],
+  17: ['on ramp', null], 18: ['on ramp', 'right'], 19: ['on ramp', 'left'],
+  20: ['off ramp', 'right'], 21: ['off ramp', 'left'],
+  22: ['fork', 'straight'], 23: ['fork', 'right'], 24: ['fork', 'left'],
+  25: ['merge', null], 37: ['merge', 'right'], 38: ['merge', 'left'],
+  26: ['roundabout', null], 27: ['exit roundabout', null],
+};
+
+async function valhallaRoute(origin, wps) {
+  if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
+  const body = {
+    locations: [
+      {
+        lon: origin.lng, lat: origin.lat, type: 'break',
+        // like Google: the route departs the way the bike is pointed
+        ...(Number.isFinite(origin.heading)
+          ? { heading: ((Math.round(origin.heading) % 360) + 360) % 360, heading_tolerance: 60 }
+          : {}),
+      },
+      ...wps.map((w) => ({ lon: w.lng, lat: w.lat, type: 'break' })),
+    ],
+    costing: 'motorcycle',
+    directions_options: { units: 'miles' },
+  };
+  let res;
+  try {
+    res = await fetch(VALHALLA, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    vSkipUntil = Date.now() + 10 * 60_000;
+    throw e;
+  }
+  if (!res.ok) {
+    vSkipUntil = Date.now() + (res.status === 429 ? 30 : 10) * 60_000;
+    throw new Error(`valhalla ${res.status}`);
+  }
+  const json = await res.json();
+  if (!json.trip?.legs?.length) throw new Error('valhalla empty');
+  return json.trip;
+}
+
+const valhallaGeometry = (trip) => {
+  const geometry = [];
+  for (const leg of trip.legs) {
+    const shape = decodePolyline6(leg.shape ?? '');
+    geometry.push(...(geometry.length ? shape.slice(1) : shape));
+  }
+  return geometry;
+};
+
+// Valhalla legs → our compact step shape. Lengths arrive in miles (units:
+// miles), times in seconds — realistic for the motorcycle costing, so no
+// SPEED_CURVE re-timing; pace applies at read time like every source.
+function valhallaCompactSteps(trip, stops) {
+  const steps = [];
+  trip.legs.forEach((leg, li) => {
+    const shape = decodePolyline6(leg.shape ?? '');
+    for (const m of leg.maneuvers ?? []) {
+      const pt = shape[Math.min(m.begin_shape_index ?? 0, shape.length - 1)];
+      if (!pt) continue;
+      const [type, mod] = V_MANEUVER[m.type] ?? ['turn', null];
+      const isArrive = type === 'arrive';
+      const wp = stops?.[li];
+      steps.push({
+        lat: pt[1], lng: pt[0],
+        dist: m.length ?? 0,
+        sec: m.time ?? 0,
+        type, mod,
+        exit: m.roundabout_exit_count ?? null,
+        road: m.street_names?.[0] ?? null,
+        roadName: m.street_names?.[0] ?? null,
+        stop: isArrive ? wp?.name ?? null : undefined,
+        instr: isArrive
+          ? (wp?.name ? `Arrive: ${wp.name}` : 'Arrive at your stop')
+          : ((m.instruction || 'Continue').replace(/\.$/, '')),
+      });
+    }
+  });
+  return steps;
 }
 
 // Google maneuver enum → our OSRM-flavored {type, mod} (drives TurnArrow + voice).
@@ -387,11 +504,19 @@ export async function routeDaySteps(day, pace = 1) {
   if (Array.isArray(hit)) return paceSteps(hit, pace); // OSRM-sourced: static data, cache forever
   if (hit?.g && Date.now() - hit.at < 15 * 60_000) return paceSteps(hit.steps, pace); // traffic goes stale
 
-  // Traffic-aware first; OSRM below is the always-works fallback.
+  // Traffic-aware first; Valhalla (motorcycle costing, richer maneuvers) is
+  // the open-source middle tier; OSRM below is the always-works fallback.
   try {
     const g = await googleRoute(wps[0], wps.slice(1));
     const steps = await attachRoadDetail(googleCompactSteps(g, wps.slice(1)), wps);
     saveStepCache(key, { g: 1, at: Date.now(), steps });
+    return paceSteps(steps, pace);
+  } catch { /* fall through to Valhalla */ }
+
+  try {
+    const trip = await valhallaRoute(wps[0], wps.slice(1));
+    const steps = await attachLanes(valhallaCompactSteps(trip, wps.slice(1)), wps);
+    saveStepCache(key, steps); // no traffic inside — static data caches forever
     return paceSteps(steps, pace);
   } catch { /* fall through to OSRM */ }
 
@@ -457,6 +582,16 @@ export async function routeFrom(pos, waypoints, pace = 1) {
       miles: g.distanceMeters / 1609.34,
       seconds: g.durationSeconds * pace,
       traffic: true,
+    };
+  } catch { /* fall through to Valhalla */ }
+
+  try {
+    const trip = await valhallaRoute(pos, wps);
+    return {
+      geometry: valhallaGeometry(trip),
+      steps: paceSteps(valhallaCompactSteps(trip, wps), pace),
+      miles: trip.summary?.length ?? 0,
+      seconds: (trip.summary?.time ?? 0) * pace,
     };
   } catch { /* fall through to OSRM */ }
 
