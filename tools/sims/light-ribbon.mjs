@@ -1,0 +1,14 @@
+import { chromium } from '../../node_modules/playwright-core/index.mjs';
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
+await page.route('**/*', (r) => (r.request().url().includes('localhost:5199') ? r.continue() : r.abort()));
+await page.addInitScript(() => { localStorage.setItem('moto.settings.v1', JSON.stringify({ theme: 'light' })); });
+await page.goto('http://localhost:5199/');
+await page.waitForSelector('.trip-card', { timeout: 15000 });
+await page.click('.trip-card');
+await page.waitForSelector('.modebar', { timeout: 15000 });
+await page.waitForTimeout(1200);
+await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch(() => {}); await page.waitForTimeout(500);
+await page.screenshot({ path: './shots/light-ribbon.png' });
+await browser.close();
+console.log('ok');
