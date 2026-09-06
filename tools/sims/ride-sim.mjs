@@ -71,8 +71,12 @@ function overpassBody() {
 const results = [];
 const check = (name, ok, extra = '') => { results.push([name, ok, extra]); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
 
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/opt/pw-browsers/chromium');
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium',
+  executablePath,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader'],
 });
 const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
@@ -117,18 +121,20 @@ await page.addInitScript(() => {
 });
 
 await page.goto('http://localhost:5199/');
+const guestEntry = page.locator('.land-skip');
+if (await guestEntry.isVisible().catch(() => false)) await guestEntry.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 
-// wait for the mocked routing to fill the v2 cache
+// wait for the mocked routing to fill the current planning cache
 await page.waitForFunction(() => {
-  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v3') || '{}')).length >= 3; } catch { return false; }
+  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v4') || '{}')).length >= 3; } catch { return false; }
 }, { timeout: 30000 });
 
 // 1) cache holds calibrated UNPACED legs: implied speed ≈ 69.8 mph
 const implied = await page.evaluate(() => {
-  const c = JSON.parse(localStorage.getItem('sturgis.routeCache.v3'));
+  const c = JSON.parse(localStorage.getItem('sturgis.routeCache.v4'));
   const out = [];
   for (const day of Object.values(c)) {
     for (const leg of Object.values(day.legs ?? {})) {

@@ -95,7 +95,7 @@ await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {
-  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v3') || '{}')).length >= 3; } catch { return false; }
+  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v4') || '{}')).length >= 3; } catch { return false; }
 }, { timeout: 30000 });
 await page.click('.ride-seat');
 await page.waitForSelector('.ride-mode', { timeout: 8000 });

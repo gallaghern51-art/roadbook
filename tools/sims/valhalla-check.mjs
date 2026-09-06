@@ -1,6 +1,7 @@
-// Valhalla tier verification: Google absent (dev 501), the FOSSGIS endpoint
-// mocked with a spec-shaped response (polyline6 shapes, maneuver enums) —
-// nav steps must come from Valhalla, never falling through to OSRM steps.
+// Valhalla verification: the FOSSGIS endpoint is mocked with a spec-shaped
+// response (polyline6 shapes, per-leg summaries, maneuver enums). Planning
+// must use it directly; nav uses it after the absent Google dev function.
+// Neither path may fall through to OSRM routing.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
@@ -32,11 +33,13 @@ const enc6 = (pts) => {
   return out;
 };
 
-let valhallaCalls = 0, valhallaCosting = null, osrmStepsCalls = 0;
+let valhallaCalls = 0, valhallaCosting = null, valhallaLocationTypes = [];
+let osrmPlanningCalls = 0, osrmStepsCalls = 0;
 
 function buildValhalla(reqBody) {
   valhallaCalls++;
   valhallaCosting = reqBody.costing;
+  valhallaLocationTypes.push(reqBody.locations.map((l) => l.type));
   const locs = reqBody.locations.map((l) => [l.lon, l.lat]);
   const legs = [];
   let totalMi = 0, totalSec = 0;
@@ -59,7 +62,11 @@ function buildValhalla(reqBody) {
   return { trip: { legs, summary: { length: totalMi, time: totalSec }, status: 0, units: 'miles' } };
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/opt/pw-browsers/chromium');
+const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (r) => {
@@ -69,11 +76,12 @@ await page.route('**/*', (r) => {
     return r.fulfill({ json: buildValhalla(r.request().postDataJSON()) });
   }
   if (u.includes('router.project-osrm.org')) {
-    // attachLanes legitimately asks OSRM for lane data (annotations=false);
+    // attachRoadDetail legitimately asks OSRM for lane data (annotations=false);
     // only a ROUTING fallback (annotations=distance,duration) would mean the
     // Valhalla tier was skipped.
     if (u.includes('steps=true') && u.includes('annotations=distance')) osrmStepsCalls++;
-    // planning routes (steps=false) still served so the trip has geometry
+    if (u.includes('steps=false') && u.includes('annotations=distance,duration')) osrmPlanningCalls++;
+    // OSRM is still served so either fallback produces a debuggable failure.
     const m = /driving\/([^?]+)\?/.exec(u);
     const coords = m[1].split(';').map((p) => p.split(',').map(Number));
     const geometry = [];
@@ -96,6 +104,8 @@ await page.addInitScript(() => {
   };
 });
 await page.goto('http://localhost:5199/');
+const guestEntry = page.locator('.land-skip');
+if (await guestEntry.isVisible().catch(() => false)) await guestEntry.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
@@ -115,11 +125,20 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(1200);
 
+const planningValhallaCalls = valhallaCalls;
+check(planningValhallaCalls >= 1 && valhallaCosting === 'motorcycle',
+  `planning fetched from Valhalla with motorcycle costing (${planningValhallaCalls} call(s))`);
+check(valhallaLocationTypes.some((types) => types.length >= 3
+  && types.slice(1, -1).every((type) => type === 'break_through')
+  && types.at(-1) === 'break'),
+`planning preserves legs without permitting intermediate U-turns`);
+check(osrmPlanningCalls === 0, `OSRM planning fallback never engaged (${osrmPlanningCalls})`);
+
 await page.locator('.modebar button', { hasText: /ride/i }).click();
 await page.waitForSelector('.ride-bar', { timeout: 15000 });
 await page.waitForTimeout(1200);
-check(valhallaCalls >= 1 && valhallaCosting === 'motorcycle',
-  `nav steps fetched from Valhalla with motorcycle costing (${valhallaCalls} call(s))`);
+check(valhallaCalls > planningValhallaCalls,
+  `nav steps fetched through Valhalla (${planningValhallaCalls}→${valhallaCalls} calls)`);
 check(osrmStepsCalls === 0, `OSRM routing fallback never engaged (${osrmStepsCalls})`);
 
 // ride a little so the turn card renders Valhalla's instruction text

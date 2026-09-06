@@ -58,7 +58,7 @@ await page.screenshot({ path: SHOT('light-home') });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {
-  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v3') || '{}')).length >= 3; } catch { return false; }
+  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v4') || '{}')).length >= 3; } catch { return false; }
 }, { timeout: 30000 });
 await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400);
 await page.locator('.rchip').nth(1).click();
