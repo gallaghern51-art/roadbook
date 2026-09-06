@@ -5,8 +5,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
-import { fuelGaps } from '../engine/tripEngine.js';
-import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
+import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute, summaryIsStale } from '../engine/tripEngine.js';
+import { dayTimeline, fmtTime, fmtDur, to24h, from24h } from '../engine/timeline.js';
 import PlaceSearch from './PlaceSearch.jsx';
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
@@ -15,6 +15,27 @@ import { dayRoadShields } from '../engine/roads.js';
 import RoadShield from './RoadShield.jsx';
 import { parksForDay } from '../data/parks.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
+
+// Did the places database confirm this stop is the real thing?
+// `verified` is written server-side by netlify/lib/verify-places.mjs after the
+// AI proposes a station, property, or restaurant. Three states, and the third
+// is the reason this is a component rather than a boolean: UNSTAMPED means
+// nobody ever checked (seed trips, hand-built stops, a site with no places
+// key) and must render nothing — flagging those would nag every rider about
+// stops that were never in question.
+function VerifyTag({ on, t }) {
+  if (on === false) {
+    return (
+      <span className="tag unverified" title={t('The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.')}>
+        ⚠ {t('unverified')}
+      </span>
+    );
+  }
+  if (on === 'google' || on === 'model') {
+    return <span className="tag verified" title={t('Checked against the live places database — this is a real business at these coordinates.')}>✓</span>;
+  }
+  return null;
+}
 
 export default function DayPanel({ day }) {
   const { state, dispatch, summary, routedLegsByDay, routes } = useTrip();
@@ -70,10 +91,16 @@ export default function DayPanel({ day }) {
             onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'anchor', value: !day.anchor }] })}
           >{day.anchor ? `★ ${t('Anchor')}` : `☆ ${t('Anchor')}`}</button>
           <label className="chip depart-edit">{t('Depart')}
+            {/* a real time field — the native picker beats typing "AM/PM" on
+                a phone, and storage keeps the readable 12-hour string */}
             <input
-              defaultValue={day.depart}
+              type="time"
+              defaultValue={to24h(day.depart)}
               key={day.id + day.depart}
-              onBlur={(e) => { if (e.target.value !== day.depart) dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'depart', value: e.target.value }] }); }}
+              onBlur={(e) => {
+                const v = from24h(e.target.value);
+                if (v && v !== day.depart) dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'depart', value: v }] });
+              }}
               onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
             />
           </label>
@@ -117,11 +144,13 @@ export default function DayPanel({ day }) {
         <div key={i} className={`warning${w.level === 'danger' ? ' danger' : ''}`}>⚠ {tt(w.text)}</div>
       ))}
 
-      <p style={{ fontSize: 13, color: 'var(--ink-dim)', marginTop: 10 }}>{tt(day.summary)}</p>
+      <DaySummary day={day} per={per} dispatch={dispatch} t={t} tt={tt} u={u} />
 
+      {/* narrative notes — the GRADED mechanism is Hard gates below; two
+          sections both claiming "hard" made the fake one look enforced */}
       {day.constraints?.length > 0 && (
         <div className="section">
-          <h3>{t('Hard constraints')}</h3>
+          <h3>{t('Constraints')} <span className="cnt">{t('notes — the engine grades the Hard gates below')}</span></h3>
           <ul className="ops-list">{day.constraints.map((c, i) => <li key={i}>{tt(c)}</li>)}</ul>
         </div>
       )}
@@ -146,22 +175,7 @@ export default function DayPanel({ day }) {
 
       <MealsSection day={day} dispatch={dispatch} />
 
-      {day.photos?.length > 0 && (
-        <div className="section">
-          <h3>{t('Photo stops')}</h3>
-          {day.photos.map((p) => (
-            <div key={p.id} className="photo-card">
-              <div className="p-name">{tt(p.name)}</div>
-              <div className="p-why">{tt(p.why)}</div>
-              <div className="p-meta">
-                <div><b>{t('Best light')}</b> — {tt(p.light)}</div>
-                <div><b>{t('Parking')}</b> — {tt(p.parking)}</div>
-                {p.notes && <div><b>{t('Note')}</b> — {tt(p.notes)}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <PhotoStops day={day} dispatch={dispatch} />
 
       <LodgingSection day={day} dispatch={dispatch} />
 
@@ -175,6 +189,80 @@ export default function DayPanel({ day }) {
       <div className="section" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
         <RemoveDayButton day={day} state={state} dispatch={dispatch} t={t} />
       </div>
+    </div>
+  );
+}
+
+// The day's description — prose about a route, and therefore the one output
+// in this panel with no input until now: change the stops and the paragraph
+// kept describing the ride you cancelled (field-caught Aug 15, 2026, on the
+// Beartooth day). Three doors, in the order a rider wants them: ask Copilot to
+// rewrite it from the stops that are actually there, write it yourself, or say
+// it still reads true — which re-stamps it against the current route and
+// clears the flag. Unstamped days never nag; the flag only fires on drift the
+// engine can prove (see routeFingerprint / summaryIsStale).
+function DaySummary({ day, per, dispatch, t, tt, u }) {
+  const [draft, setDraft] = useState(null); // non-null while editing
+  const stale = summaryIsStale(day);
+  const text = (day.summary ?? '').trim();
+  const write = (value) => dispatch({
+    type: 'apply_ops',
+    ops: [{ op: 'set_day_field', dayId: day.id, field: 'summary', value }],
+  });
+
+  if (draft !== null) {
+    return (
+      <div className="day-summary editing">
+        <textarea
+          className="summary-edit"
+          rows={8}
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setDraft(null); }}
+          placeholder={t('What this day is, and what it costs.')}
+        />
+        <div className="summary-acts">
+          <button className="chip" onClick={() => { write(draft.trim()); setDraft(null); }}>{t('Save')}</button>
+          <button className="chip ghost" onClick={() => setDraft(null)}>{t('Cancel')}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // The stop list and the engine's numbers ride along with the ask — the model
+  // rewrites from the route that exists now, not from the paragraph it reads.
+  const askRewrite = () => {
+    const stops = day.waypoints.map((w) => w.name).filter(Boolean).join(' → ');
+    const miles = u.mi(per?.miles ?? day.miles ?? 0);
+    const hrs = per ? per.rideHours.toFixed(1) : day.hours;
+    dispatch({
+      type: 'ask_optimizer',
+      text: `${t('Rewrite this day\'s description to match the route it actually has now — set_day_field summary, and the title too if the endpoints no longer match. One or two honest sentences in the field-guide voice, trade-offs included. Do not change the route.')}`
+        + ` (${day.dow} ${day.date} — ${day.title}. ${t('Stops now')}: ${stops}. ${miles}, ${hrs} ${t('ride hrs')}.)`,
+    });
+  };
+
+  return (
+    <div className={`day-summary${stale ? ' stale' : ''}`}>
+      {stale && (
+        <div className="summary-flag">
+          <div className="sf-head">⚠ {t('The route changed after this description was written.')}</div>
+          <div className="summary-acts">
+            <button className="chip ask-ai" onClick={askRewrite}>✦ {t('Rewrite with Copilot')}</button>
+            <button className="chip" onClick={() => setDraft(day.summary ?? '')}>✎ {t('Edit')}</button>
+            <button className="chip ghost" onClick={() => write(day.summary ?? '')}>{t('Still accurate')}</button>
+          </div>
+        </div>
+      )}
+      {text
+        ? <p className="summary-text">{tt(day.summary)}</p>
+        : <p className="summary-text empty">{t('No description for this day yet.')}</p>}
+      {!stale && (
+        <button className="summary-edit-link" onClick={() => setDraft(day.summary ?? '')}>
+          ✎ {text ? t('Edit description') : t('Write a description')}
+        </button>
+      )}
     </div>
   );
 }
@@ -225,19 +313,29 @@ function GatesSection({ day, dispatch, timeline, t, tt }) {
           />
           <input
             className="g-by"
-            defaultValue={g.by}
-            placeholder="7:00 AM"
-            onBlur={(e) => { if (e.target.value !== g.by) patch(i, { by: e.target.value }); }}
+            type="time"
+            defaultValue={to24h(g.by)}
+            key={`${i}:${g.by}`}
+            onBlur={(e) => { const v = from24h(e.target.value); if (v && v !== g.by) patch(i, { by: v }); }}
             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
           />
-          <select
-            className="g-stop"
-            value={g.waypointId ?? ''}
-            onChange={(e) => patch(i, { waypointId: e.target.value || null })}
-          >
-            <option value="">{t('at which stop…')}</option>
-            {day.waypoints.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
+          {/* a gate pointing at a stop that no longer exists (data from before
+              remove_waypoint pruned gates) surfaces loudly instead of
+              half-rendering while silently absent from grading */}
+          {(() => {
+            const orphaned = g.waypointId && !day.waypoints.some((w) => w.id === g.waypointId);
+            return (
+              <select
+                className={`g-stop${orphaned ? ' orphan' : ''}`}
+                value={g.waypointId ?? ''}
+                onChange={(e) => patch(i, { waypointId: e.target.value || null })}
+              >
+                <option value="">{t('at which stop…')}</option>
+                {orphaned && <option value={g.waypointId}>{t('stop removed — re-point')}</option>}
+                {day.waypoints.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            );
+          })()}
           <span className="g-eta">{g.waypointId && etaFor(g.waypointId) ? `ETA ${etaFor(g.waypointId)}` : '—'}</span>
           <button
             className="mini-edit"
@@ -266,6 +364,75 @@ function ParkBadge({ park, label }) {
       <img src="/pics/nps-arrowhead.png" alt="" aria-hidden="true" loading="lazy" />
       {park.short}
     </span>
+  );
+}
+
+// Photo stops are read from the ROUTE — waypoints of kind 'photo' are the
+// truth the map, timeline and Ride Mode already run on — enriched with the
+// day's photo notes (why / best light / parking), matched by name or by
+// proximity. Notes with no matching waypoint render as SUGGESTIONS with a
+// one-tap add. Before this the section listed day.photos verbatim, which no
+// edit ever touched: deleted photo stops kept their cards and added ones
+// never appeared (owner-audited Aug 12, 2026).
+function PhotoStops({ day, dispatch }) {
+  const t = useT();
+  const tt = useTT();
+  const { routes } = useTrip();
+  const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const metaFor = (w) => (day.photos ?? []).find((p) => {
+    const a = norm(p.name);
+    const b = norm(w.name);
+    if (a && b && (a.includes(b) || b.includes(a))) return true;
+    return Number.isFinite(p.lat) && Number.isFinite(p.lng) && haversineMiles(p, w) < 0.5;
+  });
+  const routed = day.waypoints.filter((w) => w.kind === 'photo').map((w) => ({ w, p: metaFor(w) }));
+  const used = new Set(routed.map(({ p }) => p).filter(Boolean));
+  const suggested = (day.photos ?? []).filter((p) => !used.has(p));
+  if (!routed.length && !suggested.length) return null;
+  const meta = (p) => (
+    <div className="p-meta">
+      {p.light && <div><b>{t('Best light')}</b> — {tt(p.light)}</div>}
+      {p.parking && <div><b>{t('Parking')}</b> — {tt(p.parking)}</div>}
+      {p.notes && <div><b>{t('Note')}</b> — {tt(p.notes)}</div>}
+    </div>
+  );
+  return (
+    <div className="section">
+      <h3>{t('Photo stops')} <span className="cnt">{t('read from the route — suggestions add to it')}</span></h3>
+      {routed.map(({ w, p }) => (
+        <div key={w.id} className="photo-card">
+          <div className="p-name">{tt(w.name)}</div>
+          {(p?.why || w.note) && <div className="p-why">{tt(p?.why || w.note)}</div>}
+          {p && meta(p)}
+        </div>
+      ))}
+      {suggested.map((p, i) => (
+        <div key={p.id ?? `s${i}`} className="photo-card suggested">
+          <div className="p-name">{tt(p.name)} <span className="p-tag">{t('not on the route')}</span></div>
+          {p.why && <div className="p-why">{tt(p.why)}</div>}
+          {meta(p)}
+          {Number.isFinite(p.lat) && Number.isFinite(p.lng) && (
+            <button
+              className="btn p-add"
+              onClick={() => {
+                // route order first (loop days), straight-line splice as fallback
+                const geom = !routes[day.id]?.fallback ? routes[day.id]?.geometry : null;
+                const chain = geom?.length > 1 ? geom.map(([lng, lat]) => ({ lat, lng })) : null;
+                dispatch({
+                  type: 'apply_ops',
+                  ops: [{
+                    op: 'add_waypoint',
+                    dayId: day.id,
+                    index: insertIndexOnRoute(day.waypoints, chain, p) ?? bestInsertIndex(day.waypoints, p),
+                    waypoint: { name: p.name, lat: p.lat, lng: p.lng, kind: 'photo' },
+                  }],
+                });
+              }}
+            >＋ {t('Add to route')}</button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -302,7 +469,7 @@ function MealsSection({ day, dispatch }) {
                 <button className="mini-edit" onClick={() => startEdit(m.meal)}>✎</button>
                 <button className="mini-edit" title={t('Remove meal')} onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'remove_meal', dayId: day.id, meal: m.meal }] })}>✕</button>
               </div>
-              <div className="m-name">{m.name || '—'}</div>
+              <div className="m-name">{m.name || '—'}<VerifyTag on={m.verified} t={t} /></div>
               {m.where && <div className="m-where">{m.where}</div>}
               {m.note && <div className="m-note">{tt(m.note)}</div>}
               {m.alt && <div className="m-alt">{tt(m.alt)}</div>}
@@ -480,7 +647,7 @@ function LodgingSection({ day, dispatch }) {
             {lodging.status === 'booked' ? t('● Confirmed booking') : lodging.status === 'reserve' ? t('▲ Not yet booked — reserve now') : t('○ No lodging set')}
             <button className="mini-edit" onClick={() => { setForm(lodging); setEditing(true); }}>{t('✎ edit')}</button>
           </div>
-          <div className="l-name">{tt(lodging.name) || t('Nothing planned yet')}</div>
+          <div className="l-name">{tt(lodging.name) || t('Nothing planned yet')}{lodging.name ? <VerifyTag on={lodging.verified} t={t} /> : null}</div>
           {lodging.where && <div className="l-where">{lodging.where}</div>}
           {lodging.note && <div className="l-note">{tt(lodging.note)}</div>}
         </div>
@@ -566,6 +733,7 @@ function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt,
               ⚠ {snapM} m {t('off road')}
             </span>
           )}
+          <VerifyTag on={w.verified} t={t} />
         </span>
         {w.note && <span className="note">{tt(w.note)}</span>}
       </div>

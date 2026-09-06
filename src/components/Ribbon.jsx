@@ -43,10 +43,13 @@ export default function Ribbon() {
         const color = PHASES[d.phase]?.color ?? '#888888';
         const date = fmtDayDate(d.date);
         const slash = date.indexOf('/');
+        // A ridden day goes quiet: dimmed, no grade dot (grades are calls to
+        // action, and yesterday takes no action) — still tappable to review.
+        const past = !!d.date && d.date < today;
         return (
           <button
             key={d.id}
-            className={`rchip${selectedDayId === d.id ? ' active' : ''}${d.date === today ? ' today' : ''}`}
+            className={`rchip${selectedDayId === d.id ? ' active' : ''}${d.date === today ? ' today' : ''}${past ? ' past' : ''}`}
             style={{ '--seg-color': color }}
             onClick={() => dispatch({ type: 'select_day', dayId: d.id })}
             title={`D${i + 1} · ${d.dow} ${date} — ${tt(d.title)}`}
@@ -60,7 +63,7 @@ export default function Ribbon() {
               {/* the month goes quiet on a phone — the strip reads like a calendar */}
               {slash > 0 ? <><span className="rc-mo">{date.slice(0, slash + 1)}</span>{date.slice(slash + 1)}</> : date}
             </b>
-            {g && g !== 'A' && <span className={`rc-g grade-${g}`} aria-label={g} />}
+            {g && g !== 'A' && !past && <span className={`rc-g grade-${g}`} aria-label={g} />}
           </button>
         );
       })}

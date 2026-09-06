@@ -2,20 +2,27 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine/timeline.js';
-import { haversineMiles, tripRange, tripPace, projectOnChain, bestInsertIndex } from '../engine/tripEngine.js';
+import {
+  haversineMiles, tripRange, tripPace, projectOnChain, projectOnChainDirected,
+  chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
+} from '../engine/tripEngine.js';
+import { viewGate } from '../engine/mapVis.js';
 import { routeDaySteps, routeFrom } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
-  navGoNext, navSkip, navRestore, navInitVisited, navArriveAt,
+  navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
 import { geocode } from '../engine/geocode.js';
-import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
+import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
 import RoadShield from './RoadShield.jsx';
-import { roadShields } from '../engine/roads.js';
+import RouteShields from './RouteShields.jsx';
+import { stepRoadShields } from '../engine/roads.js';
+import { shieldPlacements } from '../engine/routeShields.js';
+import { stepAlongs, navAlongRoute } from '../engine/rideDistance.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
 
 // Ride Mode: a navigation HUD over a live map. Projects your GPS position onto
@@ -109,12 +116,9 @@ function LaneStrip({ lanes }) {
   );
 }
 
-// OSRM writes route refs as "I 90" or "I 90;US 191"; roadShields() reads the
-// hyphenated form the trip notes use.
-function stepShields(step) {
-  if (!step?.road) return [];
-  return roadShields(step.road.replace(/\b([A-Z]{1,2})\s+(\d)/g, '$1-$2').replace(/;/g, ' ')).slice(0, 2);
-}
+// OSRM writes route refs as "I 90" or "I 90;US 191", Google puts the road in
+// the instruction and nowhere else — stepRoadShields reads both.
+const stepShields = (step) => stepRoadShields(step).slice(0, 2);
 
 const fmtStepDist = (mi) => {
   if (mi >= 10) return `${Math.round(mi)} mi`;
@@ -122,12 +126,21 @@ const fmtStepDist = (mi) => {
   return `${Math.max(50, Math.round((mi * 5280) / 50) * 50)} ft`;
 };
 
+// A moving position keeps its heading only when it means something — GPS
+// course below walking-out-of-a-lot speed is noise, and a parked bike may
+// legally face either way. Shared by every chain projection and navOrigin.
+const fixHeading = (f) => (f && f.heading != null && (f.speedMph ?? 0) > 4 ? f.heading : null);
+
 // Position on the plan: leg index, planned clock minutes, miles done.
-// (projectOnChain — position → best segment of a chain — lives in tripEngine.)
-function planPosition(day, tl, pos) {
+// Projections go through a chainCursor: out-and-back days carry the same
+// corridor twice, and the cursor's heading + continuity preferences are what
+// keep the match on the copy the bike is actually riding (see tripEngine).
+function planPosition(day, tl, pos, cursor) {
   const wps = day.waypoints;
   if (wps.length < 2) return null;
-  const best = projectOnChain(wps, pos);
+  const best = cursor
+    ? cursor.project(wps, pos, { heading: fixHeading(pos) })
+    : projectOnChain(wps, pos);
   if (!best) return null;
   const seg = tl.stops[best.i + 1];
   const plannedMin = tl.stops[best.i].depart + best.f * (seg?.legMin ?? 0);
@@ -140,9 +153,11 @@ function planPosition(day, tl, pos) {
 // Position on the maneuver chain: next turn, miles to it, what's left of the
 // CURRENT LEG (up to the next arrive maneuver — the number a rider actually
 // wants at speed), and what's left of the whole day.
-function locateOnSteps(steps, pos) {
+function locateOnSteps(steps, pos, cursor) {
   if (!steps || steps.length < 2) return null;
-  const best = projectOnChain(steps, pos);
+  const best = cursor
+    ? cursor.project(steps, pos, { heading: fixHeading(pos) })
+    : projectOnChain(steps, pos);
   if (!best) return null;
   const cur = steps[best.i];
   const toNext = Math.max(0, (1 - best.f) * cur.dist);
@@ -171,6 +186,7 @@ function locateOnSteps(steps, pos) {
 // version resurrected departed stops and auto-skipped chosen destinations.
 
 const NAV_AHEAD = '#ffab5c';
+const NAV_BEYOND = '#9c6a38'; // muted amber — the day beyond the current leg
 const NAV_DONE = 'rgba(122, 122, 122, 0.65)';
 const SOLID_AHEAD = ['interpolate', ['linear'], ['line-progress'], 0, NAV_AHEAD, 1, NAV_AHEAD];
 const EMPTY_LINE = { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
@@ -332,6 +348,7 @@ export default function RideMode({ onClose }) {
   const failSince = useRef(null); // when the fix started failing, for the grace period
   const [clock, setClock] = useState(nowMin());
   const [steps, setSteps] = useState(null);
+  const [mapObj, setMapObj] = useState(null); // the loaded nav map, for marker children
   const [reroute, setReroute] = useState(null); // { geometry, steps } from live position
   const [rerouting, setRerouting] = useState(false);
   const [rerouteFailed, setRerouteFailed] = useState(false);
@@ -348,6 +365,11 @@ export default function RideMode({ onClose }) {
   // pinned. See src/engine/rideNav.js for the full contract.
   const [dest, setDest] = useState(() => createNav());
   const [undoSkip, setUndoSkip] = useState(null); // {id, name} — last auto-skip
+  // Gate margins are an alert, not furniture: once the rider has seen one
+  // ("Needles Hwy entry · 5h 09m LATE" pinned over Deadwood all afternoon,
+  // field feedback) it can be ✕'d away. Per gate, per ride session — a NEW
+  // next gate always announces itself.
+  const [gateHidden, setGateHidden] = useState(() => new Set());
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
   // add-a-stop search: gas, food, a place — inserted into the CURRENT leg
@@ -365,6 +387,7 @@ export default function RideMode({ onClose }) {
   const wakeRef = useRef(null);
   const mapDivRef = useRef(null);
   const mapRef = useRef(null);
+  const mapReadyRef = useRef(false); // the map's own `load` has fired — see whenMapReady
   const puckRef = useRef(null);
   const followRef = useRef(true);
   followRef.current = follow;
@@ -386,6 +409,8 @@ export default function RideMode({ onClose }) {
   const compassRef = useRef(null); // the rose needle — rotated straight on the DOM, no re-render per frame
   const destRef = useRef(null);
   destRef.current = dest;
+  const rerouteRef = useRef(null);
+  rerouteRef.current = reroute;
   const projRef = useRef(null);
   const limiterRef = useRef(null); // speed-limit tracker, one per ride
   const onPlanRef = useRef(0); // consecutive fixes back on the planned line
@@ -393,6 +418,12 @@ export default function RideMode({ onClose }) {
   const puckPosRef = useRef(null); // last PAINTED puck position — glide start point
   const puckAnimRef = useRef(0);
   const mountedRef = useRef(true);
+  // One direction-aware projection cursor per chain the bike is tracked on
+  // (routed geometry / maneuver steps / waypoint legs). Each remembers its
+  // own along-position; a chain identity change resets it naturally.
+  const geoCursorRef = useRef(null);
+  const stepsCursorRef = useRef(null);
+  const planCursorRef = useRef(null);
   // re-arm in the body: StrictMode's dev double-mount runs the cleanup once,
   // and a ref initializer alone would leave this false forever after it
   useEffect(() => {
@@ -502,7 +533,16 @@ export default function RideMode({ onClose }) {
       maxTileCacheSize: 1024, // keep ridden-past tiles around for overview jumps
     });
     mapRef.current = map;
-    if (import.meta.env.DEV) window.__rideMap = map; // console/sim debugging, dev only
+    // console/sim debugging — the GPS-sim SOP asserts on the nav map's paint
+    // properties, and the sims drive the BUILT app, so this isn't dev-gated
+    window.__rideMap = map;
+    mapReadyRef.current = false;
+    map.once('load', () => {
+      mapReadyRef.current = true;
+      // one set of shields on this screen, ours — see hideNativeRoadShields
+      hideNativeRoadShields(map);
+      setMapObj(map);
+    });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
     // Pinch-zoom does NOT break follow — the camera kept re-asserting its
     // computed zoom every fix, snapping back a rider who pinched out to peek
@@ -532,20 +572,32 @@ export default function RideMode({ onClose }) {
       .setLngLat(start ? [start.lng, start.lat] : [-108, 45])
       .addTo(map);
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { setMapObj(null); map.remove(); mapRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Run something that touches sources and layers as soon as the map can take
+  // it. The old test was isStyleLoaded(), which is false whenever ANY tile is
+  // in flight — on satellite at 74 mph that is nearly always — so every later
+  // call fell through to `once('load')`, a one-shot that had already fired at
+  // startup and would never fire again. A route drawn after Ride opened, a day
+  // switched mid-ride, a live reroute: all silently never reached the map.
+  // What actually gates addSource/addLayer is the map's own load (mapReadyRef).
+  const whenMapReady = (map, fn) => {
+    if (!mapReadyRef.current) { map.once('load', fn); return; }
+    // the one moment layers can be missing afterwards is a basemap swap, where
+    // setStyle has dropped them and the new style is still parsing
+    try { fn(); } catch { map.once('styledata', fn); }
+  };
 
   // draw / update the day's planned route line on the nav map
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
-    const apply = () => {
+    whenMapReady(map, () => {
       ensureNavLayers(map);
       map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once('load', apply);
+    });
   }, [day.id, routes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // reroute line: draw it bright, drop the planned line to a ghost underneath
@@ -566,9 +618,8 @@ export default function RideMode({ onClose }) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (map.isStyleLoaded()) applyLiveRef.current();
-    else map.once('load', () => applyLiveRef.current());
-  }, [reroute]);
+    whenMapReady(map, () => applyLiveRef.current());
+  }, [reroute]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Changing the basemap calls setStyle, which drops every source and layer we
   // added — so the route has to be laid back down once the new style settles.
@@ -577,6 +628,8 @@ export default function RideMode({ onClose }) {
     const map = mapRef.current;
     if (!map) return;
     ensureNavLayers(map);
+    hideNativeRoadShields(map); // the new style arrived with its own set
+
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
     applyLiveRef.current();
@@ -593,24 +646,45 @@ export default function RideMode({ onClose }) {
     return () => map.off('styledata', redraw);
   }, [navStyle]);
 
-  // turn-by-turn maneuvers for the selected day
+  // a new day is a fresh slate — routes, facts, voice, the lot
   useEffect(() => {
-    let dead = false;
-    setSteps(null);
     setReroute(null);
     setRerouteFailed(false);
     offCountRef.current = 0;
     liveRouteAtRef.current = 0;
     spokenRef.current = '';
-    // a new day is a fresh slate for the destination machine
     setDest(createNav());
     setUndoSkip(null);
+    setGateHidden(new Set());
     setLiveEta(null);
     onPlanRef.current = 0;
     initLatchRef.current = false;
-    routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
-    return () => { dead = true; };
   }, [day.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Turn-by-turn maneuvers for the selected day — keyed on the WAYPOINTS,
+  // not just the day id: a stop added under a live ride (DayPanel, Copilot,
+  // a sync landing) must reach the guidance chain, or nav keeps riding the
+  // old route while the map wears the new marker (field-caught adding
+  // Deadwood to a cabin loop day). Same signature the steps cache uses.
+  const wpSig = day.waypoints
+    .filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng))
+    .map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
+  const stepsSigRef = useRef('');
+  useEffect(() => {
+    let dead = false;
+    setSteps(null);
+    const prev = stepsSigRef.current;
+    const sig = `${day.id}|${wpSig}`;
+    stepsSigRef.current = sig;
+    routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
+    // A plan edit while a live reroute is up: the live route was built for
+    // the OLD stop list — re-target it from the machine's remaining stops
+    // (same-day signature change only; a day switch resets the reroute).
+    if (prev && prev !== sig && prev.startsWith(`${day.id}|`) && rerouteRef.current) {
+      goRouteRef.current(navRemaining(syncNav(destRef.current, day.waypoints), day.waypoints));
+    }
+    return () => { dead = true; };
+  }, [day.id, wpSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Plan edits under a live ride (added stop, a sync landing, Copilot):
   // facts are keyed by waypoint id — prune the ones that left the plan.
@@ -685,10 +759,13 @@ export default function RideMode({ onClose }) {
 
   // ---- derived readouts ----
   const activeSteps = reroute?.steps ?? steps;
-  const proj = fix ? planPosition(day, tl, fix) : null;
+  const proj = fix ? planPosition(day, tl, fix, (planCursorRef.current ??= chainCursor())) : null;
   projRef.current = proj;
-  const nav = fix && activeSteps?.length ? locateOnSteps(activeSteps, fix) : null;
   const delta = proj ? clock - proj.plannedMin : null; // + = behind plan
+  // `nav` — the turn, and every mileage a rider reads — is built further down,
+  // once the routed geometry has been measured: the maneuver chain can say
+  // WHICH turn is next but it cannot say how far, and that was the field bug
+  // (see engine/rideDistance.js).
 
   // What navigation actually aims for — read straight off the fact machine.
   // The projection above is DISPLAY (plan delta, mileage); it never targets.
@@ -699,7 +776,7 @@ export default function RideMode({ onClose }) {
   // heading assumed from the road snap is what buys a turn-around tour.
   const navOrigin = () => ({
     lat: fix.lat, lng: fix.lng,
-    ...(fix.heading != null && (fix.speedMph ?? 0) > 4 ? { heading: fix.heading } : {}),
+    ...(fixHeading(fix) != null ? { heading: fix.heading } : {}),
   });
 
   // One reroute path for every deliberate retarget (skip, restore, go-next).
@@ -736,17 +813,23 @@ export default function RideMode({ onClose }) {
     const chain = coords.map(([lng, lat]) => ({ lat, lng }));
     const cum = [0];
     for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-    const at = (p) => cum[p.i] + p.f * (cum[p.i + 1] - cum[p.i]);
-    const bike = projectOnChain(chain, fix);
+    // At a point the chain visits twice the projection is ambiguous — and a
+    // loop can ride the same stretch the same DIRECTION twice, so heading
+    // alone can't always break the tie. Take the EARLIEST heading-compatible
+    // copy: under-latching is recoverable (Go next), while a late-copy read
+    // here marks the whole day visited and eats every stop.
+    const bike = projectOnChainDirected(chain, fix, { heading: fixHeading(fix), cum, afterMi: 0 });
     initLatchRef.current = true;
     if (!bike || bike.off > 2) return; // far off the plan — off-route handles it
-    const bikeAt = at(bike);
+    const bikeAt = bike.along;
     // contiguous prefix only: the first stop that reads "ahead" ends the walk,
-    // which also keeps out-and-back double-passage geometry from over-latching
+    // which also keeps out-and-back double-passage geometry from over-latching.
+    // Each stop reads at its FIRST drive-by (afterMi: 0) — a stop is behind
+    // only when the bike is past even its earliest approach.
     let latch = 0;
     for (let i = 1; i < day.waypoints.length - 1; i++) {
-      const p = projectOnChain(chain, day.waypoints[i]);
-      if (p && at(p) < bikeAt - 0.3) latch = i;
+      const p = projectOnChainDirected(chain, day.waypoints[i], { cum, afterMi: 0 });
+      if (p && p.along < bikeAt - 0.3) latch = i;
       else break;
     }
     if (latch > 0) {
@@ -783,12 +866,67 @@ export default function RideMode({ onClose }) {
     const chain = coords.map(([lng, lat]) => ({ lat, lng }));
     const cum = [0];
     for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-    return { chain, cum, total: cum[cum.length - 1] || 1 };
+    // ...and the same chain measured in the metric the map paints gradients
+    // in (mercatorCum) — ground miles for every reading a rider sees, the
+    // projected length for anything handed to line-progress.
+    return { chain, cum, total: cum[cum.length - 1] || 1, ...mercatorCum(chain) };
   }, [reroute, routes, day]);
   const geoProj = useMemo(
-    () => (fix && geomInfo.chain.length > 1 ? projectOnChain(geomInfo.chain, fix) : null),
-    [fix, geomInfo]
+    () => (fix && geomInfo.chain.length > 1
+      ? (geoCursorRef.current ??= chainCursor())
+        .project(geomInfo.chain, fix, { heading: fixHeading(fix), cum: geomInfo.cum })
+      : null),
+    [fix, geomInfo] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // ---- how far, measured on the road ----
+  // Every mileage on this screen used to come from projecting the bike onto
+  // the MANEUVER chain — turn points with a straight chord between them. On an
+  // interstate that is one chord a hundred miles long standing for a road that
+  // bends fifteen miles off it, and the readout inherits the error directly:
+  // it runs fast where the road agrees with the chord and STOPS where the road
+  // crosses it. Field report, Aug 16 2026, I-90 out of Bozeman: "it shows me
+  // it's ninety three miles away, but as I'm watching the mile markers, I've
+  // been stuck on ninety three miles for about two to three miles" — and the
+  // same ride's screenshots show the fast half, 33 miles of readout in 22
+  // minutes at an indicated 90 mph.
+  //
+  // So the maneuvers are pinned to the routed geometry once, and after that a
+  // distance is a subtraction along the line the bike is actually riding. The
+  // maneuver chain keeps what it is good at: which turn is next and what it
+  // says. `locateOnSteps` stays as the fallback for a day with no real routed
+  // geometry (an OSRM failure draws straight lines between stops), where there
+  // is nothing better to measure against.
+  const stepAlong = useMemo(
+    () => (hasRealRoute ? stepAlongs(activeSteps, geomInfo) : null),
+    [activeSteps, geomInfo, hasRealRoute]
+  );
+  const nav = !fix || !activeSteps?.length ? null
+    : (stepAlong && geoProj
+      ? navAlongRoute(activeSteps, stepAlong, geoProj.along, geomInfo.total, geoProj.off)
+      : locateOnSteps(activeSteps, fix, (stepsCursorRef.current ??= chainCursor())));
+
+  // ---- ONE highway shield on the road ahead ----
+  // The route line's glow, casing and core paint over the shields the
+  // satellite tiles carry, so the nav map showed where you were going while
+  // hiding what road you were on. This puts the number back — and puts back
+  // exactly one of it. Shields went into Ride unbounded first and came
+  // straight out again ("take road markers off ride mode"); the ask on the
+  // way back in was that they not be overbearing, so RouteShields draws a
+  // single sign (max 1) carrying a single number (perSign 1), standing on the
+  // road a few hundred yards ahead and sliding past as it is ridden. The turn
+  // card still names the road you are turning ONTO; this names the one you
+  // are on.
+  //
+  // Quantized to the quarter mile: without it the ladder is a new array every
+  // GPS fix and the marker churns once a second.
+  const aheadMi = geoProj ? Math.round(geoProj.along * 4) / 4 : null;
+  const shieldMarks = useMemo(() => {
+    const src = reroute?.steps ?? steps;
+    if (!src?.length || !hasRealRoute || geomInfo.chain.length < 2) return [];
+    return shieldPlacements(src, geomInfo.chain, { cum: geomInfo.cum, aheadMi });
+  }, [steps, reroute, geomInfo, hasRealRoute, aheadMi]);
+
   const goodFix = fix && (fix.accuracy == null || fix.accuracy < 200);
   const offRoute = !!(geoProj && goodFix && geoProj.off > (hasRealRoute ? 0.12 : 2.5));
 
@@ -806,12 +944,20 @@ export default function RideMode({ onClose }) {
     // arrival ring). 0.3 mi of buffer absorbs snap noise.
     let passedTargetId = null;
     const tgt = navTarget(destRef.current, day.waypoints);
-    if (onRoute && tgt && geoProj && geomInfo.chain.length > 1) {
-      const tp = projectOnChain(geomInfo.chain, tgt);
-      if (tp && tp.off < 0.5) {
-        const along = (p) => geomInfo.cum[p.i] + p.f * (geomInfo.cum[p.i + 1] - geomInfo.cum[p.i]);
-        if (along(geoProj) > along(tp) + 0.3) passedTargetId = tgt.id;
-      }
+    // Passage is a RIDING phenomenon: it needs a moving fix whose projection
+    // agrees with the bike's heading. A parked bike can't pass anything, and
+    // a heading-opposed match means the projection is on the wrong copy of
+    // an out-and-back road — neither may resolve a stop.
+    if (onRoute && tgt && geoProj && geomInfo.chain.length > 1
+      && fixHeading(fix) != null && geoProj.aligned !== false) {
+      // The route may approach this stop more than once (out-and-back).
+      // Measure passage against its NEXT approach at-or-past the bike —
+      // projecting onto an earlier drive-by would read "passed" the moment
+      // the stop became the target.
+      const tp = projectOnChainDirected(geomInfo.chain, tgt, {
+        cum: geomInfo.cum, afterMi: geoProj.along - 0.3,
+      });
+      if (tp && tp.off < 0.5 && geoProj.along > tp.along + 0.3) passedTargetId = tgt.id;
     }
     const { nav: next, events } = navFix(destRef.current, day.waypoints, fix, { onRoute, passedTargetId });
     if (next !== destRef.current) {
@@ -854,20 +1000,46 @@ export default function RideMode({ onClose }) {
     return () => { dead = true; };
   }, [aheadPt?.lat?.toFixed?.(1), aheadPt?.lng?.toFixed?.(1)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // dim the part of the route already ridden (Google-style traveled line)
+  // Three-zone route line: dim gray BEHIND the bike (traveled), full-bright
+  // to the NEXT STOP, muted amber for the rest of the day. On a loop-heavy
+  // day the whole remaining route in full orange reads as spaghetti — the
+  // leg being ridden should be the one bright thing (field screenshot,
+  // Deadwood → Needles with the day's web all highlighted).
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !map.getLayer('ride-route-line')) return;
     const layer = reroute ? 'ride-live-line' : 'ride-route-line';
+    // Gate on the LAYER, never on isStyleLoaded(): the style reads "not
+    // loaded" while tiles stream, so a moving bike almost never satisfied it
+    // and the split FROZE where it was first painted while the rider kept
+    // going — the field report's "keeps getting further from my marker".
+    // Repainting one layer's gradient needs that layer and nothing else.
+    if (!map || !map.getLayer(layer)) return;
     let frac = 0;
+    let legFrac = null;
     if (geoProj && !offRoute) {
-      const { cum, total } = geomInfo;
-      frac = (cum[geoProj.i] + geoProj.f * (cum[geoProj.i + 1] - cum[geoProj.i])) / total;
+      // Gradient stops are line-progress, which is a MERCATOR fraction of the
+      // line — a ground-mile fraction lands further and further from the bike
+      // the deeper into a north–south day it is measured (see lineProgressAt).
+      frac = lineProgressAt(geomInfo, geoProj.i, geoProj.f) ?? 0;
+      // the next stop's position along the route — its NEXT approach at-or-
+      // past the bike, same measure passedTargetId trusts
+      const tgt = navRemaining(destRef.current, day.waypoints)[0];
+      if (tgt) {
+        const tp = projectOnChainDirected(geomInfo.chain, tgt, {
+          cum: geomInfo.cum, afterMi: geoProj.along - 0.3,
+        });
+        const lp = tp && tp.off < 2 ? lineProgressAt(geomInfo, tp.i, tp.f) : null;
+        if (lp != null) legFrac = Math.min(0.999, lp);
+      }
     }
     frac = Math.max(0, Math.min(0.999, frac));
+    const stops = [];
+    if (frac > 0.001) stops.push(frac, NAV_AHEAD);
+    if (legFrac != null && legFrac > frac + 0.003) stops.push(legFrac, NAV_BEYOND);
     map.setPaintProperty(layer, 'line-gradient',
-      frac <= 0.001 ? SOLID_AHEAD : ['step', ['line-progress'], NAV_DONE, frac, NAV_AHEAD]);
-  }, [geoProj, reroute, offRoute]); // eslint-disable-line react-hooks/exhaustive-deps
+      stops.length === 0 ? SOLID_AHEAD
+        : ['step', ['line-progress'], frac > 0.001 ? NAV_DONE : NAV_AHEAD, ...stops]);
+  }, [geoProj, reroute, offRoute, dest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- puck + chase camera, map-matched ----
   // Within ~30 m of the line the puck snaps onto it and takes the road's
@@ -1152,17 +1324,18 @@ export default function RideMode({ onClose }) {
       if (!s) continue;
       const projected = delta != null ? s.arrive + delta : s.arrive;
       const margin = parseTime(g.by) - projected;
-      return { label: g.label, by: g.by, margin, ok: margin >= 0 };
+      return { id: g.waypointId, label: g.label, by: g.by, margin, ok: margin >= 0 };
     }
     return null;
   }, [fix, day, tl, delta, proj?.i, dest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Day's end: the machine says the final stop is what's left, and the bike
-  // is within a couple hundred yards of it.
+  // is within a couple hundred yards of it — a tighter couple at riding
+  // speed, so the arrival card can't swap in while still genuinely riding.
   const lastWp = day.waypoints[day.waypoints.length - 1];
   const arrived = !!(fix && lastWp
     && navTarget(dest, day.waypoints)?.id === lastWp.id
-    && haversineMiles(fix, lastWp) < 0.15);
+    && haversineMiles(fix, lastWp) < ((fix.speedMph ?? 0) > PARK_MPH ? 0.08 : 0.15));
 
   // The remaining stops as swipeable cards — the roadbook strip. Google gives
   // you turns; a roadbook gives you the day. Skipped stops stay visible
@@ -1262,7 +1435,8 @@ export default function RideMode({ onClose }) {
       name: r.name, lat: r.lat, lng: r.lng,
       kind: fuel ? 'fuel' : 'via',
       ...(fuel ? { fuel: true } : {}),
-      ...(r.source === 'google' && r.id ? { placeId: r.id } : {}),
+      // straight out of the live places database — proved on arrival
+      ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
     };
     dispatch({ type: 'apply_ops', ops: [{ op: 'add_waypoint', dayId: day.id, index: at, waypoint: wp }] });
     setQ('');
@@ -1338,7 +1512,7 @@ export default function RideMode({ onClose }) {
     wpMarkersRef.current.forEach((m) => m.remove());
     wpMarkersRef.current = [];
 
-    const labels = [];
+    const marks = [];
     day.waypoints.forEach((w, i) => {
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) return;
       const mark = stopMarks.find((m) => m.name === w.name);
@@ -1352,44 +1526,78 @@ export default function RideMode({ onClose }) {
       // alternate sides so consecutive labels along a line do not stack
       el.classList.add(i % 2 ? 'below' : 'above');
       el.append(dot, label);
-      labels.push(label);
+      marks.push({ el, label, ll: [w.lng, w.lat] });
       wpMarkersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([w.lng, w.lat]).addTo(map));
     });
+
+    // A stop that is not on screen has no business being drawn. MapLibre parks
+    // its marker off in the margins rather than removing it, and a pitched nav
+    // camera folds ground beyond the horizon back into the top of the frame —
+    // so "off screen" is a question only viewGate can answer. Everything below
+    // (the clamp especially) applies to on-screen stops ONLY.
+    const cull = () => {
+      const on = viewGate(map, { pad: 4 });
+      let any = false;
+      marks.forEach((m) => {
+        m.on = !!on(m.ll);
+        m.el.classList.toggle('off', !m.on);
+        any = any || m.on;
+      });
+      return any;
+    };
 
     // A label is centred on its stop, so a stop near the edge of the screen
     // hangs half its name off it — the first and last stop of a day, every
     // time. Slide those back inside instead of letting them get cut.
+    //
+    // Only the ON-SCREEN ones. Clamping by measured rectangle alone is what
+    // fired stop names across the screen every second of a ride (field report,
+    // Aug 15 2026): a stop 200 miles up the trip measures at x = -700000px, so
+    // the "slide it back inside" nudge is +700006px, and the whole rest of the
+    // day piled onto the left edge — re-thrown on every camera settle, which
+    // under a chase camera is once a second, forever.
     const clamp = () => {
       const box = map.getContainer().getBoundingClientRect();
-      labels.forEach((el) => {
-        const prev = Number(el.dataset.dx || 0);
-        const r = el.getBoundingClientRect();
+      marks.forEach(({ label, on }) => {
+        const prev = Number(label.dataset.dx || 0);
+        if (!on) {
+          if (prev) { label.dataset.dx = '0'; label.style.transform = ''; }
+          return;
+        }
+        const r = label.getBoundingClientRect();
         const left = r.left - box.left - prev; // where it would sit untranslated
         const dx = left < 6 ? 6 - left
           : left + r.width > box.width - 6 ? box.width - 6 - (left + r.width)
             : 0;
         if (dx !== prev) {
-          el.dataset.dx = String(dx);
-          el.style.transform = dx ? `translateX(${dx}px)` : '';
+          label.dataset.dx = String(dx);
+          label.style.transform = dx ? `translateX(${dx}px)` : '';
         }
       });
     };
     // Clamp only when the map SETTLES. Re-translating labels on every move
     // frame made them drift away from their dots mid-zoom; during a gesture
     // the label stays anchored, and slides inside the viewport when it lands.
+    // Culling is cheap arithmetic and carries no such hazard, so it rides
+    // every frame — a stop must appear the moment it enters the frame, not a
+    // second later when the camera stops.
     const unclamp = () => {
-      labels.forEach((el) => {
-        if (el.dataset.dx) { el.dataset.dx = '0'; el.style.transform = ''; }
+      marks.forEach(({ label }) => {
+        if (label.dataset.dx) { label.dataset.dx = '0'; label.style.transform = ''; }
       });
     };
-    clamp();
-    map.on('movestart', unclamp);
-    map.on('moveend', clamp);
-    map.on('zoomend', clamp);
+    const settle = () => { cull(); clamp(); };
+    const moving = () => { cull(); unclamp(); };
+    settle();
+    map.on('movestart', moving);
+    map.on('move', cull);
+    map.on('moveend', settle);
+    map.on('zoomend', settle);
     return () => {
-      map.off('movestart', unclamp);
-      map.off('moveend', clamp);
-      map.off('zoomend', clamp);
+      map.off('movestart', moving);
+      map.off('move', cull);
+      map.off('moveend', settle);
+      map.off('zoomend', settle);
       wpMarkersRef.current.forEach((m) => m.remove());
       wpMarkersRef.current = [];
     };
@@ -1399,6 +1607,8 @@ export default function RideMode({ onClose }) {
     // any first tap unlocks the speech engine (ref-guarded to run once)
     <div className="ride-mode nav" onPointerDown={unlockVoice}>
       <div ref={mapDivRef} className="ride-map" />
+      {/* one sign, one number, on the road ahead */}
+      <RouteShields map={mapObj} placements={shieldMarks} avoid={day.waypoints} max={1} perSign={1} mode="ride" />
 
       {/* ---- top: the turn OWNS the top edge; weather + close ride beneath
               it on the right ---- */}
@@ -1547,10 +1757,15 @@ export default function RideMode({ onClose }) {
                 {u.miNum(nextFuel.miles)} {u.miUnit}
               </span>
             )}
-            {nextGate && (
+            {nextGate && !gateHidden.has(nextGate.id) && (
               <span className={`m-chip gate${nextGate.ok ? '' : ' danger'}`}>
                 <ClockIcon />
                 {tt(nextGate.label)} · {nextGate.ok ? `${fmtDur(nextGate.margin)} ${t('margin')}` : `${fmtDur(-nextGate.margin)} ${t('LATE')}`}
+                <button
+                  className="mc-x"
+                  aria-label={t('Dismiss')}
+                  onClick={() => setGateHidden((s) => new Set(s).add(nextGate.id))}
+                >✕</button>
               </span>
             )}
           </div>

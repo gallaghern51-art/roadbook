@@ -2,6 +2,7 @@
 // Every change to the trip is an op; applyOps is pure (returns a new trip).
 
 import { cascadeDates } from './dates.js';
+import { routeFingerprint } from './tripEngine.js';
 
 let counter = 0;
 export const uid = (p) => `${p}${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -52,11 +53,25 @@ const moduleWpIds = (m) => (m.waypoints ?? []).map((_, i) => `${m.id}-wp${i}`);
 
 function stripModuleWaypoints(day, m) {
   const ids = moduleWpIds(m);
-  if (ids.length) day.waypoints = day.waypoints.filter((w) => !ids.includes(w.id));
+  if (!ids.length) return;
+  markRouteText(day);
+  day.waypoints = day.waypoints.filter((w) => !ids.includes(w.id));
+}
+
+// Called by every op that changes a day's ROUTE, before it changes it. The
+// day's summary is prose about a specific set of stops; if it has never been
+// stamped (seed data, a generated trip, anything predating this), stamp the
+// route it was written against NOW — the pre-edit shape — so the very first
+// edit is the one that flags it, instead of the drift going unnoticed until
+// the day is rewritten. Days already stamped keep their stamp: the question
+// is always "does this text still match?", never "has it changed twice?".
+function markRouteText(day) {
+  if (day && day.summaryFor == null) day.summaryFor = routeFingerprint(day);
 }
 
 function insertModuleWaypoints(day, m) {
   if (!m.waypoints?.length) return;
+  markRouteText(day);
   const ids = moduleWpIds(m);
   // splice before the day's final waypoint so the route runs out and back
   const at = Math.max(1, day.waypoints.length - 1);
@@ -112,6 +127,7 @@ function applyOp(t, op) {
     }
     case 'reorder_waypoints': {
       const d = findDay(t, op.dayId);
+      markRouteText(d);
       const map = new Map(d.waypoints.map((w) => [w.id, w]));
       if (op.waypointIds.length !== d.waypoints.length) throw new Error('waypointIds must include every waypoint');
       d.waypoints = op.waypointIds.map((id) => {
@@ -124,17 +140,27 @@ function applyOp(t, op) {
     case 'move_waypoint': {
       const from = findDay(t, op.fromDayId);
       const to = findDay(t, op.toDayId);
+      markRouteText(from);
+      markRouteText(to);
       const idx = from.waypoints.findIndex((w) => w.id === op.waypointId);
       if (idx < 0) throw new Error(`unknown waypoint ${op.waypointId}`);
       const [w] = from.waypoints.splice(idx, 1);
       const at = Math.min(Math.max(op.index ?? to.waypoints.length, 0), to.waypoints.length);
       to.waypoints.splice(at, 0, w);
+      // a gate is a promise about arriving at its stop — it travels with it
+      // (left behind it would orphan: silently absent from grading and Ride)
+      const carried = (from.gates ?? []).filter((g) => g.waypointId === op.waypointId);
+      if (carried.length) {
+        from.gates = from.gates.filter((g) => g.waypointId !== op.waypointId);
+        to.gates = [...(to.gates ?? []), ...carried];
+      }
       return t;
     }
     case 'add_waypoint': {
       const d = findDay(t, op.dayId);
       const w = { id: uid('w'), kind: 'via', mile: null, note: '', ...op.waypoint };
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) throw new Error('waypoint needs lat/lng');
+      markRouteText(d);
       const at = Math.min(Math.max(op.index ?? d.waypoints.length, 0), d.waypoints.length);
       d.waypoints.splice(at, 0, w);
       return t;
@@ -143,14 +169,32 @@ function applyOp(t, op) {
       const d = findDay(t, op.dayId);
       const idx = d.waypoints.findIndex((w) => w.id === op.waypointId);
       if (idx < 0) throw new Error(`unknown waypoint ${op.waypointId}`);
+      markRouteText(d);
       d.waypoints.splice(idx, 1);
+      // its gates go explicitly with it — an orphaned gate half-renders in
+      // the editor while silently absent from grading and the Ride chip,
+      // which is the worst of both (field-audited Aug 12, 2026)
+      if (d.gates?.some((g) => g.waypointId === op.waypointId)) {
+        d.gates = d.gates.filter((g) => g.waypointId !== op.waypointId);
+      }
       return t;
     }
     case 'update_waypoint': {
       const d = findDay(t, op.dayId);
       const w = d.waypoints.find((x) => x.id === op.waypointId);
       if (!w) throw new Error(`unknown waypoint ${op.waypointId}`);
+      // relocating or renaming a stop rewrites the route the prose describes;
+      // a dwell or fuel-flag edit does not. Compared by VALUE, not by key
+      // presence: editors send the whole form back, so a dwell-only edit
+      // arrives carrying an unchanged name.
+      const moved = ['lat', 'lng', 'name'].some((k) => k in (op.patch ?? {}) && op.patch[k] !== w[k]);
+      if (moved) markRouteText(d);
       Object.assign(w, op.patch);
+      // A place-verification stamp belongs to the coordinate it was proved at
+      // (see netlify/lib/verify-places.mjs). Move or rename the stop and the
+      // stamp is no longer evidence of anything — clear it unless the edit
+      // carries its own verdict, which is how a verified re-pick keeps its ✓.
+      if (moved && !('verified' in (op.patch ?? {}))) delete w.verified;
       return t;
     }
     case 'set_day_field': {
@@ -158,6 +202,9 @@ function applyOp(t, op) {
       const allowed = ['title', 'summary', 'depart', 'arrive', 'phase', 'anchor', 'miles', 'hours'];
       if (!allowed.includes(op.field)) throw new Error(`field ${op.field} not editable`);
       d[op.field] = op.value;
+      // Writing the summary re-stamps it against the route it now describes —
+      // this is also how "still accurate" clears the flag: same text, new stamp.
+      if (op.field === 'summary') d.summaryFor = routeFingerprint(d);
       return t;
     }
     case 'toggle_module': {
@@ -313,7 +360,7 @@ export function describeOps(trip, ops) {
       case 'reorder_waypoints': return `Reorder stops on ${dayName(op.dayId)}`;
       case 'move_waypoint': return `Move a stop from ${dayName(op.fromDayId)} to ${dayName(op.toDayId)}`;
       case 'add_waypoint': return `Add “${op.waypoint?.name}” to ${dayName(op.dayId)}`;
-      case 'remove_waypoint': return `Remove a stop from ${dayName(op.dayId)}`;
+      case 'remove_waypoint': return `Remove a stop from ${dayName(op.dayId)} (any gate on it goes too)`;
       case 'update_waypoint': return `Edit a stop on ${dayName(op.dayId)}`;
       case 'set_day_field': return `Set ${op.field} on ${dayName(op.dayId)}`;
       case 'toggle_module': return `Turn ${op.enabled ? 'ON' : 'OFF'} ${modName(op.dayId, op.moduleId)} on ${dayName(op.dayId)}`;

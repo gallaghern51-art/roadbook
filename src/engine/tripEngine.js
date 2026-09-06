@@ -65,6 +65,31 @@ export function legKey(a, b) {
   return `${a.lat.toFixed(4)},${a.lng.toFixed(4)}|${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
 }
 
+// A day's prose is written ABOUT a route: "US-212 to the WY-296 junction,
+// Chief Joseph down to WY-120". Change the stops and the words keep their
+// old confidence while describing a ride nobody is taking. This fingerprint
+// is what a summary is stamped against (day.summaryFor) so the panel can say
+// so. Stops in order, id + name + position at 3 decimals (~110 m) — a marker
+// nudged inside a parking lot is not a new route; a stop added, removed,
+// reordered, renamed, or moved down the road is.
+export function routeFingerprint(day) {
+  return (day?.waypoints ?? [])
+    .map((w) => {
+      const at = Number.isFinite(w.lat) && Number.isFinite(w.lng)
+        ? `${w.lat.toFixed(3)},${w.lng.toFixed(3)}` : '—';
+      return `${w.id}@${at}#${(w.name ?? '').trim().toLowerCase()}`;
+    })
+    .join('|');
+}
+
+// True when the day carries prose that was stamped against a DIFFERENT route.
+// Unstamped days (seed data, freshly generated trips, anything never edited)
+// read as fine: the flag is for drift we can prove, not for suspicion.
+export function summaryIsStale(day) {
+  if (!day?.summary?.trim() || !day.summaryFor) return false;
+  return day.summaryFor !== routeFingerprint(day);
+}
+
 // Project a position onto a coordinate chain: the nearest segment, the
 // fraction along it, and the offset in miles. Shared by Ride Mode (plan
 // position, off-route checks) and the speed-limit road matcher.
@@ -85,6 +110,215 @@ export function projectOnChain(chain, pos) {
     if (!best || d < best.off) best = { i, f: t, off: d };
   }
   return best;
+}
+
+// ---- direction-aware projection ----
+// On an out-and-back day the routed chain carries the same road TWICE, the
+// two copies within GPS noise of each other — a plain nearest-segment search
+// picks between them arbitrarily, and every consumer downstream inherits the
+// flip: the traveled-line split detaches from the puck, the snapped heading
+// reverses (the camera spins), and the along-route position leaps onto the
+// return leg, resolving stops the bike never reached (field-caught riding
+// into Crazy Horse, Aug 12 2026). This variant keeps the same scan but,
+// among segments in distance CONTENTION with the nearest, prefers the one
+// that agrees with the bike's heading and with where the bike just was.
+// The penalties only ever reorder contenders — the returned `off` is always
+// the raw distance to the chosen segment, so off-route thresholds and snap
+// gates read exactly as before.
+const CONTEND_MI = 0.03;      // contention band above the nearest hit (~50 m)
+const HEADING_TOL_DEG = 100;  // beyond this the segment points the wrong way
+const HEADING_PENALTY_MI = 0.06;
+const CONTINUITY_WINDOW_MI = 0.4; // plausible along-travel between usable fixes
+const CONTINUITY_PENALTY_MI = 0.12; // outranks heading: hairpins briefly align with the other copy
+export function projectOnChainDirected(chain, pos, { heading = null, nearMi = null, cum = null, afterMi = null } = {}) {
+  if (!chain || chain.length < 2 || !pos) return null;
+  const kx = Math.cos((pos.lat * Math.PI) / 180) * 69.17;
+  const ky = 69.17;
+  // pass 1: every segment's distance + along-position; remember the nearest
+  const segs = new Array(chain.length - 1);
+  let minOff = Infinity;
+  let cumd = 0;
+  for (let i = 0; i < chain.length - 1; i++) {
+    const a = chain[i];
+    const b = chain[i + 1];
+    const ax = (a.lng - pos.lng) * kx; const ay = (a.lat - pos.lat) * ky;
+    const bx = (b.lng - pos.lng) * kx; const by = (b.lat - pos.lat) * ky;
+    const dx = bx - ax; const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const px = ax + t * dx; const py = ay + t * dy;
+    const d = Math.sqrt(px * px + py * py);
+    const segLen = cum ? cum[i + 1] - cum[i] : Math.sqrt(len2);
+    const along = (cum ? cum[i] : cumd) + t * segLen;
+    segs[i] = { d, t, along };
+    cumd += segLen;
+    if (d < minOff) minOff = d;
+  }
+  // pass 2: score the contenders
+  let best = null;
+  let bestScore = Infinity;
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    if (s.d > minOff + CONTEND_MI) continue;
+    let aligned = true;
+    if (heading != null) {
+      const a = chain[i];
+      const b = chain[i + 1];
+      const brg = (Math.atan2((b.lng - a.lng) * Math.cos((pos.lat * Math.PI) / 180), b.lat - a.lat) * 180) / Math.PI;
+      const diff = Math.abs((((brg - heading) % 360) + 540) % 360 - 180);
+      aligned = diff <= HEADING_TOL_DEG;
+    }
+    let score;
+    if (afterMi != null) {
+      // afterMi selects by ROUTE ORDER instead of distance: the first
+      // contender at-or-past this along-position — or, when every one is
+      // behind, the LAST, so "passed the stop" only reads true once the
+      // bike is past even the final drive-by. Heading still gates it: a
+      // loop can ride the same stretch the same DIRECTION twice (morning
+      // out and the midnight return both southbound on US-385 — field bug,
+      // where distance+heading alone locked the return copy and the day
+      // read "7 mi left" at 11 AM), and there earliest-aligned is the only
+      // safe cold answer.
+      score = s.along >= afterMi ? s.along : 1e6 - s.along;
+      if (!aligned) score += 1e7;
+    } else {
+      score = s.d;
+      if (!aligned) score += HEADING_PENALTY_MI;
+      if (nearMi != null && Math.abs(s.along - nearMi) > CONTINUITY_WINDOW_MI) score += CONTINUITY_PENALTY_MI;
+    }
+    if (score < bestScore - 1e-9 || (Math.abs(score - bestScore) <= 1e-9 && best && s.along < best.along)) {
+      bestScore = score;
+      best = { i, f: s.t, off: s.d, along: s.along, aligned };
+    }
+  }
+  return best;
+}
+
+// A stateful wrapper for tracking one moving position along one chain across
+// GPS fixes: remembers the last along-position for the continuity preference,
+// forgets it when the chain changes / the memory goes stale / the bike
+// teleports, and self-heals a wrong-copy lock — three consecutive fixes
+// tracking a segment that opposes the bike's actual heading mean the initial
+// (headingless) acquisition latched the wrong copy of an overlapping road,
+// so the memory drops and heading re-acquires the right one immediately.
+// Results are memoized on (chain, pos) identity: re-renders re-read for free,
+// and a repeat call can never advance the wrong-way counter twice.
+const CURSOR_STALE_MS = 15000;
+const CURSOR_JUMP_MI = 1.5;
+const WRONG_WAY_FIXES = 3;
+export function chainCursor() {
+  let lastChain = null;
+  let lastPos = null;
+  let lastOut = null;
+  let alongMi = null;
+  let atMs = 0;
+  let wrongWay = 0;
+  return {
+    project(chain, pos, { heading = null, cum = null } = {}) {
+      if (!chain || chain.length < 2 || !pos) return null;
+      if (chain === lastChain && pos === lastPos) return lastOut;
+      const now = pos.at ?? Date.now();
+      if (chain !== lastChain) { alongMi = null; wrongWay = 0; }
+      else if (alongMi != null
+        && ((atMs && now - atMs > CURSOR_STALE_MS)
+          || (lastPos && haversineMiles(lastPos, pos) > CURSOR_JUMP_MI))) {
+        alongMi = null;
+        wrongWay = 0;
+      }
+      // Cold acquisition is the unguarded moment: at a point the chain
+      // visits twice, distance can't separate the copies — and heading
+      // can't either when a loop rides the same stretch the same direction
+      // twice (parked at the shared lodging, or southbound on the road the
+      // return also takes southbound). Take the EARLIEST heading-compatible
+      // copy: reading "less ridden" at worst under-reports progress, which
+      // self-heals where the copies diverge; locking a late copy eats the
+      // day (visited stops, "7 mi left" at 11 AM — both field-caught).
+      const cold = alongMi == null ? { afterMi: 0 } : {};
+      let r = projectOnChainDirected(chain, pos, { heading, nearMi: alongMi, cum, ...cold });
+      if (r && heading != null && !r.aligned) {
+        wrongWay += 1;
+        if (wrongWay >= WRONG_WAY_FIXES) {
+          wrongWay = 0;
+          alongMi = null;
+          r = projectOnChainDirected(chain, pos, { heading, nearMi: null, cum, afterMi: 0 });
+        }
+      } else if (r) {
+        wrongWay = 0;
+      }
+      lastChain = chain;
+      lastPos = pos;
+      lastOut = r;
+      if (r) { alongMi = r.along; atMs = now; }
+      return r;
+    },
+  };
+}
+
+// ---- line-progress: the metric MapLibre gradients actually use ----
+// A `line-gradient` stop is a fraction of the line's WEB-MERCATOR length, not
+// of its ground length: geojson-vt projects the line before it measures it
+// (projectX = lng/360, projectY = the mercator log), so every mile of road
+// counts as mile / cos(latitude). Handing such a gradient a ground-mile
+// fraction therefore MISPLACES it on any route that gains or loses latitude —
+// no error at either end of the line, worst in the middle, and growing with
+// every mile through the first half of the day. Field-caught riding I-90 out
+// of Sturgis toward Sheridan (Aug 14, 2026): the traveled/ahead split sat
+// 1.4 mi ahead of the puck and kept pulling away ("route marker keeps getting
+// further from my marker"); by mid-route it would have been 2.4 mi. Measure
+// the chain the way MapLibre will and the split rides ON the bike.
+const mercatorY = (lat) => {
+  const s = Math.sin((lat * Math.PI) / 180);
+  const y = 0.5 - (0.25 * Math.log((1 + s) / (1 - s))) / Math.PI;
+  return y < 0 ? 0 : y > 1 ? 1 : y;
+};
+export function mercatorCum(chain) {
+  const mcum = [0];
+  for (let i = 1; i < chain.length; i++) {
+    const dx = (chain[i].lng - chain[i - 1].lng) / 360;
+    const dy = mercatorY(chain[i].lat) - mercatorY(chain[i - 1].lat);
+    mcum.push(mcum[i - 1] + Math.sqrt(dx * dx + dy * dy));
+  }
+  return { mcum, mtotal: mcum[mcum.length - 1] || 1 };
+}
+
+// Segment index + fraction — what every projection in this file returns — to
+// the 0..1 line-progress of that point. Interpolating inside one segment is
+// safe: the projection's scale is constant across a few hundred feet.
+export function lineProgressAt({ mcum, mtotal } = {}, i, f = 0) {
+  if (!mcum || !Number.isInteger(i) || i < 0 || i > mcum.length - 2) return null;
+  return (mcum[i] + f * (mcum[i + 1] - mcum[i])) / mtotal;
+}
+
+// Where a new stop belongs in DAY ORDER, read off the day's ROUTED line:
+// project the stop and every waypoint onto the geometry and insert before
+// the first stop the route reaches after it. The straight-line splice
+// (bestInsertIndex below) can't tell the two passes of an out-and-back
+// apart and ignores what the road does between stops — field-caught when a
+// plan-side add landed in the wrong half of a loop day. Waypoints project
+// monotonically (each at-or-after the previous one's along), the new stop
+// at its FIRST drive-by. Returns null when the stop is a genuine detour
+// (> 5 mi off the route) or there is no usable geometry — callers fall back
+// to the straight-line splice.
+export function insertIndexOnRoute(waypoints, chain, pt, cumIn = null) {
+  if (!chain || chain.length < 2 || !waypoints || waypoints.length < 2 || !pt) return null;
+  let cum = cumIn;
+  if (!cum) {
+    cum = [0];
+    for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
+  }
+  const p = projectOnChainDirected(chain, pt, { cum, afterMi: 0 });
+  if (!p || p.off > 5) return null;
+  let prev = 0;
+  for (let i = 1; i < waypoints.length; i++) {
+    const w = waypoints[i];
+    if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
+    const wp = projectOnChainDirected(chain, w, { cum, afterMi: prev });
+    if (!wp) continue;
+    if (wp.along >= p.along) return i;
+    prev = wp.along;
+  }
+  // never past the day's destination — the route ends there
+  return waypoints.length - 1;
 }
 
 // Cheapest place to splice a new point into an existing waypoint sequence.

@@ -65,7 +65,7 @@ export default function FeasibilityPanel() {
           const warns = p.issues.filter((i) => i.level === 'warn');
           const oks = p.issues.filter((i) => i.level === 'ok');
           return (
-            <div key={d.id} className="feas-day">
+            <div key={d.id} className={`feas-day${p.past ? ' past' : ''}`}>
               <button className="feas-head" onClick={() => dispatch({ type: 'select_day', dayId: d.id })}>
                 <span className="ph" style={{ background: PHASES[d.phase]?.color }} />
                 <span className="fd-date">{d.dow} {fmtDayDate(d.date)}</span>

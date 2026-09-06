@@ -101,7 +101,7 @@ async function runBackground(payload, onLine) {
       onLine?.({ type: 'delta', text: rec.text.slice(deliveredText), ms: rec.ms });
       deliveredText = rec.text.length;
     }
-    onLine?.({ type: 'building', chars: rec.chars ?? 0, thinking: rec.thinking ?? 0, ms: rec.ms });
+    onLine?.({ type: 'building', chars: rec.chars ?? 0, thinking: rec.thinking ?? 0, ms: rec.ms, note: rec.note });
 
     if (rec.status === 'error') {
       const err = new Error(rec.message || 'The optimizer failed without saying why.');
@@ -109,7 +109,7 @@ async function runBackground(payload, onLine) {
       throw err;
     }
     if (rec.status === 'done') {
-      return { type: 'done', text: rec.text ?? '', proposal: rec.proposal ?? null, trip: rec.trip };
+      return { type: 'done', text: rec.text ?? '', proposal: rec.proposal ?? null, trip: rec.trip, verify: rec.verify ?? null };
     }
 
     if (Date.now() - startedAt > POLL_TIMEOUT_MS) {

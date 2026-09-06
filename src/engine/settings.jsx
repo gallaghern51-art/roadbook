@@ -61,7 +61,6 @@ const ES = {
   'Trips': 'Viajes',
   'Scenarios': 'Escenarios',
   'Load': 'Cargar',
-  'Plan': 'Plan',
   'Feasibility': 'Factibilidad',
   'Budget': 'Presupuesto',
   'Ride': 'Rodar',
@@ -78,8 +77,6 @@ const ES = {
   'riders': 'motociclistas',
   'days': 'días',
   // day panel
-  'Day': 'Día',
-  'of': 'de',
   'Depart': 'Salida',
   'End': 'Fin',
   'Miles': 'Millas',
@@ -87,6 +84,12 @@ const ES = {
   'Stop hrs': 'Hrs parado',
   'Longest fuel gap': 'Mayor tramo sin bencina',
   'Hard constraints': 'Restricciones duras',
+  'Constraints': 'Restricciones',
+  'notes — the engine grades the Hard gates below': 'notas — el motor evalúa las Puertas duras de abajo',
+  'read from the route — suggestions add to it': 'leídas de la ruta — las sugerencias se agregan a ella',
+  'not on the route': 'fuera de la ruta',
+  'Add to route': 'Agregar a la ruta',
+  'stop removed — re-point': 'parada eliminada — reasignar',
   'Route & stops': 'Ruta y paradas',
   'drag ⠿ to reorder · tap to zoom the map · ⓘ for details': 'arrastra ⠿ para reordenar · toca para acercar el mapa · ⓘ para detalles',
   'Conditions': 'Condiciones',
@@ -135,7 +138,6 @@ const ES = {
   'Trip summary': 'Resumen del viaje',
   'dates stay pinned to the calendar': 'las fechas quedan fijas al calendario',
   'Start date': 'Fecha de inicio',
-  'Riders': 'Motociclistas',
   'Range: comfort mi': 'Rango cómodo (mi)',
   'Range: absolute mi': 'Rango absoluto (mi)',
   'MPG': 'MPG',
@@ -184,8 +186,6 @@ const ES = {
   'Current working plan': 'Plan de trabajo actual',
   'Method: departure times from each day\'s plan, routed leg durations (OSRM, +15% group pace), planned time-on-ground at every stop, checked against the trip\'s hard gates, its configured fuel range, daylight (~8:30 PM), and booking status. Scenario rows use cached routing where available and planned mileage otherwise.': 'Método: horas de salida del plan de cada día, duraciones de tramos ruteados (OSRM, +15% por ritmo de grupo), tiempo en tierra planificado en cada parada, contrastado con los cortes duros del viaje, su rango de bencina configurado, la luz de día (~8:30 PM) y el estado de las reservas. Las filas de escenarios usan ruteo en caché cuando existe y millaje planificado si no.',
   // budget panel
-  'Fuel from routed miles · everything else adjustable': 'Bencina según millas ruteadas · todo lo demás ajustable',
-  'Budget & fuel': 'Presupuesto y bencina',
   'Assumptions': 'Supuestos',
   'Gas $/gal': 'Bencina $/galón',
   'Lodging $/night/rider': 'Alojamiento $/noche/persona',
@@ -205,7 +205,6 @@ const ES = {
   'Misc / buffer': 'Varios / colchón',
   'Total per rider': 'Total por persona',
   // chat panel
-  'Clear': 'Limpiar',
   'Proposed changes': 'Cambios propuestos',
   'saves as': 'se guarda como',
   'Apply': 'Aplicar',
@@ -228,7 +227,6 @@ const ES = {
   'Nothing planned yet': 'Nada planificado aún',
   '✎ edit': '✎ editar',
   'Property / plan': 'Propiedad / plan',
-  'Status': 'Estado',
   'none': 'ninguno',
   'needs booking': 'falta reservar',
   'booked': 'reservado',
@@ -236,12 +234,24 @@ const ES = {
   'Note': 'Nota',
   'Spot': 'Lugar',
   'Where': 'Dónde',
-  'Save': 'Guardar',
   'Cancel': 'Cancelar',
   'breakfast': 'desayuno',
   'lunch': 'almuerzo',
   'dinner': 'cena',
   'Remove this day': 'Eliminar este día',
+  // day description + drift flag
+  'The route changed after this description was written.': 'La ruta cambió después de escribir esta descripción.',
+  'Rewrite with Copilot': 'Reescribir con Copilot',
+  'Edit': 'Editar',
+  'Still accurate': 'Sigue siendo correcta',
+  'Edit description': 'Editar descripción',
+  'Write a description': 'Escribir una descripción',
+  'No description for this day yet.': 'Este día aún no tiene descripción.',
+  'What this day is, and what it costs.': 'Qué es este día y qué cuesta.',
+  'Stops now': 'Paradas actuales',
+  'ride hrs': 'h de ruta',
+  'Rewrite this day\'s description to match the route it actually has now — set_day_field summary, and the title too if the endpoints no longer match. One or two honest sentences in the field-guide voice, trade-offs included. Do not change the route.':
+    'Reescribe la descripción de este día para que coincida con la ruta que tiene ahora — set_day_field summary, y también el título si los extremos ya no coinciden. Una o dos frases honestas con la voz de la guía de campo, incluyendo las concesiones. No cambies la ruta.',
   'Remove meal': 'Quitar comida',
   'Why:': 'Por qué:',
   'Trade-off:': 'Costo:',
@@ -249,7 +259,6 @@ const ES = {
   'Best light': 'Luz',
   'Parking': 'Estacionamiento',
   '★ Anchor day — trim elsewhere first': '★ Día ancla — recortar primero en otro lado',
-  'Prep': 'Preparación',
   'Outbound': 'Ida',
   'Rally': 'Rally',
   'Return': 'Regreso',
@@ -588,6 +597,10 @@ const ES = {
   'The pace buffer slows every planned leg for group riding — set 0 for a solo trip, 15+ for a big group.': 'El margen de ritmo ralentiza cada tramo planificado para rodar en grupo — usa 0 para un viaje solo, 15+ para un grupo grande.',
   'This pin sits off the road network, so routing detours to reach it. Drag it onto the road or re-pick the stop via search.': 'Este pin está fuera de la red de caminos, así que el ruteo se desvía para tocarlo. Arrástralo al camino o vuelve a elegir la parada con el buscador.',
   'off road': 'fuera del camino',
+  // place verification — AI-authored stops checked against the places database
+  'unverified': 'sin verificar',
+  'The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.': 'La base de datos de lugares no encontró ningún negocio real en este pin, así que la parada no está confirmada. Vuelve a elegirla con el buscador antes de rodar.',
+  'Checked against the live places database — this is a real business at these coordinates.': 'Verificado contra la base de datos de lugares — es un negocio real en estas coordenadas.',
   // plans strip: saved-plan switching on the PLAN surface
   'Plans': 'Planes',
   'Current': 'Actual',
@@ -629,6 +642,86 @@ const ES = {
   'UNDO': 'DESHACER',
   'SPEED': 'SPEED',
   'LIMIT': 'LIMIT',
+
+  // landing page / accounts
+  'Plan the ride.': 'Planifica la ruta.',
+  'Then ride the plan.': 'Después ródala.',
+  'Describe the trip in a sentence and get back a routed, dated, hour-by-hour plan — graded for whether it can actually be ridden, and yours to argue with until it can.':
+    'Describe el viaje en una frase y recibe un plan trazado, con fechas y hora a hora — calificado según si de verdad se puede rodar, y tuyo para discutirlo hasta que se pueda.',
+  'Drafted by AI, settled by you': 'Lo redacta la IA, lo decides tú',
+  'Riders, days, region, pace. The Copilot proposes changes as edits you can see, apply, and undo — never a black box that rewrites your trip.':
+    'Motoristas, días, región, ritmo. El Copiloto propone cambios como ediciones que puedes ver, aplicar y deshacer — nunca una caja negra que reescribe tu viaje.',
+  'Graded before you turn a wheel': 'Calificado antes de arrancar',
+  'Fuel gaps against your bike’s real range, daylight, dwell time, and hard arrival times — every day carries a grade and tells you what is wrong with it.':
+    'Huecos de combustible frente a la autonomía real de tu moto, luz del día, tiempo de parada y horas de llegada obligadas — cada día lleva su nota y te dice qué falla.',
+  'Turn-by-turn built for a bike': 'Navegación pensada para la moto',
+  'Ride Mode is full navigation: course-up chase camera, spoken turns, posted speed limits, fuel-range countdown, and how far ahead or behind the plan you are running.':
+    'El Modo Ruta es navegación completa: cámara orientada al rumbo, indicaciones habladas, límites de velocidad señalizados, cuenta atrás de autonomía y cuánto vas por delante o por detrás del plan.',
+  'One plan, whole crew': 'Un plan, todo el grupo',
+  'Share a code. Everyone rides the same roadbook, edits arrive as proposals, and the road captain has the final call.':
+    'Comparte un código. Todos ruedan con el mismo roadbook, las ediciones llegan como propuestas y el capitán tiene la última palabra.',
+
+  'Account': 'Cuenta',
+  'Sign in': 'Iniciar sesión',
+  'Signing in…': 'Iniciando sesión…',
+  'Create account': 'Crear cuenta',
+  'Create an account': 'Crea una cuenta',
+  'Create your account': 'Crea tu cuenta',
+  'Creating…': 'Creando…',
+  'I already have an account': 'Ya tengo una cuenta',
+  'Email': 'Correo',
+  'Password': 'Contraseña',
+  'New password': 'Contraseña nueva',
+  'At least 8 characters': 'Al menos 8 caracteres',
+  'Use at least 8 characters.': 'Usa al menos 8 caracteres.',
+  'Shown to your crew': 'Visible para tu grupo',
+  'Forgot password?': '¿Olvidaste la contraseña?',
+  'Reset your password': 'Restablece tu contraseña',
+  'Email me a link': 'Envíame un enlace',
+  'Sending…': 'Enviando…',
+  'Back to sign in': 'Volver a iniciar sesión',
+  'Set a new password': 'Elige una contraseña nueva',
+  'Save password': 'Guardar contraseña',
+  'Saving…': 'Guardando…',
+  'Password changed.': 'Contraseña cambiada.',
+  'You followed a reset link. Pick a new password and you are back in.':
+    'Has seguido un enlace de restablecimiento. Elige una contraseña nueva y vuelves a entrar.',
+  'If that address has an account, a reset link is on its way.':
+    'Si esa dirección tiene cuenta, el enlace de restablecimiento va en camino.',
+  'Account created. Check your email for the confirmation link, then sign in.':
+    'Cuenta creada. Busca el enlace de confirmación en tu correo y luego inicia sesión.',
+  'Check your email to verify the address. If this device was already sharing a trip, the link will ask you to finish with a password.':
+    'Revisa tu correo para verificar la dirección. Si este dispositivo ya compartía un viaje, el enlace te pedirá terminar con una contraseña.',
+  'Finish your account': 'Termina de crear tu cuenta',
+  'Your email is verified. Choose a password to finish protecting this account.':
+    'Tu correo está verificado. Elige una contraseña para terminar de proteger esta cuenta.',
+  'Account ready.': 'Cuenta lista.',
+  'Accounts are not configured on this build.': 'Las cuentas no están configuradas en esta versión.',
+  'That email and password do not match.': 'Ese correo y esa contraseña no coinciden.',
+  'There is already an account on that email — sign in instead.': 'Ya existe una cuenta con ese correo — inicia sesión.',
+  'That does not look like an email address.': 'Eso no parece una dirección de correo válida.',
+  'Too many emails just went out. Wait a few minutes and try again.': 'Se enviaron demasiados correos. Espera unos minutos e inténtalo de nuevo.',
+  'Account upgrades are not enabled yet. Try again in a moment.': 'La conversión de cuentas aún no está activada. Inténtalo de nuevo en un momento.',
+  'That account link has expired. Start again from Create account.': 'Ese enlace de cuenta venció. Empieza de nuevo desde Crear una cuenta.',
+  'No connection. Your trips are safe on this device — try again when you have signal.': 'Sin conexión. Tus viajes están seguros en este dispositivo — inténtalo cuando tengas señal.',
+  'Your trips live on this device. An account gives them a second home — delete the app, change phones, or lose the bike bag, and the roadbook is still there.':
+    'Tus viajes viven en este dispositivo. Una cuenta les da un segundo hogar — borra la app, cambia de móvil o pierde la alforja, y el roadbook sigue ahí.',
+  'Continue without an account →': 'Continuar sin cuenta →',
+  'Everything works offline on this device. You can create an account later and your trips come with you.':
+    'Todo funciona sin conexión en este dispositivo. Puedes crear una cuenta más tarde y tus viajes se van contigo.',
+  'No account. Your trips live only on this device — deleting the app, clearing the browser, or losing the phone loses them.':
+    'Sin cuenta. Tus viajes viven solo en este dispositivo — borrar la app, limpiar el navegador o perder el móvil los pierde.',
+  'Back up now': 'Copiar ahora',
+  'Backing up…': 'Copiando…',
+  'Not backed up yet.': 'Aún sin copia de seguridad.',
+  'trip backed up': 'viaje respaldado',
+  'trips backed up': 'viajes respaldados',
+  'Backup failed — it will retry. Your trips are safe on this device.':
+    'Falló la copia — se reintentará. Tus viajes están a salvo en este dispositivo.',
+  'Signing out leaves every trip on this device. Sign back in on any phone to get them all.':
+    'Cerrar sesión deja todos los viajes en este dispositivo. Vuelve a entrar en cualquier móvil para recuperarlos.',
+  'just now': 'ahora mismo',
+  'min ago': 'min',
 };
 
 export function useT() {

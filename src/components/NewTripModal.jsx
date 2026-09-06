@@ -92,6 +92,10 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
           setProgress((p) => ({
             chars: obj.chars ?? p?.chars ?? 0,
             thinking: obj.thinking ?? p?.thinking ?? 0,
+            // Phase label from the server (place verification) — it outranks
+            // the character counter, because "checking the stops are real" is
+            // a different thing happening, not more of the same thing.
+            note: obj.note ?? p?.note ?? '',
             ms: obj.ms,
           }));
         }
@@ -151,6 +155,7 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
   // wall time on a full trip), then the itinerary character count.
   const buildNote = () => {
     const secs = progress?.ms ? ` · ${Math.round(progress.ms / 1000)}s` : '';
+    if (progress?.note) return `Checking every gas station, hotel and restaurant is real — ${progress.note}${secs}`;
     if (progress?.chars > 0) return `Writing the itinerary — ${progress.chars.toLocaleString()} characters${secs}`;
     if (progress?.thinking > 0) return `Designing the route…${secs}`;
     return `Building the itinerary — routing real places…${secs}`;
