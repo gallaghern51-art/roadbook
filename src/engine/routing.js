@@ -213,7 +213,12 @@ function valhallaCompactSteps(trip, stops) {
         sec: m.time ?? 0,
         type, mod,
         exit: m.roundabout_exit_count ?? null,
-        road: m.street_names?.[0] ?? null,
+        // .road is the SHIELD field and wants a route number (US-16A), which
+        // Valhalla maneuvers do not carry — attachRoadDetail grafts real OSM
+        // refs on afterwards. Putting a street name here both tripped that
+        // graft's "already populated" guard (killing lane guidance) and asked
+        // the HUD to draw a shield for "Granite Pass Road".
+        road: null,
         roadName: m.street_names?.[0] ?? null,
         stop: isArrive ? wp?.name ?? null : undefined,
         instr: isArrive
@@ -515,7 +520,7 @@ export async function routeDaySteps(day, pace = 1) {
 
   try {
     const trip = await valhallaRoute(wps[0], wps.slice(1));
-    const steps = await attachLanes(valhallaCompactSteps(trip, wps.slice(1)), wps);
+    const steps = await attachRoadDetail(valhallaCompactSteps(trip, wps.slice(1)), wps);
     saveStepCache(key, steps); // no traffic inside — static data caches forever
     return paceSteps(steps, pace);
   } catch { /* fall through to OSRM */ }
