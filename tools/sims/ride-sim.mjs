@@ -129,12 +129,12 @@ await page.waitForSelector('.modebar', { timeout: 15000 });
 
 // wait for the mocked routing to fill the current planning cache
 await page.waitForFunction(() => {
-  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v4') || '{}')).length >= 3; } catch { return false; }
+  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v5') || '{}')).length >= 3; } catch { return false; }
 }, { timeout: 30000 });
 
 // 1) cache holds calibrated UNPACED legs: implied speed ≈ 69.8 mph
 const implied = await page.evaluate(() => {
-  const c = JSON.parse(localStorage.getItem('sturgis.routeCache.v4'));
+  const c = JSON.parse(localStorage.getItem('sturgis.routeCache.v5'));
   const out = [];
   for (const day of Object.values(c)) {
     for (const leg of Object.values(day.legs ?? {})) {

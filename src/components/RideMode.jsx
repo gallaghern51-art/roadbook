@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine/timeline.js';
 import {
-  haversineMiles, tripRange, tripPace, projectOnChain, projectOnChainDirected,
+  haversineMiles, tripRange, tripPace, tripRoutePrefs, routePrefsKey, projectOnChain, projectOnChainDirected,
   chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
 } from '../engine/tripEngine.js';
 import { viewGate } from '../engine/mapVis.js';
@@ -437,6 +437,8 @@ export default function RideMode({ onClose }) {
 
   const day = trip.days.find((d) => d.id === dayId) ?? trip.days[0];
   const pace = tripPace(trip);
+  const routePrefs = tripRoutePrefs(trip);
+  const routePrefSig = routePrefsKey(routePrefs);
   const tl = useMemo(() => dayTimeline(day, routedLegsByDay[day.id]), [day, routedLegsByDay]);
   const totalMiles = tl.stops.reduce((a, s) => a + s.legMiles, 0);
 
@@ -674,9 +676,9 @@ export default function RideMode({ onClose }) {
     let dead = false;
     setSteps(null);
     const prev = stepsSigRef.current;
-    const sig = `${day.id}|${wpSig}`;
+    const sig = `${day.id}|${routePrefSig}|${wpSig}`;
     stepsSigRef.current = sig;
-    routeDaySteps(day, pace).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
+    routeDaySteps(day, pace, routePrefs).then((s) => { if (!dead) setSteps(s); }).catch(() => { if (!dead) setSteps([]); });
     // A plan edit while a live reroute is up: the live route was built for
     // the OLD stop list — re-target it from the machine's remaining stops
     // (same-day signature change only; a day switch resets the reroute).
@@ -684,7 +686,7 @@ export default function RideMode({ onClose }) {
       goRouteRef.current(navRemaining(syncNav(destRef.current, day.waypoints), day.waypoints));
     }
     return () => { dead = true; };
-  }, [day.id, wpSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [day.id, wpSig, routePrefSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Plan edits under a live ride (added stop, a sync landing, Copilot):
   // facts are keyed by waypoint id — prune the ones that left the plan.
@@ -786,7 +788,7 @@ export default function RideMode({ onClose }) {
     if (!fix || !rem.length) return;
     setRerouting(true);
     lastRerouteAtRef.current = Date.now();
-    routeFrom(navOrigin(), rem, pace)
+    routeFrom(navOrigin(), rem, pace, routePrefs)
       .then((r) => {
         setReroute({ ...r, byOffRoute: false });
         setRerouteFailed(false);
@@ -1159,7 +1161,7 @@ export default function RideMode({ onClose }) {
     setRerouting(true);
     lastRerouteAtRef.current = now;
     speak('Off route. Recalculating.');
-    routeFrom(navOrigin(), remaining, pace)
+    routeFrom(navOrigin(), remaining, pace, routePrefs)
       .then((r) => {
         setReroute({ ...r, byOffRoute: true });
         setRerouteFailed(false);
@@ -1216,7 +1218,7 @@ export default function RideMode({ onClose }) {
     liveRouteAtRef.current = now;
     const remaining = remainingNav; // latched + skip-aware
     if (!remaining.length) return;
-    routeFrom(navOrigin(), remaining, pace)
+    routeFrom(navOrigin(), remaining, pace, routePrefs)
       .then((r) => { if (r.traffic) setLiveEta({ min: r.seconds / 60, at: Date.now() }); })
       .catch(() => { /* next cycle retries */ });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps

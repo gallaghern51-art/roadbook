@@ -33,13 +33,14 @@ const enc6 = (pts) => {
   return out;
 };
 
-let valhallaCalls = 0, valhallaCosting = null, valhallaLocationTypes = [];
+let valhallaCalls = 0, valhallaCosting = null, valhallaLocationTypes = [], valhallaOptions = [];
 let googleRouteCalls = 0, osrmPlanningCalls = 0, osrmStepsCalls = 0;
 
 function buildValhalla(reqBody) {
   valhallaCalls++;
   valhallaCosting = reqBody.costing;
   valhallaLocationTypes.push(reqBody.locations.map((l) => l.type));
+  valhallaOptions.push(reqBody.costing_options?.motorcycle ?? null);
   const locs = reqBody.locations.map((l) => [l.lon, l.lat]);
   const legs = [];
   let totalMi = 0, totalSec = 0;
@@ -138,11 +139,52 @@ check(valhallaLocationTypes.some((types) => types.length >= 3
 `planning preserves legs without permitting intermediate U-turns`);
 check(osrmPlanningCalls === 0, `OSRM planning fallback never engaged (${osrmPlanningCalls})`);
 
+// The overview control is an op-backed trip preference, not ornamental UI.
+// Its selection must invalidate planning and change Valhalla's request body.
+check(await page.locator('.route-engine', { hasText: /Valhalla motorcycle/i }).isVisible(),
+  'Trip settings names the motorcycle routing engine');
+check(await page.locator('.route-style-grid [role="radio"][aria-checked="true"]', { hasText: 'Touring' }).isVisible(),
+  'legacy trips open on the neutral Touring route character');
+const beforePreference = valhallaCalls;
+const preferenceRequest = page.waitForRequest((req) => {
+  if (!req.url().includes('valhalla1.openstreetmap.de/route')) return false;
+  try {
+    const options = req.postDataJSON()?.costing_options?.motorcycle;
+    return options?.use_highways === 0.05 && options?.use_tolls === 0;
+  } catch { return false; }
+});
+await page.locator('.route-style-grid [role="radio"]', { hasText: 'Back roads' }).click();
+await page.locator('.route-tolls input').check();
+await preferenceRequest;
+await page.waitForTimeout(800);
+const chosen = valhallaOptions.at(-1);
+check(valhallaCalls > beforePreference && chosen?.use_highways === 0.05 && chosen?.use_tolls === 0 && chosen?.use_trails === 0,
+  `UI reroutes with back-road, no-toll motorcycle costing (${JSON.stringify(chosen)})`);
+const storedPrefs = await page.evaluate(() => {
+  const lib = JSON.parse(localStorage.getItem('moto.trips.v1') || 'null');
+  return lib?.trips?.find((x) => x.id === lib.activeId)?.trip?.meta?.routePrefs;
+});
+check(storedPrefs?.style === 'backroads' && storedPrefs?.avoidTolls === true,
+  'route character persists on the trip through set_meta');
+await page.screenshot({ path: SHOT('valhalla-route-character'), fullPage: true });
+const phoneFit = await page.locator('.route-pref').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+check(phoneFit, 'route control fits the phone panel without horizontal clipping');
+await page.setViewportSize({ width: 1366, height: 900 });
+await page.waitForTimeout(400);
+const desktopFit = await page.locator('.route-pref').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+check(desktopFit, 'route control fits the desktop panel without horizontal clipping');
+await page.screenshot({ path: SHOT('valhalla-route-character-desktop') });
+await page.setViewportSize({ width: 375, height: 750 });
+await page.waitForTimeout(400);
+
 await page.locator('.modebar button', { hasText: /ride/i }).click();
 await page.waitForSelector('.ride-bar', { timeout: 15000 });
 await page.waitForTimeout(1200);
 check(valhallaCalls > planningValhallaCalls,
   `nav steps fetched through Valhalla (${planningValhallaCalls}→${valhallaCalls} calls)`);
+const navOptions = valhallaOptions.at(-1);
+check(navOptions?.use_highways === 0.05 && navOptions?.use_tolls === 0,
+  'Ride Mode inherits the trip route character');
 check(osrmStepsCalls === 0, `OSRM routing fallback never engaged (${osrmStepsCalls})`);
 
 // ride a little so the turn card renders Valhalla's instruction text

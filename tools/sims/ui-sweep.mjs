@@ -73,7 +73,7 @@ await page.screenshot({ path: SHOT('home') });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {
-  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v2') || '{}')).length >= 3; } catch { return false; }
+  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v5') || '{}')).length >= 3; } catch { return false; }
 }, { timeout: 30000 });
 await page.screenshot({ path: SHOT('plan-initial') });
 await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400);

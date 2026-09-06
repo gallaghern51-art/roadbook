@@ -37,7 +37,7 @@ and mocks make the sims deterministic.
 | `proposal-check.mjs` | **2/2** | Copilot proposal card fits mobile; "apply as new trip" forks cleanly |
 | `head-font-check.mjs` | **5/6** | Masthead one-row + HUD type at 375/320px. The turn-card assertion never reaches a rendered card in this sim's scenario since the three-row bar restructure — **harness gap, not an app regression** (`.t-dist` is still 36px in `app.css`). |
 | `pace-check.mjs` | **times out** | Group-pace setting. Drifted against the current Trip settings UI — needs its selectors refreshed. |
-| `valhalla-check.mjs` | **10/10** | Valhalla owns planning, Ride Mode, and live reroutes; Google and OSRM routing fallbacks remain idle while it is healthy. |
+| `valhalla-check.mjs` | **17/17** | Valhalla owns planning, Ride Mode, and live reroutes; the trip route-character UI changes real costing and persists; Google and OSRM routing fallbacks remain idle while it is healthy. |
 
 Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light-ribbon.mjs`,
 `light-late-sim.mjs`, `settings-shot.mjs`, `boot-check.mjs`.

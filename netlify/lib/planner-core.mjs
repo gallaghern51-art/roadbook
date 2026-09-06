@@ -12,7 +12,7 @@ export const SYSTEM = `You are the planning brain of a motorcycle trip planner �
 
 You receive the CURRENT trip state plus engine-computed metrics, a stop-by-stop timeline simulation, and a FEASIBILITY STUDY with hard-gate ETA checks, fuel-range analysis against the trip's configured bike range, and per-day scores. Ground every recommendation in that data.
 
-You are authorized to restructure the ENTIRE trip when asked: reorder days, add or remove days, move stops across days, add or remove stops, retime departures, change lodging and meals, adjust trip settings — emit everything as one op list. Waypoint dwell minutes are editable via update_waypoint patch {dwell: N}; departure time via set_day_field field "depart" (e.g. "7:30 AM"); lodging via update_lodging patch {name, status: booked|reserve|none, where, note}; day dates cascade from meta.startDate automatically when days are added/removed/reordered. Trip-level settings edit via set_meta patch — including pace, the riding-duration multiplier every planned leg time scales by (1.0 solo, ~1.08 small group, ~1.15 large group).
+You are authorized to restructure the ENTIRE trip when asked: reorder days, add or remove days, move stops across days, add or remove stops, retime departures, change lodging and meals, adjust trip settings — emit everything as one op list. Waypoint dwell minutes are editable via update_waypoint patch {dwell: N}; departure time via set_day_field field "depart" (e.g. "7:30 AM"); lodging via update_lodging patch {name, status: booked|reserve|none, where, note}; day dates cascade from meta.startDate automatically when days are added/removed/reordered. Trip-level settings edit via set_meta patch — including pace, the riding-duration multiplier every planned leg time scales by (1.0 solo, ~1.08 small group, ~1.15 large group), and routePrefs {style: quick|touring|backroads, avoidTolls: boolean}, the trip-wide motorcycle routing choice used by both Plan and Ride.
 
 SCENARIOS: the app stores named trip permutations. You receive the current scenario list (ids + names). Rules:
 - Whenever you produce a route optimization or any restructure bigger than a one-stop tweak, ALWAYS set "saveAs" to a short descriptive name (e.g. "Balanced Monday", "Badlands swap") so the result is saved as a new permutation automatically.
@@ -151,7 +151,10 @@ export const TOOL = {
                 placeId: { type: 'string', description: 'the id returned by search_places — carry it so routing snaps to the place, not the raw coordinate' },
               },
             },
-            patch: { type: 'object' },
+            patch: {
+              type: 'object',
+              description: 'Fields for the selected op. For set_meta, routePrefs accepts {style: quick|touring|backroads, avoidTolls: boolean}; it controls both planned routes and Ride Mode reroutes.',
+            },
             field: {
               type: 'string',
               description: 'For set_day_field: one of title, summary, depart, arrive, phase, anchor, miles, hours. Rewrite "summary" (and "title" when the endpoints change) alongside any op that changes the day\'s stops.',

@@ -29,7 +29,7 @@ The course of action below gets to a chargeable product in ~4–6 weeks and a ma
 
 1. **No accounts, no server persistence.** Everything lives in localStorage. Clearing browser data destroys a user's trips; nothing syncs between phone and laptop. You cannot charge money for this. *Gap #1 by a mile.*
 2. **The AI endpoints are open and unmetered.** `/.netlify/functions/chat` and `planner-background` accept any POST from anyone and spend your Anthropic key ([chat.mjs](../netlify/functions/chat.mjs) has no auth, no rate limit). The Google key behind `google-route`/`google-places` has the same exposure. The moment the URL circulates, someone scripts it. **Do not market the current deployment.**
-3. **Free public services in the production path, against their terms.** Planning routes ride on the OSRM demo server (`router.project-osrm.org` — its usage policy prohibits production/commercial use, no SLA), geocoding falls back to Nominatim (1 req/s policy), and the default basemaps are Esri ArcGIS Online tile endpoints without a license. Fine for a friends tool; a ToS violation and an outage risk once commercial.
+3. **Free public services in the production path, with no commercial SLA.** Valhalla motorcycle routing currently uses the FOSSGIS community endpoint, OSRM's demo server remains the last routing fallback, geocoding can fall back to Nominatim, and the default basemaps include Esri ArcGIS Online endpoints. Fine for prototyping; self-host or license each production path before commercial traffic.
 4. **No native app.** Navigation needs background GPS; a browser tab must stay foregrounded with the screen on. Rever's most common complaints are nav reliability and crashes — a PWA is structurally *worse* at exactly that. App Store / Play Store presence is also where riders discover this category. (Capacitor is already on the roadmap — correct call.)
 5. **No offline maps** — a top-3 paid feature in every competitor.
 6. **Single-user trips.** The product was built *for* a 7-rider group and has no shared trip. Group sharing is both the killer use case and the viral loop.
@@ -119,7 +119,7 @@ And above all three: **Home = the trip library + AI intake**, not a map of nothi
 
 **AI unit economics** (Sonnet 5): a heavy planning session runs ~100–200k tokens ≈ $0.50–1.50; a Pro user doing 3–4 sessions/mo costs $2–6 worst case, against $5/mo revenue — workable with quotas, prompt caching on the trip context, and the digest discipline you already have. The existing budget/`BUDGET_MS` plumbing becomes per-plan quotas.
 
-**Cost watch-list:** Google Routes `TRAFFIC_AWARE` (Pro SKU) — keep it day-of-nav only, exactly as designed; Google tiles past 100k/mo; Anthropic spend per free user (cap hard).
+**Cost watch-list:** Google Routes is now an outage fallback rather than the route owner; retain quotas in case Valhalla is unavailable. Also watch Google tiles past 100k/mo and Anthropic spend per free user (cap hard).
 
 **Launch motion:**
 - **SEO/content flywheel:** publish AI-generated plans for iconic rides as public trip pages ("Sturgis from Denver, 6 days", "Blue Ridge Parkway long weekend", "Tail of the Dragon loop") — each page is a living demo with a grade badge and a "remix this trip" button.
@@ -146,7 +146,7 @@ And above all three: **Home = the trip library + AI intake**, not a map of nothi
 |---|---|
 | Rever adds an AI chatbot | Likely within 12–18 months. Theirs will be a wrapper (their state layer isn't ops); yours edits a simulation. Win by shipping the positioning *now* and making the feasibility grade the visible proof of depth. |
 | Solo/small-team bandwidth | The phases are sized for 1–2 devs + AI tooling. The codebase being 8.5k lines of mostly-pure functions is the speed advantage — protect that discipline (engine stays pure, add tests as it grows). |
-| API costs at scale | All three exposures (Anthropic, Google Routes Pro SKU, tiles) are quota-able; Phase 0 metering is the fix. Planning stays on self-hosted OSRM (free at any scale). |
+| API costs at scale | All three exposures (Anthropic, Google Routes fallback, tiles) are quota-able; Phase 0 metering is the fix. Planning and Ride routing are designed around self-hosted Valhalla motorcycle costing, with hosted fallbacks for resilience. |
 | App Store 30% | Web billing first; IAP only if data demands. |
 | Name collision | "Roadbook" is generic in moto rally; search before brand spend. |
 | Category is niche | Yes — and that's fine. 1,000 Pro subs ≈ $40–60k ARR year one is a realistic beachhead; Rever proved 1M+ downloads exist here. The group-viewer loop and public trip pages are the compounding channels. |

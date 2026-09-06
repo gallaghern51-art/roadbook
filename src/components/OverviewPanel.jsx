@@ -7,7 +7,7 @@ import { PHASES } from '../data/seedTrip.js';
 import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
-import { tripPace } from '../engine/tripEngine.js';
+import { tripPace, tripRoutePrefs } from '../engine/tripEngine.js';
 import { to24h, from24h } from '../engine/timeline.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
 
@@ -19,6 +19,12 @@ const BIKE_SUGGESTIONS = [
   'Electra Glide', 'Road King', 'Heritage Softail Classic',
   'CVO Street Glide', 'CVO Road Glide', 'Pan America 1250',
   'BMW R 1300 GS', 'Honda Gold Wing', 'KTM 1290 Super Adventure', 'Indian Roadmaster',
+];
+
+const ROUTE_STYLE_UI = [
+  { id: 'quick', label: 'Quick', copy: 'Favors the fastest practical roads, including highways.' },
+  { id: 'touring', label: 'Touring', copy: 'Balances highway progress with good motorcycle roads.' },
+  { id: 'backroads', label: 'Back roads', copy: 'Strongly favors secondary roads. Expect longer days.' },
 ];
 
 export default function OverviewPanel() {
@@ -141,7 +147,10 @@ function TripSettings({ trip, dispatch }) {
   const t = useT();
   const set = (patch) => dispatch({ type: 'apply_ops', ops: [{ op: 'set_meta', patch }] });
   const range = { comfort: 180, absolute: 200, mpg: 45, ...(trip.meta.range ?? {}) };
+  const routePrefs = tripRoutePrefs(trip);
+  const activeRoute = ROUTE_STYLE_UI.find((x) => x.id === routePrefs.style) ?? ROUTE_STYLE_UI[1];
   const setRange = (k, v) => set({ range: { ...range, [k]: Number(v) || 0 } });
+  const setRoutePrefs = (patch) => set({ routePrefs: { ...routePrefs, ...patch } });
   return (
     <div className="section">
       <h3>{t('Trip settings')}</h3>
@@ -154,6 +163,41 @@ function TripSettings({ trip, dispatch }) {
           <textarea rows={3} defaultValue={trip.meta.summary ?? ''} key={trip.meta.summary}
             onBlur={(e) => { if (e.target.value !== (trip.meta.summary ?? '')) set({ summary: e.target.value }); }} />
         </label>
+        <div className="route-pref">
+          <div className="route-pref-head">
+            <div>
+              <div className="route-pref-label">{t('Route character')}</div>
+              <div className="route-pref-scope">{t('One choice for every day and every reroute')}</div>
+            </div>
+            <span className="route-engine"><i /> {t('Valhalla motorcycle')}</span>
+          </div>
+          <div className="route-style-grid" role="radiogroup" aria-label={t('Route character')}>
+            {ROUTE_STYLE_UI.map((style) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={routePrefs.style === style.id}
+                className={routePrefs.style === style.id ? 'active' : ''}
+                key={style.id}
+                onClick={() => setRoutePrefs({ style: style.id })}
+              >
+                <span>{t(style.label)}</span>
+                <small>{t(style.copy)}</small>
+              </button>
+            ))}
+          </div>
+          <div className="route-pref-foot">
+            <p><b>{t(activeRoute.label)}</b> · {t(activeRoute.copy)}</p>
+            <label className="route-tolls">
+              <input
+                type="checkbox"
+                checked={routePrefs.avoidTolls}
+                onChange={(e) => setRoutePrefs({ avoidTolls: e.target.checked })}
+              />
+              <span>{t('Avoid toll roads')}</span>
+            </label>
+          </div>
+        </div>
         <label className="fld">{t('Start date')}
           <input type="date" value={trip.meta.startDate}
             onChange={(e) => { if (e.target.value) set({ startDate: e.target.value }); }} />

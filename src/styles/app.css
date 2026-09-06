@@ -751,6 +751,61 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .road-links a:hover { color: var(--rally); border-color: var(--rally); }
 .budget-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 
+/* Trip-wide route intent. This reads as one instrument, not three unrelated
+   setting cards: the selected road character is the single source for Plan
+   geometry and Ride reroutes. */
+.route-pref {
+  grid-column: 1 / -1; min-width: 0; margin: 2px 0 8px; padding: 13px 0 14px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.route-pref-head, .route-pref-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+}
+.route-pref-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.route-pref-scope { margin-top: 2px; font-size: 11.5px; color: var(--ink-faint); }
+.route-engine {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.route-engine i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.route-style-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0;
+  margin-top: 10px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+}
+.route-style-grid button {
+  min-width: 0; min-height: 62px; padding: 9px 10px; text-align: left;
+  background: var(--asphalt-2); border-right: 1px solid var(--line);
+  transition: background 0.15s, color 0.15s;
+}
+.route-style-grid button:last-child { border-right: 0; }
+.route-style-grid button:hover { background: var(--asphalt-3); }
+.route-style-grid button.active { background: var(--rally); color: #000; }
+.route-style-grid button span {
+  display: block; font-family: var(--display); font-size: 15px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.route-style-grid button small {
+  display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.28;
+  color: var(--ink-faint);
+}
+.route-style-grid button.active small { color: rgba(0, 0, 0, 0.7); }
+.route-pref-foot { margin-top: 9px; align-items: flex-start; }
+.route-pref-foot p { flex: 1; font-size: 11.5px; line-height: 1.4; color: var(--ink-faint); }
+.route-pref-foot p b { color: var(--ink-dim); font-weight: 600; }
+.route-tolls {
+  flex: none; display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.route-tolls input { width: 15px; height: 15px; padding: 0; accent-color: var(--rally); }
+
 .mini-edit {
   font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
   margin-left: 8px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px;
@@ -1079,6 +1134,11 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .ov-day { grid-template-columns: 12px 50px minmax(0, 1fr) auto; gap: 8px; }
   .ov-day .t { font-size: 15px; }
   .budget-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .route-pref-head { align-items: flex-start; }
+  .route-pref-scope { max-width: 25ch; }
+  .route-style-grid button { min-height: 54px; padding: 9px 7px; text-align: center; }
+  .route-style-grid button small { display: none; }
+  .route-pref-foot { align-items: center; }
   .table-wrap .scen-table { min-width: 430px; }
 
   /* feasibility rows go two-deep instead of squeezing five columns */

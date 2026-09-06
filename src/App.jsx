@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { TripContext, reducer, initialState } from './engine/store.js';
 import { routeDay } from './engine/routing.js';
-import { tripSummary, tripPace } from './engine/tripEngine.js';
+import { tripSummary, tripPace, tripRoutePrefs, routePrefsKey } from './engine/tripEngine.js';
 import { tripFeasibility } from './engine/timeline.js';
 import { useIsMobile } from './hooks/useMediaQuery.js';
 import Home from './components/Home.jsx';
@@ -112,15 +112,17 @@ export default function App() {
     try { localStorage.setItem(SCREEN_KEY, screen); } catch { /* non-fatal */ }
   }, [screen]);
 
-  // Route every day whenever its waypoint sequence changes.
-  const routeSignature = state.trip.days
+  // Route every day whenever its waypoint sequence OR the trip-wide road
+  // character changes. The same preferences also flow into Ride Mode.
+  const routePrefs = tripRoutePrefs(state.trip);
+  const routeSignature = routePrefsKey(routePrefs) + '|' + state.trip.days
     .map((d) => d.id + ':' + d.waypoints.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';'))
     .join('|');
   useEffect(() => {
     let cancelled = false;
     (async () => {
       for (const day of state.trip.days) {
-        const r = await routeDay(day);
+        const r = await routeDay(day, routePrefs);
         if (cancelled) return;
         setRoutes((prev) => ({ ...prev, [day.id]: r }));
       }

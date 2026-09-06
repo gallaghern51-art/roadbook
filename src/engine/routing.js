@@ -4,15 +4,17 @@
 // Routes (via the Netlify function, when configured) and then OSRM. Each tier
 // backs off on failure, so the app never depends on a single router.
 
-import { legKey, haversineMiles, projectOnChain } from './tripEngine.js';
+import {
+  legKey, haversineMiles, projectOnChain, normalizeRoutePrefs, routePrefsKey,
+} from './tripEngine.js';
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 
-// v4: planning moved from OSRM car costing to Valhalla motorcycle costing.
+// v5: route-character preferences became part of every Valhalla request and
+// cache key. Flush v4 so a legacy neutral route cannot mask a rider's choice.
 // Cached legs remain UNPACED — the per-trip group-pace multiplier (meta.pace)
-// is applied by consumers, so changing it never invalidates the cache. Older
-// OSRM planning routes flush with this bump rather than masking the new engine.
-const CACHE_KEY = 'sturgis.routeCache.v4';
+// is applied by consumers, so changing pace never invalidates the cache.
+const CACHE_KEY = 'sturgis.routeCache.v5';
 
 // ---- speed calibration ----
 // The public OSRM demo times US highways like a cautious rental car: rural
@@ -145,7 +147,22 @@ const V_MANEUVER = {
   26: ['roundabout', null], 27: ['exit roundabout', null],
 };
 
-async function valhallaRoute(origin, wps) {
+// Valhalla exposes motorcycle preference weights rather than named profiles.
+// Keep their translation in one place so planning, maneuvers, and reroutes can
+// never disagree. `use_trails: 0` is intentional: an unpaved/trail control
+// needs its own safety language and should never arrive as a side effect of
+// asking for back roads.
+function valhallaMotorcycleOptions(value) {
+  const prefs = normalizeRoutePrefs(value);
+  const useHighways = { quick: 1, touring: 0.5, backroads: 0.05 }[prefs.style];
+  return {
+    use_highways: useHighways,
+    use_tolls: prefs.avoidTolls ? 0 : 0.5,
+    use_trails: 0,
+  };
+}
+
+async function valhallaRoute(origin, wps, routePrefs) {
   if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
   const body = {
     locations: [
@@ -166,6 +183,7 @@ async function valhallaRoute(origin, wps) {
       })),
     ],
     costing: 'motorcycle',
+    costing_options: { motorcycle: valhallaMotorcycleOptions(routePrefs) },
     directions_options: { units: 'miles' },
   };
   let res;
@@ -304,12 +322,12 @@ function saveCache() {
 // estimates) but unpaced. `snaps` records how far each pin sat from the routed
 // road — a big number is a mis-placed pin that forces an out-and-back spur;
 // the day panel warns on those so the pin gets fixed at the source.
-export async function routeDay(day) {
+export async function routeDay(day, routePrefs) {
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return { legs: {}, geometry: null };
 
   const c = loadCache();
-  const dayKey = wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
+  const dayKey = `${routePrefsKey(routePrefs)}|${wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';')}`;
   const hit = c[dayKey];
   // A Valhalla result is static until the points move. An OSRM fallback only
   // lives for Valhalla's backoff window; otherwise one transient outage would
@@ -331,7 +349,7 @@ export async function routeDay(day) {
   };
 
   try {
-    const trip = await valhallaRoute(wps[0], wps.slice(1));
+    const trip = await valhallaRoute(wps[0], wps.slice(1), routePrefs);
     if (trip.legs.length !== wps.length - 1) throw new Error('valhalla leg mismatch');
     const legs = {};
     trip.legs.forEach((leg, i) => {
@@ -391,11 +409,11 @@ export async function routeDay(day) {
 // Turn-by-turn maneuvers for Ride Mode. Fetched per day on demand (steps inflate
 // payloads ~10x, so they never ride along with the planning fetch) and cached
 // as compact maneuver points only.
-// v5: Valhalla is authoritative for Ride Mode. Flush v4 so a cached Google
-// route cannot mask the new ordering for up to 15 minutes after deployment.
+// v6: route character now keys navigation maneuvers as well as plan geometry.
+// Flush v5 so a legacy neutral route cannot mask the current trip preference.
 // Durations remain UNPACED — pace applies at read time — and arrive steps carry
 // their stop name for per-leg ETAs.
-const STEP_CACHE = 'moto.stepsCache.v5';
+const STEP_CACHE = 'moto.stepsCache.v6';
 
 // Old cache generations are multi-MB dead weight. Left in place they push
 // localStorage over the phone's quota, every save of the CURRENT cache then
@@ -543,10 +561,10 @@ function saveStepCache(key, value) {
   } catch { localStorage.removeItem(STEP_CACHE); }
 }
 
-export async function routeDaySteps(day, pace = 1) {
+export async function routeDaySteps(day, pace = 1, routePrefs) {
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return [];
-  const key = 'steps|' + wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
+  const key = `steps|${routePrefsKey(routePrefs)}|${wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';')}`;
   const c = loadStepCache();
   const hit = c[key];
   if (Array.isArray(hit)) return paceSteps(hit, pace); // open-source routers: static data, cache forever
@@ -560,7 +578,7 @@ export async function routeDaySteps(day, pace = 1) {
 
   // Motorcycle routing first: navigation follows the same engine as planning.
   try {
-    const trip = await valhallaRoute(wps[0], wps.slice(1));
+    const trip = await valhallaRoute(wps[0], wps.slice(1), routePrefs);
     const steps = await attachRoadDetail(valhallaCompactSteps(trip, wps.slice(1)), wps);
     saveStepCache(key, steps); // no traffic inside — static data caches forever
     return paceSteps(steps, pace);
@@ -625,12 +643,12 @@ export async function routeDayRoads(day) {
 // Never cached (the origin is wherever the bike is right now).
 // Valhalla first, then Google when configured, then OSRM.
 // Returns { geometry, steps, miles, seconds, traffic? } or throws.
-export async function routeFrom(pos, waypoints, pace = 1) {
+export async function routeFrom(pos, waypoints, pace = 1, routePrefs) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
 
   try {
-    const trip = await valhallaRoute(pos, wps);
+    const trip = await valhallaRoute(pos, wps, routePrefs);
     return {
       geometry: valhallaGeometry(trip),
       steps: paceSteps(valhallaCompactSteps(trip, wps), pace),

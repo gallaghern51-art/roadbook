@@ -18,6 +18,27 @@ export function tripPace(trip) {
   return Number.isFinite(p) && p >= 0.8 && p <= 1.6 ? p : DEFAULT_PACE;
 }
 
+// Route character is a trip fact, not a browser preference: everyone sharing
+// the roadbook should plan and navigate the same roads. The public values are
+// deliberately product language rather than router implementation details.
+// `touring` preserves Valhalla's neutral motorcycle behavior for legacy trips.
+export const DEFAULT_ROUTE_PREFS = { style: 'touring', avoidTolls: false };
+const ROUTE_STYLES = new Set(['quick', 'touring', 'backroads']);
+
+export function normalizeRoutePrefs(value) {
+  const style = ROUTE_STYLES.has(value?.style) ? value.style : DEFAULT_ROUTE_PREFS.style;
+  return { style, avoidTolls: value?.avoidTolls === true };
+}
+
+export const tripRoutePrefs = (trip) => normalizeRoutePrefs(trip?.meta?.routePrefs);
+
+// Shared by the request caches and React effects. Keep this stable and compact:
+// a route preference change must invalidate geometry AND turn instructions.
+export const routePrefsKey = (value) => {
+  const p = normalizeRoutePrefs(value);
+  return `${p.style}:${p.avoidTolls ? 'no-tolls' : 'tolls-ok'}`;
+};
+
 export function haversineMiles(a, b) {
   const R = 3958.8;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
