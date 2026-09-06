@@ -37,7 +37,7 @@ and mocks make the sims deterministic.
 | `proposal-check.mjs` | **2/2** | Copilot proposal card fits mobile; "apply as new trip" forks cleanly |
 | `head-font-check.mjs` | **5/6** | Masthead one-row + HUD type at 375/320px. The turn-card assertion never reaches a rendered card in this sim's scenario since the three-row bar restructure — **harness gap, not an app regression** (`.t-dist` is still 36px in `app.css`). |
 | `pace-check.mjs` | **times out** | Group-pace setting. Drifted against the current Trip settings UI — needs its selectors refreshed. |
-| `valhalla-check.mjs` | **2/6, expected** | The Valhalla routing tier, which lives on unmerged **PR #49**, not on `main`. Only meaningful on that branch — and see the warning below. |
+| `valhalla-check.mjs` | **2/6 on `main`, expected** | The Valhalla routing tier lives on **PR #49**, not on `main` — this sim only means anything on that branch, where it now passes **6/6**. See the note below; it is the most instructive script here. |
 
 Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light-ribbon.mjs`,
 `light-late-sim.mjs`, `settings-shot.mjs`, `boot-check.mjs`.
@@ -45,11 +45,19 @@ Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light
 `scenario-check.mjs` was deleted — superseded by `plans-check.mjs` (the day panel is a compact pill
 now, not a chip strip).
 
-## Warning about `valhalla-check.mjs`
+## What `valhalla-check.mjs` actually taught us
 
-It passed 6/6 in August and would still pass **while testing nothing**. `main` has since renamed
-`attachLanes` → `attachRoadDetail`; PR #49 still calls the old name, which is a `ReferenceError`
-swallowed by the tier's own `try/catch` — so the Valhalla tier silently falls through to OSRM on
-every route while the build stays green. If that tier is revived, the sim must assert the tier
-**actually engages**, not merely that its mock parses. Treat this as the cautionary example for
-every sim here: assert the behaviour, not the fixture.
+An earlier version of this README claimed this sim "would pass while testing nothing." **That was
+wrong** and the correction is the useful part.
+
+`main` renamed `attachLanes` → `attachRoadDetail`; the Valhalla tier on PR #49 still called the old
+name, which is a `ReferenceError` swallowed by that tier's own `try/catch` — so it fell through to
+OSRM on every route while the build stayed green. Run against that broken state, this sim fails
+**4/6**, on `OSRM routing fallback never engaged`, because it asserts the fall-through never fires.
+Against the fixed tier it passes 6/6.
+
+So the harness was sound. It was simply never re-run after the rename. **That is a CI gap, not a
+test-design gap** — the argument it makes is for wiring these sims into CI, not for distrusting
+them. It is also the reason to prefer assertions about *observable behaviour* (did the fallback
+engage? does the turn card render text?) over assertions about a fixture's shape: the behavioural
+ones survive refactors of everything around them.
