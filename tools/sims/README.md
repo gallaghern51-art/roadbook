@@ -37,7 +37,7 @@ and mocks make the sims deterministic.
 | `proposal-check.mjs` | **2/2** | Copilot proposal card fits mobile; "apply as new trip" forks cleanly |
 | `head-font-check.mjs` | **5/6** | Masthead one-row + HUD type at 375/320px. The turn-card assertion never reaches a rendered card in this sim's scenario since the three-row bar restructure — **harness gap, not an app regression** (`.t-dist` is still 36px in `app.css`). |
 | `pace-check.mjs` | **times out** | Group-pace setting. Drifted against the current Trip settings UI — needs its selectors refreshed. |
-| `valhalla-check.mjs` | **9/9** | Planning uses Valhalla motorcycle costing with `break_through` intermediate stops and no OSRM fallback; Ride Mode still uses Valhalla after Google and reroutes through the same tier. |
+| `valhalla-check.mjs` | **10/10** | Valhalla owns planning, Ride Mode, and live reroutes; Google and OSRM routing fallbacks remain idle while it is healthy. |
 
 Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light-ribbon.mjs`,
 `light-late-sim.mjs`, `settings-shot.mjs`, `boot-check.mjs`.
@@ -50,6 +50,6 @@ now, not a chip strip).
 The sim independently counts Valhalla, OSRM planning, and OSRM navigation requests. Before Ride
 Mode opens, it proves the plan was built by Valhalla with motorcycle costing, that intermediate
 locations use `break_through`, and that OSRM planning did not engage. It then proves navigation and
-manual retargeting use Valhalla while the turn card renders Valhalla maneuver text. These are
+manual retargeting use Valhalla without calling Google while the turn card renders Valhalla maneuver text. These are
 observable behavior checks: a swallowed exception or accidental fallback fails the sim even when
 the production build still compiles.

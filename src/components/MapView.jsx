@@ -183,8 +183,8 @@ export default function MapView() {
   // not what you are reading at that scale anyway.
   //
   // The refs come from a separate OSRM fetch (routeDayRoads) rather than from
-  // routeDaySteps — that one tries Google first, which is billable per day and
-  // carries no ref field to begin with.
+  // routeDaySteps — its Valhalla output has no route-ref field and its Google
+  // outage fallback is billable, while this small OSRM fetch is static.
   useEffect(() => {
     if (!selectedDayId) { setDayRoads(null); return undefined; }
     const day = trip.days.find((d) => d.id === selectedDayId);

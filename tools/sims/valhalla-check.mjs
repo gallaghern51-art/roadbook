@@ -1,7 +1,7 @@
 // Valhalla verification: the FOSSGIS endpoint is mocked with a spec-shaped
 // response (polyline6 shapes, per-leg summaries, maneuver enums). Planning
-// must use it directly; nav uses it after the absent Google dev function.
-// Neither path may fall through to OSRM routing.
+// must use it directly; nav and live reroutes must use it before Google.
+// Neither path may fall through to another routing engine.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
@@ -34,7 +34,7 @@ const enc6 = (pts) => {
 };
 
 let valhallaCalls = 0, valhallaCosting = null, valhallaLocationTypes = [];
-let osrmPlanningCalls = 0, osrmStepsCalls = 0;
+let googleRouteCalls = 0, osrmPlanningCalls = 0, osrmStepsCalls = 0;
 
 function buildValhalla(reqBody) {
   valhallaCalls++;
@@ -71,6 +71,10 @@ const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (r) => {
   const u = r.request().url();
+  if (u.includes('/.netlify/functions/google-route')) {
+    googleRouteCalls++;
+    return r.continue();
+  }
   if (u.includes('localhost:5199')) return r.continue();
   if (u.includes('valhalla1.openstreetmap.de/route')) {
     return r.fulfill({ json: buildValhalla(r.request().postDataJSON()) });
@@ -158,6 +162,7 @@ const before = valhallaCalls;
 await page.locator('.stop-card', { hasText: 'End Lodge' }).locator('.sc-actions button', { hasText: 'Go next' }).click();
 await page.waitForTimeout(800);
 check(valhallaCalls > before, `Go next rerouted through Valhalla (${before}→${valhallaCalls})`);
+check(googleRouteCalls === 0, `Google never replaced the Valhalla plan (${googleRouteCalls} routing calls)`);
 const nn2 = await page.locator('.rb-next').textContent().catch(() => '');
 check(nn2.includes('End Lodge'), `retarget landed ("${nn2.trim()}")`);
 await page.screenshot({ path: SHOT('valhalla-nav') });

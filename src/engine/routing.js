@@ -1,11 +1,8 @@
-// Road routing. Planning uses Valhalla motorcycle costing first, with OSRM as
-// its safety fallback; both community services are cached hard. Ride Mode
-// navigation runs a three-tier chain: Google Routes first via the
-// google-route Netlify function (live-traffic ETAs; needs GOOGLE_MAPS_API_KEY
-// in the Netlify env), then Valhalla on the FOSSGIS public server (open
-// source, real motorcycle costing, heading-aware), then OSRM — each tier
-// backs off on failure and falls through, so the app never depends on any
-// single router.
+// Road routing. Valhalla motorcycle costing owns both planning and Ride Mode,
+// so opening navigation cannot replace the road the rider chose. If Valhalla
+// is unavailable, Google Routes (via the Netlify function, when configured)
+// and finally OSRM remain safety fallbacks. Each tier backs off on failure, so
+// the app never depends on a single router.
 
 import { legKey, haversineMiles, projectOnChain } from './tripEngine.js';
 
@@ -394,10 +391,11 @@ export async function routeDay(day) {
 // Turn-by-turn maneuvers for Ride Mode. Fetched per day on demand (steps inflate
 // payloads ~10x, so they never ride along with the planning fetch) and cached
 // as compact maneuver points only.
-// v4: step durations are calibrated (SPEED_CURVE) and UNPACED — pace applies at
-// read time — and arrive steps carry their stop name for per-leg ETAs. v3
-// briefly held routes allowed to U-turn at vias (see CACHE_KEY note).
-const STEP_CACHE = 'moto.stepsCache.v4';
+// v5: Valhalla is authoritative for Ride Mode. Flush v4 so a cached Google
+// route cannot mask the new ordering for up to 15 minutes after deployment.
+// Durations remain UNPACED — pace applies at read time — and arrive steps carry
+// their stop name for per-leg ETAs.
+const STEP_CACHE = 'moto.stepsCache.v5';
 
 // Old cache generations are multi-MB dead weight. Left in place they push
 // localStorage over the phone's quota, every save of the CURRENT cache then
@@ -552,21 +550,28 @@ export async function routeDaySteps(day, pace = 1) {
   const c = loadStepCache();
   const hit = c[key];
   if (Array.isArray(hit)) return paceSteps(hit, pace); // open-source routers: static data, cache forever
-  if (hit?.g && Date.now() - hit.at < 15 * 60_000) return paceSteps(hit.steps, pace); // traffic goes stale
+  if (hit?.g) {
+    // Google is an outage fallback now, not the route owner. Keep it only until
+    // either its traffic is stale or Valhalla's backoff ends, whichever is first.
+    const trafficUntil = hit.at + 15 * 60_000;
+    const freshUntil = Math.min(trafficUntil, Number.isFinite(hit.retryAt) ? hit.retryAt : trafficUntil);
+    if (Date.now() < freshUntil) return paceSteps(hit.steps, pace);
+  }
 
-  // Traffic-aware first; Valhalla (motorcycle costing, richer maneuvers) is
-  // the open-source middle tier; OSRM below is the always-works fallback.
-  try {
-    const g = await googleRoute(wps[0], wps.slice(1));
-    const steps = await attachRoadDetail(googleCompactSteps(g, wps.slice(1)), wps);
-    saveStepCache(key, { g: 1, at: Date.now(), steps });
-    return paceSteps(steps, pace);
-  } catch { /* fall through to Valhalla */ }
-
+  // Motorcycle routing first: navigation follows the same engine as planning.
   try {
     const trip = await valhallaRoute(wps[0], wps.slice(1));
     const steps = await attachRoadDetail(valhallaCompactSteps(trip, wps.slice(1)), wps);
     saveStepCache(key, steps); // no traffic inside — static data caches forever
+    return paceSteps(steps, pace);
+  } catch { /* fall through to Google */ }
+
+  // A Valhalla outage should not strand a rider. Google remains the stronger
+  // hosted fallback when configured; OSRM below is the final open fallback.
+  try {
+    const g = await googleRoute(wps[0], wps.slice(1));
+    const steps = await attachRoadDetail(googleCompactSteps(g, wps.slice(1)), wps);
+    saveStepCache(key, { g: 1, at: Date.now(), retryAt: vSkipUntil, steps });
     return paceSteps(steps, pace);
   } catch { /* fall through to OSRM */ }
 
@@ -586,9 +591,9 @@ export async function routeDaySteps(day, pace = 1) {
 // ---- road numbers for the PLAN map ----
 // Shields on the planning map need one thing the planning route does not
 // carry: which route number each stretch runs on. Deliberately NOT served by
-// routeDaySteps — that one tries Google first (billable, per selected day,
-// and Google has no ref field anyway), while OSRM answers with real OSM refs
-// for free. Only the ref and the length it holds are kept, so the whole cache
+// routeDaySteps — routing there may still call Google during a Valhalla outage,
+// and Google has no ref field anyway, while OSRM answers with real OSM refs for
+// free. Only the ref and the length it holds are kept, so the whole cache
 // for an 11-day trip is a few KB.
 const ROAD_CACHE = 'moto.roadCache.v1';
 
@@ -618,11 +623,21 @@ export async function routeDayRoads(day) {
 
 // Live reroute: current GPS position → the day's remaining waypoints.
 // Never cached (the origin is wherever the bike is right now).
-// Traffic-aware via Google when configured, then Valhalla, then OSRM.
+// Valhalla first, then Google when configured, then OSRM.
 // Returns { geometry, steps, miles, seconds, traffic? } or throws.
 export async function routeFrom(pos, waypoints, pace = 1) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
+
+  try {
+    const trip = await valhallaRoute(pos, wps);
+    return {
+      geometry: valhallaGeometry(trip),
+      steps: paceSteps(valhallaCompactSteps(trip, wps), pace),
+      miles: trip.summary?.length ?? 0,
+      seconds: (trip.summary?.time ?? 0) * pace,
+    };
+  } catch { /* fall through to Google */ }
 
   try {
     const g = await googleRoute(pos, wps);
@@ -632,16 +647,6 @@ export async function routeFrom(pos, waypoints, pace = 1) {
       miles: g.distanceMeters / 1609.34,
       seconds: g.durationSeconds * pace,
       traffic: true,
-    };
-  } catch { /* fall through to Valhalla */ }
-
-  try {
-    const trip = await valhallaRoute(pos, wps);
-    return {
-      geometry: valhallaGeometry(trip),
-      steps: paceSteps(valhallaCompactSteps(trip, wps), pace),
-      miles: trip.summary?.length ?? 0,
-      seconds: (trip.summary?.time ?? 0) * pace,
     };
   } catch { /* fall through to OSRM */ }
 
