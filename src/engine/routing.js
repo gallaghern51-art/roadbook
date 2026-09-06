@@ -1,8 +1,8 @@
 // Road routing. Valhalla motorcycle costing owns both planning and Ride Mode,
 // so opening navigation cannot replace the road the rider chose. If Valhalla
-// is unavailable, Google Routes (via the Netlify function, when configured)
-// and finally OSRM remain safety fallbacks. Each tier backs off on failure, so
-// the app never depends on a single router.
+// is unavailable, planning falls directly to OSRM; Ride Mode tries Google
+// Routes (via the Netlify function, when configured) and then OSRM. Each tier
+// backs off on failure, so the app never depends on a single router.
 
 import { legKey, haversineMiles, projectOnChain } from './tripEngine.js';
 
