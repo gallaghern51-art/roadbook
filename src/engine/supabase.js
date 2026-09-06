@@ -10,8 +10,12 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const URL = import.meta.env.VITE_SUPABASE_URL || '';
-const KEY = import.meta.env.VITE_SUPABASE_KEY || '';
+// `?? {}` so the engine still imports under plain node — the check scripts in
+// scripts/ exercise this file's dependents without a bundler, and there
+// import.meta.env does not exist at all.
+const ENV = import.meta.env ?? {};
+const URL = ENV.VITE_SUPABASE_URL || '';
+const KEY = ENV.VITE_SUPABASE_KEY || '';
 
 /** Sync is off entirely when the project is not configured. */
 export const SYNC_ENABLED = Boolean(URL && KEY);

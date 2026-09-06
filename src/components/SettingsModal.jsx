@@ -4,9 +4,10 @@ import { useTrip } from '../engine/store.js';
 import { translationCoverage } from '../i18n/collect.js';
 import { clearTranslateFailure } from '../engine/autoTranslate.js';
 import SyncPanel from './SyncPanel.jsx';
+import AccountPanel from './AccountPanel.jsx';
 
 // Language + theme, per device. Both apply instantly; nothing to save.
-export default function SettingsModal({ sync }) {
+export default function SettingsModal({ sync, auth, backup, onCreateAccount }) {
   const { lang, theme, units, shields, set } = useSettings();
   const t = useT();
   const [devOpen, setDevOpen] = useState(false);
@@ -46,6 +47,8 @@ export default function SettingsModal({ sync }) {
           <p className="set-note">
             {t('Applies on this device only. Trip text and AI answers stay in the language they were written in — ask the optimizer in Spanish and it answers in Spanish.')}
           </p>
+
+          <AccountPanel auth={auth} backup={backup} onCreateAccount={onCreateAccount} />
 
           {sync && <SyncPanel sync={sync} />}
 

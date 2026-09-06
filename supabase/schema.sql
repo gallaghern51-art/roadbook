@@ -64,6 +64,11 @@ returns boolean language sql security definer stable set search_path = public as
   );
 $$;
 
+-- Anonymous Supabase users carry the authenticated role. The unauthenticated
+-- `anon` API role never needs either SECURITY DEFINER helper.
+revoke all on function public.is_trip_member(uuid) from public, anon;
+grant execute on function public.is_trip_member(uuid) to authenticated, service_role;
+
 drop policy if exists trips_read      on public.trips;
 drop policy if exists trips_insert    on public.trips;
 drop policy if exists trips_update    on public.trips;
@@ -110,6 +115,66 @@ begin
 end;
 $$;
 
+revoke all on function public.join_trip(text, text) from public, anon;
+grant execute on function public.join_trip(text, text) to authenticated, service_role;
+
 -- ------------------------------------------------------------- realtime ----
 -- What makes another rider's edit appear on your screen.
 alter publication supabase_realtime add table public.trip_ops;
+
+-- ------------------------------------------------- the rider's library ----
+-- Accounts (src/engine/auth.js) exist for one reason: localStorage is the
+-- device's truth, so deleting the PWA used to delete the roadbook. This is the
+-- second home for a rider's OWN trips — one row per trip in their library.
+--
+-- It is not the same thing as public.trips above, and the difference is the
+-- whole design. public.trips is a CREW's shared plan, joined by code, with
+-- everyone appending to one op log. This is one rider's private shelf. The only
+-- conflict possible is the same person editing on two phones, so it resolves
+-- last-write-wins per trip on updated_at rather than by merging histories.
+--
+-- trip_id is the client's own library id (moto.trips.v1), not a uuid: the point
+-- is that a restored trip is the SAME record it was before the phone died, so
+-- its scenarios, chat and crew binding all still line up.
+create table if not exists public.user_trips (
+  user_id    uuid not null references auth.users on delete cascade,
+  trip_id    text not null,
+  name       text not null,
+  trip       jsonb not null,
+  scenarios  jsonb not null default '[]'::jsonb,
+  chat       jsonb not null default '[]'::jsonb,
+  -- the crew binding ({tripId, joinCode, seq}), so a restored trip rejoins the
+  -- shared plan by itself instead of asking the rider for the code again
+  remote     jsonb,
+  -- soft delete: a trip removed on one phone has to stop coming back on the
+  -- other, and a tombstone is the only way a pull can tell "deleted" from
+  -- "not yet uploaded"
+  deleted_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, trip_id)
+);
+
+create index if not exists user_trips_user_idx on public.user_trips (user_id);
+
+alter table public.user_trips enable row level security;
+
+-- New Supabase projects no longer expose new public tables to the Data API by
+-- default. Grant only the signed-in role; RLS below still decides which rows.
+revoke all on table public.user_trips from authenticated;
+grant select, insert, update, delete on table public.user_trips to authenticated;
+revoke all on table public.user_trips from anon;
+
+drop policy if exists user_trips_own on public.user_trips;
+
+-- Your shelf, and nobody else's. There is no sharing path here on purpose —
+-- sharing a trip is what the join code and public.trips are for.
+create policy user_trips_own on public.user_trips for all
+  to authenticated
+  using (
+    user_id = (select auth.uid())
+    and coalesce((select (auth.jwt()->>'is_anonymous')::boolean), false) is false
+  )
+  with check (
+    user_id = (select auth.uid())
+    and coalesce((select (auth.jwt()->>'is_anonymous')::boolean), false) is false
+  );
