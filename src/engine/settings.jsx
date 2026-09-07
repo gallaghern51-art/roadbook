@@ -266,6 +266,7 @@ const ES = {
   'What is here?': '¿Qué hay aquí?',
   'e.g. Palisades Parkway': 'p. ej. Palisades Parkway',
   'Via': 'Punto de paso',
+  'Shell': 'Contenedor',
   'Favorite': 'Favorito',
   'Work': 'Trabajo',
   'Home': 'Casa',

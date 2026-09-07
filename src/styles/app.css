@@ -4111,6 +4111,19 @@ input:focus, textarea:focus, select:focus {
        installs report a bottom env() far taller than the gesture itself; using
        it lifted this entire control row by ~70pt in the field. Keep the bar at
        the glass and reserve only a small visual gutter. */
-    padding-bottom: 12px;
+    padding-bottom: 6px;
+    position: relative;
+  }
+  /* Whatever strip WebKit reserves below the layout viewport, the bar's own
+     paint continues into it — the way an iOS tab bar runs to the glass while
+     its controls sit above the Home indicator. Without this the reserved strip
+     reads as dead space and the bar looks like it is floating too high, which
+     is exactly how it was reported. Painted, not occupied: nothing tappable
+     moves under the Home gesture. */
+  html[data-app-display='standalone'] .tabnav::after {
+    content: '';
+    position: absolute; left: 0; right: 0; top: 100%; height: 64px;
+    background: inherit;
+    pointer-events: none;
   }
 }
