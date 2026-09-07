@@ -116,6 +116,7 @@ check((await page.locator('.construction-composer textarea').inputValue()).inclu
 await page.screenshot({ path: SHOT('construction-intake-phone'), fullPage: true });
 await page.locator('.construction-composer .btn', { hasText: 'Explore the trip' }).click();
 await page.waitForSelector('.concept-tabs button');
+check(await page.locator('.construction-mobile-nav button.active', { hasText: 'Route plan' }).isVisible(), 'phone moves from conversation to a dedicated route-plan view when options arrive');
 check(await page.locator('.concept-tabs button').count() === 3, 'planner presents three selectable route options');
 check((await page.locator('.concept-facts').innerText()).includes('max fuel gap'), 'selected option exposes measured route and fuel facts');
 check(await page.locator('.concept-stops li').count() >= 5, 'selected option exposes its ordered road and stop pieces');
@@ -126,16 +127,18 @@ await page.getByText('Edit trip details', { exact: true }).click();
 check(await page.locator('.builder-basics').isVisible() && await page.getByText('Done', { exact: true }).isVisible(), 'collapsed trip details remain editable on demand');
 await page.getByText('Done', { exact: true }).click();
 const messageCount = await page.locator('.construction-thread .msg').count();
-const selectedBeforeTabs = await page.locator('.concept-tabs button.active').innerText();
+const selectedBeforeTabs = await page.locator('.concept-tabs button.active').textContent();
+await page.locator('.construction-mobile-nav button', { hasText: 'Conversation' }).click();
 await page.fill('.construction-composer textarea', 'Keep the lunch, but reconsider the hotel.');
 await page.locator('.tabbar button', { hasText: 'Blank' }).click();
 await page.locator('.tabbar button', { hasText: 'AI builder' }).click();
 const tabsPreserved = await page.locator('.concept-tabs button').count() === 3
   && await page.locator('.construction-thread .msg').count() === messageCount
-  && (await page.locator('.concept-tabs button.active').innerText()) === selectedBeforeTabs
+  && (await page.locator('.concept-tabs button.active').textContent()) === selectedBeforeTabs
   && (await page.locator('.construction-composer textarea').inputValue()).includes('reconsider the hotel');
 check(tabsPreserved, 'tab switches preserve the conversation, options, selection, and unsent draft');
 await page.fill('.construction-composer textarea', '');
+await page.locator('.construction-mobile-nav button', { hasText: 'Route plan' }).click();
 const phoneFits = await page.locator('.trip-builder').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
 check(phoneFits, 'construction workbench fits a phone without horizontal clipping');
 await page.screenshot({ path: SHOT('construction-chat-phone'), fullPage: true });
@@ -150,6 +153,7 @@ check((await page.locator('.concept-selected').innerText()).includes('Unaweep Ca
 
 await page.setViewportSize({ width: 1366, height: 900 });
 await page.waitForTimeout(250);
+check(await page.locator('.construction-dialogue').isVisible() && await page.locator('.construction-plan').isVisible(), 'desktop keeps conversation and route plan visible side by side');
 const desktopFits = await page.locator('.trip-builder').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
 check(desktopFits, 'construction workbench fits desktop without clipping');
 await page.screenshot({ path: SHOT('construction-chat-desktop') });

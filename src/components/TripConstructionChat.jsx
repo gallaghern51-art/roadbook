@@ -76,6 +76,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
   const [busyMode, setBusyMode] = useState(null);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState('');
+  const [mobilePane, setMobilePane] = useState('chat');
   const inputRef = useRef(null);
   const selected = useMemo(() => concepts.find((c) => c.id === selectedId) ?? null, [concepts, selectedId]);
   const started = messages.length > 0 || concepts.length > 0;
@@ -117,6 +118,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
       if (data.concepts?.length) {
         setConcepts(data.concepts);
         setSelectedId(data.recommendedId || data.concepts[0].id);
+        setMobilePane('plan');
       }
     } catch (e) {
       setError(String(e.message || e));
@@ -129,6 +131,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
 
   const refine = (text) => {
     setInput(text);
+    setMobilePane('chat');
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -177,69 +180,82 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
   })();
 
   return (
-    <div className={`construction-chat${started ? ' started' : ''}`}>
-      <div className="construction-thread" aria-live="polite">
-        {messages.length === 0 && (
-          <div className="builder-intro">
-            <span className="builder-mark">✦</span>
-            <div><b>Build it with Roadbook</b><p>Describe the ride. I’ll research real stops, measure route choices, and show you the pieces before anything is created.</p></div>
-          </div>
-        )}
-        {messages.map((message, i) => (
-          <div key={i} className={`msg ${message.role === 'user' ? 'user' : 'ai'}`}>{message.content}</div>
-        ))}
-        {busy && <div className="msg ai"><span className="thinking">{status}</span></div>}
-      </div>
-
-      {concepts.length > 0 && (
-        <section className="concept-workbench" aria-label="Route options">
-          <div className="concept-head"><span>Route options</span><small>Select one, then refine any piece in the chat.</small></div>
-          <div className="concept-tabs" role="tablist">
-            {concepts.map((concept) => (
-              <button
-                type="button" role="tab" aria-selected={selectedId === concept.id}
-                className={selectedId === concept.id ? 'active' : ''}
-                key={concept.id} onClick={() => setSelectedId(concept.id)}
-              >
-                <span>{concept.title}</span>
-                <small>{concept.summary}</small>
-              </button>
-            ))}
-          </div>
-          {selected && (
-            <div className="concept-selected">
-              <RouteFacts metrics={selected.metrics} />
-              <ConceptDetail concept={selected} onRefine={refine} />
-            </div>
-          )}
-        </section>
-      )}
-
-      {error && <div className="warning danger">⚠ {error}</div>}
-
-      <div className="construction-composer">
-        <textarea
-          ref={inputRef}
-          rows={3}
-          value={input}
-          disabled={busy}
-          placeholder={messages.length ? 'Change a stop, combine options, add a constraint…' : 'e.g. Six days from Denver for four riders. Great mountain roads, moderate days, one hot-springs night, reliable fuel, memorable local food.'}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); research(); }
-          }}
-        />
-        <button type="button" className="btn gold" disabled={busy || !input.trim()} onClick={() => research()}>
-          {messages.length ? 'Send' : 'Explore the trip'}
-        </button>
-      </div>
-
-      {selected && (
-        <div className="construction-confirm">
-          <div><b>Nothing is created yet.</b><span>Confirm when the route and its pieces feel right.</span></div>
-          <button type="button" className="btn gold" disabled={busy} onClick={build}>Create this trip</button>
+    <div className={`construction-chat${started ? ' started' : ''} mobile-${mobilePane}`}>
+      {started && concepts.length > 0 && (
+        <div className="construction-mobile-nav" aria-label="Construction view">
+          <button type="button" className={mobilePane === 'chat' ? 'active' : ''} aria-pressed={mobilePane === 'chat'} onClick={() => setMobilePane('chat')}>Conversation</button>
+          <button type="button" className={mobilePane === 'plan' ? 'active' : ''} aria-pressed={mobilePane === 'plan'} onClick={() => setMobilePane('plan')}>Route plan</button>
         </div>
       )}
+
+      <section className="construction-dialogue" aria-label="Planning conversation">
+        <div className="construction-thread" aria-live="polite">
+          {messages.length === 0 && (
+            <div className="builder-intro">
+              <span className="builder-mark">✦</span>
+              <div><b>Build it with Roadbook</b><p>Describe the ride. I’ll research real stops, measure route choices, and show you the pieces before anything is created.</p></div>
+            </div>
+          )}
+          {messages.map((message, i) => (
+            <div key={i} className={`msg ${message.role === 'user' ? 'user' : 'ai'}`}>{message.content}</div>
+          ))}
+          {busy && <div className="msg ai"><span className="thinking">{status}</span></div>}
+        </div>
+
+        {error && <div className="warning danger construction-error">⚠ {error}</div>}
+
+        <div className="construction-composer">
+          <textarea
+            ref={inputRef}
+            rows={3}
+            value={input}
+            disabled={busy}
+            placeholder={messages.length ? 'Change a stop, combine options, add a constraint…' : 'e.g. Six days from Denver for four riders. Great mountain roads, moderate days, one hot-springs night, reliable fuel, memorable local food.'}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); research(); }
+            }}
+          />
+          <button type="button" className="btn gold" disabled={busy || !input.trim()} onClick={() => research()}>
+            {messages.length ? 'Send' : 'Explore the trip'}
+          </button>
+        </div>
+      </section>
+
+      <section className="construction-plan" aria-label="Route plan">
+        {concepts.length > 0 ? (
+          <section className="concept-workbench" aria-label="Route options">
+            <div className="concept-head"><span>Route options</span><small>Select one, then refine any piece in the conversation.</small></div>
+            <div className="concept-tabs" role="tablist">
+              {concepts.map((concept) => (
+                <button
+                  type="button" role="tab" aria-selected={selectedId === concept.id}
+                  className={selectedId === concept.id ? 'active' : ''}
+                  key={concept.id} onClick={() => setSelectedId(concept.id)}
+                >
+                  <span>{concept.title}</span>
+                  <small>{concept.summary}</small>
+                </button>
+              ))}
+            </div>
+            {selected && (
+              <div className="concept-selected">
+                <RouteFacts metrics={selected.metrics} />
+                <ConceptDetail concept={selected} onRefine={refine} />
+              </div>
+            )}
+          </section>
+        ) : started ? (
+          <div className="construction-plan-wait"><b>Route plan</b><span>Your researched options will appear here.</span></div>
+        ) : null}
+
+        {selected && (
+          <div className="construction-confirm">
+            <div><b>Nothing is created yet.</b><span>Confirm when the route and its pieces feel right.</span></div>
+            <button type="button" className="btn gold" disabled={busy} onClick={build}>{busyMode === 'build' ? 'Creating…' : 'Create this trip'}</button>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
