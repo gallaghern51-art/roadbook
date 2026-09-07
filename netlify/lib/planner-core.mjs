@@ -6,7 +6,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { searchPlacesGoogle } from './places-core.mjs';
-import { evaluateRouteOptions } from './route-opportunities.mjs';
+import { evaluateRouteOptions, preserveAdditiveRefinement } from './route-opportunities.mjs';
 import { verifyTrip, verifyProposal, describeVerification, findPlace, SPECS } from './verify-places.mjs';
 
 export const SYSTEM = `You are the planning brain of a motorcycle trip planner — the tool riders use to plan multi-day trips end to end (routes, stops, fuel, lodging, meals, timing). The active trip's identity, dates, riders, bike range, and constraints all come from the provided trip state — read them there, never assume.
@@ -70,10 +70,10 @@ This is not a generic "twisty roads" picker. Discover the best opportunities ins
 
 Required workflow:
 1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly.
-2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 12 locations maximum. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip.
+2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip.
 3. After the evaluator returns, call present_route_options. Reference the evaluated concept ids. Never invent miles, time, arrival, fuel gap, climbing or detour cost — Roadbook attaches those measured values itself.
 
-On a follow-up, read the prior conversation and the previously presented concepts. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
+On a follow-up, read the prior conversation and the previously presented concepts. A localized request is a PATCH to each option, not permission to summarize or reconstruct the rest: reuse the prior option ids, retain every unchanged location in exact day/order, apply only the requested edits, then evaluate the complete options. Never omit later-day locations to save output space. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
 
 Group reality matters: rider count affects pace, parking, meal time and fuel time. A stop is not valuable merely because it is popular. Prefer combinations that make the whole day work. Flag opening-hours uncertainty, risky fuel gaps, after-dark arrival, and options that add a lot of saddle time.
 
@@ -127,7 +127,7 @@ export const ROUTE_OPTIONS_TOOL = {
             id: { type: 'string' },
             title: { type: 'string' },
             locations: {
-              type: 'array', minItems: 2, maxItems: 12,
+              type: 'array', minItems: 2, maxItems: 20,
               items: {
                 type: 'object', required: ['name', 'lat', 'lng', 'kind'],
                 properties: {
@@ -218,7 +218,9 @@ async function verifyOpportunityBusinesses(input, emit, { key = process.env.GOOG
 
 // Answer every search_places call in a response; other tool calls in the same
 // (malformed) reply get a nudge so the API contract stays satisfied.
-async function answerToolCalls(response, emit, { routeResults = null, routeOpts = {}, verifyOpts = {} } = {}) {
+async function answerToolCalls(response, emit, {
+  routeResults = null, routeOpts = {}, verifyOpts = {}, refinement = null,
+} = {}) {
   const results = [];
   for (const block of response.content) {
     if (block.type !== 'tool_use') continue;
@@ -238,7 +240,12 @@ async function answerToolCalls(response, emit, { routeResults = null, routeOpts 
       emit({ type: 'beat', note: 'routing options' });
       let content;
       try {
-        const verifiedInput = await verifyOpportunityBusinesses(block.input, emit, verifyOpts);
+        const completeInput = preserveAdditiveRefinement(
+          block.input,
+          refinement?.concepts,
+          refinement?.request,
+        );
+        const verifiedInput = await verifyOpportunityBusinesses(completeInput, emit, verifyOpts);
         const evaluation = await evaluateRouteOptions(verifiedInput, routeOpts);
         routeResults?.push(evaluation);
         content = JSON.stringify(evaluation);
@@ -675,6 +682,7 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
   const t0 = Date.now();
   let allText = '';
   const routeResults = [];
+  const latestRequest = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
 
   for (let round = 0; round < 7; round++) {
     const remaining = budgetMs - (Date.now() - t0);
@@ -741,7 +749,12 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
       emit({ type: 'done', text: allText || 'Tell me what kind of trip you want to build.', concepts: [] });
       return;
     }
-    const toolResults = await answerToolCalls(response, emit, { routeResults, routeOpts, verifyOpts });
+    const toolResults = await answerToolCalls(response, emit, {
+      routeResults,
+      routeOpts,
+      verifyOpts,
+      refinement: { concepts, request: latestRequest },
+    });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });
   }

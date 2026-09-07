@@ -8,9 +8,74 @@
 const DEFAULT_URL = 'https://valhalla1.openstreetmap.de';
 const KM_TO_MI = 0.621371;
 const M_TO_FT = 3.28084;
+export const MAX_ROUTE_LOCATIONS = 20;
 
 const round = (n, places = 0) => Number(Number(n).toFixed(places));
 const finite = (n) => Number.isFinite(Number(n));
+const locationKey = (location = {}) => {
+  if (location.kind === 'start' || location.kind === 'end') return location.kind;
+  const name = String(location.name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  if (name) return `${location.kind || ''}:${name}`;
+  if (location.placeId) return `place:${location.placeId}`;
+  const lat = finite(location.lat) ? Number(location.lat).toFixed(4) : '';
+  const lng = finite(location.lng) ? Number(location.lng).toFixed(4) : '';
+  return `${location.kind || ''}:${lat}:${lng}`;
+};
+
+// An additive refinement is a patch, even though the model has to submit a
+// complete option for Valhalla. Preserve the old sequence mechanically so an
+// abbreviated model reply cannot erase a later day while adding a stop to an
+// earlier one. A shortest common supersequence keeps both orderings and uses
+// the freshly researched object whenever a location appears in both.
+function mergeLocationSequences(previous = [], proposed = []) {
+  const a = previous.map(locationKey);
+  const b = proposed.map(locationKey);
+  const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const merged = [];
+  let i = 0;
+  let j = 0;
+  while (i < previous.length && j < proposed.length) {
+    if (a[i] === b[j]) {
+      merged.push({ ...previous[i], ...proposed[j] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] > dp[i][j + 1]) {
+      merged.push(previous[i++]);
+    } else {
+      merged.push(proposed[j++]);
+    }
+  }
+  while (i < previous.length) merged.push(previous[i++]);
+  while (j < proposed.length) merged.push(proposed[j++]);
+  return merged;
+}
+
+const additiveOnly = (request = '') => {
+  const text = String(request).toLowerCase();
+  const adds = /\b(add|added|include|insert|another|extra|also)\b/.test(text);
+  const removes = /\b(remove|delete|drop|replace|swap|shorten|skip|instead|reroute|re-route|reorder)\b/.test(text);
+  return adds && !removes;
+};
+
+export function preserveAdditiveRefinement(input, previousConcepts = [], request = '') {
+  if (!additiveOnly(request) || !previousConcepts.length) return structuredClone(input ?? {});
+  const copy = structuredClone(input ?? {});
+  const byId = new Map(previousConcepts.map((concept) => [String(concept.id), concept]));
+  const byTitle = new Map(previousConcepts.map((concept) => [String(concept.title || '').trim().toLowerCase(), concept]));
+  copy.concepts = (copy.concepts ?? []).map((concept, index) => {
+    const prior = byId.get(String(concept.id))
+      ?? byTitle.get(String(concept.title || '').trim().toLowerCase())
+      ?? previousConcepts[index];
+    if (!prior?.locations?.length) return concept;
+    return { ...concept, locations: mergeLocationSequences(prior.locations, concept.locations ?? []) };
+  });
+  return copy;
+}
 const clock = (minutes) => {
   const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
   const h = Math.floor(m / 60);
@@ -167,7 +232,14 @@ export async function evaluateRouteOptions(input, {
   const departMin = parseClock(input?.depart);
 
   const options = await Promise.all(concepts.map(async (concept) => {
-    const locations = (concept.locations ?? []).filter((p) => finite(p.lat) && finite(p.lng)).slice(0, 12);
+    const locations = (concept.locations ?? []).filter((p) => finite(p.lat) && finite(p.lng));
+    if (locations.length > MAX_ROUTE_LOCATIONS) {
+      return {
+        id: concept.id,
+        title: concept.title,
+        error: `has ${locations.length} locations; reduce road-shape anchors but preserve requested stops (maximum ${MAX_ROUTE_LOCATIONS})`,
+      };
+    }
     if (locations.length < 2) return { id: concept.id, title: concept.title, error: 'needs at least two located stops' };
     try {
       const data = await jsonPost(fetchImpl, `${String(baseUrl).replace(/\/$/, '')}/route`, {
