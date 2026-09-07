@@ -129,13 +129,22 @@ export default function TripConstructionChat({
   const [selectedId, setSelectedId] = useState(null);
   const [busyMode, setBusyMode] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [live, setLive] = useState('');
   const [error, setError] = useState('');
   const [mobilePane, setMobilePane] = useState('chat');
   const inputRef = useRef(null);
+  const liveRef = useRef(''); // the streamed text, readable synchronously in catch/finally
+  const endRef = useRef(null);
   const selected = useMemo(() => concepts.find((c) => c.id === selectedId) ?? null, [concepts, selectedId]);
   const started = messages.length > 0 || concepts.length > 0;
 
   useEffect(() => onStageChange?.(started), [started, onStageChange]);
+
+  // Text that arrives while the rider watches has to stay in view, or the
+  // narration scrolls out of the pane as fast as it is written.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages, live, busyMode]);
 
   const busy = !!busyMode;
   const setBusy = (mode) => {
@@ -143,12 +152,36 @@ export default function TripConstructionChat({
     onBusyChange?.(!!mode);
   };
 
+  // The planner narrates each research round while it works — "the Catskills
+  // route runs 255 miles with no fuel stop planned, let me fix that before
+  // presenting". Held back until 'done' that arrives as a wall of text about
+  // work already finished. Streamed, it IS the progress display, and the
+  // elapsed stamp on every line proves the job is still moving.
+  const readLine = (obj) => {
+    if (typeof obj.ms === 'number') {
+      setProgress((p) => ({
+        ms: obj.ms,
+        chars: obj.chars ?? p?.chars ?? 0,
+        thinking: obj.thinking ?? p?.thinking ?? 0,
+        note: obj.note ?? p?.note ?? '',
+        thought: obj.thought ?? p?.thought ?? '',
+      }));
+    }
+    if (obj.type === 'delta' && obj.text) {
+      liveRef.current += obj.text;
+      setLive(liveRef.current);
+    }
+  };
+
+  const clearLive = () => { liveRef.current = ''; setLive(''); };
+
   const research = async (preset) => {
     const content = String(preset ?? input).trim();
     if (!content || busy) return;
     setInput('');
     setError('');
     setProgress(null);
+    clearLive();
     const next = [...messages, { role: 'user', content }];
     setMessages(next);
     setBusy('explore');
@@ -159,16 +192,7 @@ export default function TripConstructionChat({
         messages: next,
         concepts,
         preferenceProfile: placePreferences?.profile ?? null,
-      }, (obj) => {
-        if (typeof obj.ms === 'number') {
-          setProgress((p) => ({
-            ms: obj.ms,
-            chars: obj.chars ?? p?.chars ?? 0,
-            thinking: obj.thinking ?? p?.thinking ?? 0,
-            note: obj.note ?? p?.note ?? '',
-          }));
-        }
-      });
+      }, readLine);
       setMessages((old) => [...old, { role: 'assistant', content: data.text || 'Here are the route choices I found.' }]);
       if (data.concepts?.length) {
         setConcepts(data.concepts);
@@ -178,9 +202,14 @@ export default function TripConstructionChat({
     } catch (e) {
       setError(String(e.message || e));
       setInput(content);
+      // Whatever streamed is usually the useful half of a failed round — keep
+      // it in the thread rather than blanking the reasoning along with the run.
+      const partial = liveRef.current.trim();
+      if (partial) setMessages((old) => [...old, { role: 'assistant', content: partial, partial: true }]);
     } finally {
       setBusy(null);
       setProgress(null);
+      clearLive();
     }
   };
 
@@ -200,6 +229,7 @@ export default function TripConstructionChat({
     if (!selected || busy) return;
     setError('');
     setProgress(null);
+    clearLive();
     setBusy('build');
     try {
       const construction = {
@@ -210,16 +240,7 @@ export default function TripConstructionChat({
         mode: 'generate',
         prompt: `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.\n\n${JSON.stringify(construction)}`,
         basics,
-      }, (obj) => {
-        if (typeof obj.ms === 'number') {
-          setProgress((p) => ({
-            ms: obj.ms,
-            chars: obj.chars ?? p?.chars ?? 0,
-            thinking: obj.thinking ?? p?.thinking ?? 0,
-            note: obj.note ?? p?.note ?? '',
-          }));
-        }
-      });
+      }, readLine);
       await placePreferences?.record?.('confirmed', selected.locations, { optionId: selected.id });
       await onTrip(data);
     } catch (e) {
@@ -227,6 +248,7 @@ export default function TripConstructionChat({
     } finally {
       setBusy(null);
       setProgress(null);
+      clearLive();
     }
   };
 
@@ -238,6 +260,7 @@ export default function TripConstructionChat({
     }
     if (progress?.note === 'searching places') return `Checking real places and hours${secs}`;
     if (progress?.note === 'routing options') return `Comparing routes with Valhalla${secs}`;
+    if (progress?.note === 'verifying option stops') return `Verifying every stop is a real business${secs}`;
     return `Working through the route and group tradeoffs${secs}`;
   })();
 
@@ -259,9 +282,16 @@ export default function TripConstructionChat({
             </div>
           )}
           {messages.map((message, i) => (
-            <div key={i} className={`msg ${message.role === 'user' ? 'user' : 'ai'}`}>{message.content}</div>
+            <div key={i} className={`msg ${message.role === 'user' ? 'user' : 'ai'}${message.partial ? ' partial' : ''}`}>{message.content}</div>
           ))}
-          {busy && <div className="msg ai"><span className="thinking">{status}</span></div>}
+          {busy && (
+            <div className="msg ai streaming">
+              {live && <span className="live-text">{live}</span>}
+              <span className="thinking">{status}</span>
+              {progress?.thought && <span className="thought">{progress.thought}</span>}
+            </div>
+          )}
+          <div ref={endRef} />
         </div>
 
         {error && <div className="warning danger construction-error">⚠ {error}</div>}

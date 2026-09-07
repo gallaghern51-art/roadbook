@@ -73,12 +73,16 @@ This is not a generic "twisty roads" picker. Discover the best opportunities ins
 
 Required workflow:
 1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly. For each food, lodging, or attraction location, also include preferenceTags: 1–3 broad, durable descriptors you author from the concept (for example "breakfast diner", "Italian", "boutique hotel", or "history museum"). Do not put ratings, addresses, opening hours, or other measured Places facts in preferenceTags.
-2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip.
+2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip. ALWAYS pass through the routePrefs from <trip_basics> unchanged, so the miles, time and arrival you present are measured with the same road preferences the created trip will be planned and ridden with.
 3. After the evaluator returns, call present_route_options. Reference the evaluated concept ids. Never invent miles, time, arrival, fuel gap, climbing or detour cost — Roadbook attaches those measured values itself.
 
 On a follow-up, read the prior conversation and the previously presented concepts. A localized request is a PATCH to each option, not permission to summarize or reconstruct the rest: reuse the prior option ids, retain every unchanged location in exact day/order, apply only the requested edits, then evaluate the complete options. Never omit later-day locations to save output space. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
 
 When <rider_place_preferences> is present, treat it as soft evidence learned from the rider's prior confirmed choices and replacements. Use it to rank otherwise-good candidates, never to violate route, hours, range, budget or group constraints. A useful surprise may beat habit; briefly say when a recommendation deliberately does.
+
+Route character is the rider's setting, not yours to guess. <trip_basics> carries routePrefs {style: quick|touring|backroads, avoidTolls: boolean}: style is the highway appetite and avoidTolls removes tolled roads, bridges and tunnels from the routing entirely. Never silently substitute different preferences — if a concept only works under other settings, present it under the rider's settings and say plainly what changing them would buy.
+
+Tolls and city crossings are a real cost on a motorcycle — money at a booth, and lane-splitting traffic through a dense core. Watch the geometry before you anchor a leg on a crossing: when the origin and the next stop are on the SAME side of a river, bay or estuary, a route that crosses and re-crosses is almost always the router taking a nominally faster toll crossing rather than the surface corridor the rider wants — name the same-side corridor as a road anchor so the concept follows it. When avoidTolls is true, no concept may depend on a tolled crossing. When it is false, still call out each toll crossing or city-centre transit in the tradeoff, and say what it saves.
 
 Group reality matters: rider count affects pace, parking, meal time and fuel time. A stop is not valuable merely because it is popular. Prefer combinations that make the whole day work. Flag opening-hours uncertainty, risky fuel gaps, after-dark arrival, and options that add a lot of saddle time.
 
@@ -257,7 +261,7 @@ async function verifyOpportunityBusinesses(input, emit, {
 // (malformed) reply get a nudge so the API contract stays satisfied.
 async function answerToolCalls(response, emit, {
   routeResults = null, routeOpts = {}, verifyOpts = {}, refinement = null, placeFacts = null,
-  reconciliation = null,
+  reconciliation = null, defaultRoutePrefs = null,
 } = {}) {
   const corridorFor = (optionId) => [...(routeResults ?? [])].reverse()
     .flatMap((evaluation) => evaluation.options ?? [])
@@ -296,6 +300,13 @@ async function answerToolCalls(response, emit, {
           refinement?.concepts,
           refinement?.request,
         );
+        // A model that omits routePrefs must not silently be measured under the
+        // evaluator's own defaults: the rider set these, and a concept routed
+        // with tolls allowed when the rider asked to avoid them is measured
+        // against roads the trip will never take. Field report (Sep 7, 2026):
+        // a Weehawken -> Nyack leg — same bank of the Hudson — was routed
+        // through the Lincoln Tunnel and back over the GWB.
+        if (defaultRoutePrefs && !completeInput.routePrefs) completeInput.routePrefs = defaultRoutePrefs;
         const verifiedInput = await verifyOpportunityBusinesses(completeInput, emit, { ...verifyOpts, placeFacts });
         const evaluation = await evaluateRouteOptions(verifiedInput, routeOpts);
         routeResults?.push(evaluation);
@@ -589,11 +600,16 @@ export function withDeadline(stream, ms) {
 export function trackProgress(stream, emit) {
   const seen = { chars: 0, thinking: 0, text: 0 };
   let lastPing = 0;
+  // A rolling tail of the summarized reasoning. Held RAW — the display line is
+  // derived at emit time, because trimming in place and appending to the
+  // trimmed result would splice the ellipsis into the middle of a sentence.
+  let tail = '';
   stream.on('streamEvent', (event) => {
     if (event?.type !== 'content_block_delta') return;
     const delta = event.delta ?? {};
     if (delta.type === 'thinking_delta') {
       seen.thinking += delta.thinking?.length ?? 0;
+      tail = (tail + (delta.thinking ?? '')).slice(-600);
     } else if (delta.type === 'text_delta') {
       seen.text += delta.text?.length ?? 0;
       return; // already emitted as a 'delta'
@@ -605,10 +621,19 @@ export function trackProgress(stream, emit) {
     const total = seen.chars + seen.thinking;
     if (total - lastPing >= 400) {
       lastPing = total;
-      emit({ type: 'building', chars: seen.chars, thinking: seen.thinking });
+      emit({ type: 'building', chars: seen.chars, thinking: seen.thinking, thought: lastLine(tail) });
     }
   });
   return seen;
+}
+
+// Reasoning summaries arrive as prose with headings and blank lines. Keep the
+// last non-empty line, trimmed to something that fits one row of a status
+// strip — this is a glance, not a transcript.
+export function lastLine(text, max = 120) {
+  const line = String(text ?? '').split('\n').map((s) => s.trim()).filter(Boolean).pop() ?? '';
+  const clean = line.replace(/^[#*\-\s]+/, '').replace(/\*\*/g, '').trim();
+  return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
 }
 
 // What to tell the rider when a budget runs out, based on how far it got.
@@ -944,6 +969,7 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
       verifyOpts,
       refinement: { concepts, request: latestRequest },
       placeFacts,
+      defaultRoutePrefs: basics.routePrefs ?? null,
     });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });

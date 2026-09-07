@@ -16,6 +16,12 @@ import { makeClient, runChat, runExplore, runGenerate, friendlyError, BACKGROUND
 // than the model does. Coalesce to roughly one write a second, but never lose
 // the terminal record.
 const FLUSH_MS = 900;
+// The model's own emits stop entirely while a tool round runs — Google Places
+// lookups and up to three Valhalla bundle evaluations are tens of seconds of
+// server work with nothing to report. The streaming transport keeps bytes
+// flowing with a 2s beat; this one has to keep the RECORD moving for the same
+// reason, or the client's counter (driven by record.ms) reads as a hang.
+const HEARTBEAT_MS = 1000;
 
 export default async (req) => {
   let body;
@@ -33,9 +39,9 @@ export default async (req) => {
 
   let lastFlush = 0;
   let pending = null;
+  let finished = false;
   const write = async () => {
     lastFlush = Date.now();
-    pending = null;
     record.ms = Date.now() - t0;
     try {
       await store.setJSON(jobId, record);
@@ -43,12 +49,22 @@ export default async (req) => {
       /* a dropped progress write is survivable; the terminal write retries */
     }
   };
+  // `pending` guards against overlapping blob writes, so it MUST be released
+  // when the write settles. Clearing it inside write() only ever cleared the
+  // slot the caller was about to fill: the assignment `pending = write()` runs
+  // the body first, then stores the promise — which nothing then removed. One
+  // throttled write would latch the guard forever, and record.ms froze at
+  // whatever the first progress emit measured (~10s in, mid-thinking), for the
+  // whole rest of the job.
   const flush = (force) => {
-    if (force) return write();
-    if (Date.now() - lastFlush >= FLUSH_MS && !pending) {
-      pending = write();
+    if (force) {
+      pending = null;
+      return write();
     }
-    return pending ?? Promise.resolve();
+    if (pending || Date.now() - lastFlush < FLUSH_MS) return pending ?? Promise.resolve();
+    const p = write().finally(() => { if (pending === p) pending = null; });
+    pending = p;
+    return p;
   };
 
   // runChat/runGenerate call emit synchronously; accumulate and let the
@@ -58,6 +74,9 @@ export default async (req) => {
     else if (obj.type === 'building') {
       record.chars = obj.chars ?? record.chars;
       record.thinking = obj.thinking ?? record.thinking;
+      // The summarized reasoning is the only live signal before the model has
+      // written a word of prose — the polled record is where it has to ride.
+      if (obj.thought) record.thought = obj.thought;
     } else if (obj.type === 'beat' && obj.note) {
       // Phase labels (place verification) — the streaming transport shows
       // these as they arrive; here they have to ride the polled record or a
@@ -81,6 +100,13 @@ export default async (req) => {
 
   await write(); // claim the job immediately so polling sees "running", not "pending"
 
+  // Keeps record.ms advancing across a silent tool round. It only ever
+  // restamps elapsed time onto the record the job already holds, so it can
+  // never race a terminal write into being overwritten with a stale status.
+  const heart = setInterval(() => {
+    if (!finished && !pending) flush();
+  }, HEARTBEAT_MS);
+
   try {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw Object.assign(new Error('ANTHROPIC_API_KEY is not set on this Netlify site.'), { status: 401, code: 'not_configured' });
@@ -97,6 +123,9 @@ export default async (req) => {
     record.status = 'error';
     record.message = friendlyError(err);
     if (err?.code) record.code = err.code;
+  } finally {
+    finished = true;
+    clearInterval(heart);
   }
 
   // A job that ends without a terminal status was killed mid-flight; say so

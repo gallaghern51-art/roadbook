@@ -11,6 +11,7 @@
     "account:check": "node scripts/account-check.mjs",
     "opportunities:check": "node scripts/route-opportunities-check.mjs",
     "preferences:check": "node scripts/place-preferences-check.mjs",
+    "builder-progress:check": "node scripts/builder-progress-check.mjs",
     "route-preview:check": "node scripts/route-preview-check.mjs"
   },
   "dependencies": {
