@@ -1528,6 +1528,12 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   }
   /* The identity block becomes a card so the map shows around it instead of
      behind a full-width bar. */
+  /* The wordmark is furniture on the map. A rider looking at their route knows
+     which app they are in; what they need named is the TRIP. Dropping it here
+     also takes a whole line out of the floating card — which is the line that
+     was reaching up into the Dynamic Island. The back button remains the way
+     out, and the wordmark is still on Home and in the browser tab. */
+  .app.map-full .mast-id .brand { display: none; }
   .app.map-full .mast-id {
     flex: 0 1 auto;
     padding: 6px 12px 7px; border-radius: 14px;
@@ -4127,3 +4133,21 @@ input:focus, textarea:focus, select:focus {
     pointer-events: none;
   }
 }
+
+/* ---- crash screen -------------------------------------------------------
+   Deliberately plain: it has to render when the app's own machinery is what
+   failed, so it leans on nothing but base tokens. */
+.crash-screen {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: max(24px, env(safe-area-inset-top, 0px)) 24px max(24px, env(safe-area-inset-bottom, 0px));
+  background: var(--asphalt-0, #0b0d10); color: var(--ink, #f2ede4);
+}
+.crash-body { max-width: 34rem; display: flex; flex-direction: column; gap: 14px; }
+.crash-body h2 { font-family: var(--body); font-size: 22px; letter-spacing: -0.02em; }
+.crash-body p { color: var(--ink-dim, #b9b2a6); line-height: 1.5; }
+.crash-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.crash-actions .btn { min-height: 44px; }
+.crash-body details { color: var(--ink-faint, #8a8a8a); font-size: 12px; }
+.crash-body summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.crash-body code { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11.5px; word-break: break-word; }
