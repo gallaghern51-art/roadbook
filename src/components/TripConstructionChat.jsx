@@ -13,6 +13,52 @@ const kindLabel = {
   lodging: 'Stay', attraction: 'Experience',
 };
 
+const priceLabel = {
+  PRICE_LEVEL_FREE: 'Free',
+  PRICE_LEVEL_INEXPENSIVE: '$',
+  PRICE_LEVEL_MODERATE: '$$',
+  PRICE_LEVEL_EXPENSIVE: '$$$',
+  PRICE_LEVEL_VERY_EXPENSIVE: '$$$$',
+};
+
+const mapsUrl = (stop) => stop.googleMapsUri
+  || (stop.placeId ? `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(stop.placeId)}&query=${encodeURIComponent(stop.name || '')}` : null);
+
+function PlaceDetails({ stop }) {
+  const mapHref = mapsUrl(stop);
+  const hasDetails = stop.detail || Number.isFinite(stop.rating) || stop.priceLevel
+    || stop.hours?.length || stop.phone || stop.websiteUri || mapHref;
+  const hasGooglePlace = Boolean(stop.placeId || stop.googleMapsUri);
+  if (!hasGooglePlace || !hasDetails || !['food', 'lodging', 'attraction'].includes(stop.kind)) return null;
+  return (
+    <details className="place-details">
+      <summary>
+        <span>Place details</span>
+        <span className="place-glance">
+          {Number.isFinite(stop.rating) && <b>{stop.rating.toFixed(1)} ★</b>}
+          {Number.isFinite(stop.userRatingCount) && <small>{stop.userRatingCount.toLocaleString()} ratings</small>}
+          {stop.priceLevel && <b>{priceLabel[stop.priceLevel] || stop.priceLevel}</b>}
+        </span>
+      </summary>
+      <div className="place-details-body">
+        {stop.detail && <address>{stop.detail}</address>}
+        {stop.hours?.length > 0 && (
+          <div className="place-hours">
+            <b>Weekly hours</b>
+            <ul>{stop.hours.map((line) => <li key={line}>{line}</li>)}</ul>
+          </div>
+        )}
+        <div className="place-links">
+          {mapHref && <a href={mapHref} target="_blank" rel="noreferrer">Google Maps ↗</a>}
+          {stop.websiteUri && <a href={stop.websiteUri} target="_blank" rel="noreferrer">Website ↗</a>}
+          {stop.phone && <a href={`tel:${stop.phone}`}>{stop.phone}</a>}
+        </div>
+        <div className="place-attribution">Place information by <span translate="no">Google Maps</span></div>
+      </div>
+    </details>
+  );
+}
+
 function RouteFacts({ metrics }) {
   if (!metrics) return <span className="concept-error">Route could not be measured</span>;
   return (
@@ -31,7 +77,7 @@ function RouteFacts({ metrics }) {
   );
 }
 
-function ConceptDetail({ concept, onRefine }) {
+function ConceptDetail({ concept, onRefine, onReject }) {
   return (
     <div className="concept-detail">
       <div className="concept-story">
@@ -46,15 +92,21 @@ function ConceptDetail({ concept, onRefine }) {
         {(concept.locations ?? []).map((stop, i) => (
           <React.Fragment key={`${stop.placeId || stop.name}-${i}`}>
           {(i === 0 || concept.locations[i - 1]?.kind === 'lodging') && <li className="concept-day">Day {(concept.locations.slice(0, i).filter((p) => p.kind === 'lodging').length) + 1}</li>}
-          <li>
-            <span className={`stop-kind ${stop.kind}`}>{kindLabel[stop.kind] || 'Stop'}</span>
-            <span className="stop-copy">
-              <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified with Google Places"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
-              {stop.detail && <small>{stop.detail}</small>}
-            </span>
-            {i > 0 && i < concept.locations.length - 1 && (
-              <button type="button" onClick={() => onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`)}>Change</button>
-            )}
+          <li className="concept-stop">
+            <div className="concept-stop-row">
+              <span className={`stop-kind ${stop.kind}`}>{kindLabel[stop.kind] || 'Stop'}</span>
+              <span className="stop-copy">
+                <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified with Google Places"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
+                {stop.detail && <small>{stop.detail}</small>}
+              </span>
+              {i > 0 && i < concept.locations.length - 1 && (
+                <button type="button" onClick={() => {
+                  onReject?.(stop, concept);
+                  onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
+                }}>Change</button>
+              )}
+            </div>
+            <PlaceDetails stop={stop} />
           </li>
           </React.Fragment>
         ))}
@@ -68,7 +120,9 @@ function ConceptDetail({ concept, onRefine }) {
   );
 }
 
-export default function TripConstructionChat({ initialPrompt = '', basics, onTrip, onBusyChange, onStageChange }) {
+export default function TripConstructionChat({
+  initialPrompt = '', basics, onTrip, onBusyChange, onStageChange, placePreferences,
+}) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState(initialPrompt);
   const [concepts, setConcepts] = useState([]);
@@ -104,6 +158,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
         basics,
         messages: next,
         concepts,
+        preferenceProfile: placePreferences?.profile ?? null,
       }, (obj) => {
         if (typeof obj.ms === 'number') {
           setProgress((p) => ({
@@ -135,6 +190,12 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
+  const selectConcept = (concept) => {
+    if (concept.id === selectedId) return;
+    setSelectedId(concept.id);
+    placePreferences?.record?.('selected', concept.locations, { optionId: concept.id });
+  };
+
   const build = async () => {
     if (!selected || busy) return;
     setError('');
@@ -159,6 +220,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
           }));
         }
       });
+      await placePreferences?.record?.('confirmed', selected.locations, { optionId: selected.id });
       await onTrip(data);
     } catch (e) {
       setError(String(e.message || e));
@@ -231,7 +293,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
                 <button
                   type="button" role="tab" aria-selected={selectedId === concept.id}
                   className={selectedId === concept.id ? 'active' : ''}
-                  key={concept.id} onClick={() => setSelectedId(concept.id)}
+                  key={concept.id} onClick={() => selectConcept(concept)}
                 >
                   <span>{concept.title}</span>
                   <small>{concept.summary}</small>
@@ -241,7 +303,11 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
             {selected && (
               <div className="concept-selected">
                 <RouteFacts metrics={selected.metrics} />
-                <ConceptDetail concept={selected} onRefine={refine} />
+                <ConceptDetail
+                  concept={selected}
+                  onRefine={refine}
+                  onReject={(stop, concept) => placePreferences?.record?.('rejected', [stop], { optionId: concept.id })}
+                />
               </div>
             )}
           </section>

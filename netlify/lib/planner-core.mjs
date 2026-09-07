@@ -69,11 +69,13 @@ export const EXPLORE_SYSTEM = `You are Roadbook's AI-native motorcycle trip desi
 This is not a generic "twisty roads" picker. Discover the best opportunities inside the trip the rider described: memorable roads, safe fuel anchors, food worth the stop, lodging that improves the shape of the next day, and attractions that justify their detour. Explain what each bundle buys and costs for this specific group.
 
 Required workflow:
-1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly.
+1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly. For each food, lodging, or attraction location, also include preferenceTags: 1–3 broad, durable descriptors you author from the concept (for example "breakfast diner", "Italian", "boutique hotel", or "history museum"). Do not put ratings, addresses, opening hours, or other measured Places facts in preferenceTags.
 2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip.
 3. After the evaluator returns, call present_route_options. Reference the evaluated concept ids. Never invent miles, time, arrival, fuel gap, climbing or detour cost — Roadbook attaches those measured values itself.
 
 On a follow-up, read the prior conversation and the previously presented concepts. A localized request is a PATCH to each option, not permission to summarize or reconstruct the rest: reuse the prior option ids, retain every unchanged location in exact day/order, apply only the requested edits, then evaluate the complete options. Never omit later-day locations to save output space. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
+
+When <rider_place_preferences> is present, treat it as soft evidence learned from the rider's prior confirmed choices and replacements. Use it to rank otherwise-good candidates, never to violate route, hours, range, budget or group constraints. A useful surprise may beat habit; briefly say when a recommendation deliberately does.
 
 Group reality matters: rider count affects pace, parking, meal time and fuel time. A stop is not valuable merely because it is popular. Prefer combinations that make the whole day work. Flag opening-hours uncertainty, risky fuel gaps, after-dark arrival, and options that add a lot of saddle time.
 
@@ -134,6 +136,11 @@ export const ROUTE_OPTIONS_TOOL = {
                   name: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
                   kind: { type: 'string', enum: ['start', 'end', 'road', 'fuel', 'food', 'lodging', 'attraction'] },
                   detail: { type: 'string' }, placeId: { type: 'string' }, dwell: { type: 'number' },
+                  rating: { type: 'number' }, userRatingCount: { type: 'integer' }, priceLevel: { type: 'string' },
+                  googleMapsUri: { type: 'string' }, websiteUri: { type: 'string' }, phone: { type: 'string' },
+                  primaryType: { type: 'string' }, types: { type: 'array', items: { type: 'string' } },
+                  preferenceTags: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string' } },
+                  hours: { type: 'array', items: { type: 'string' } },
                 },
               },
             },
@@ -172,8 +179,28 @@ export const PRESENT_OPTIONS_TOOL = {
   },
 };
 
-async function verifyOpportunityBusinesses(input, emit, { key = process.env.GOOGLE_MAPS_API_KEY, searchImpl } = {}) {
+const enrichOpportunityLocation = (location, fact) => {
+  if (!fact) return;
+  location.name = fact.name || location.name;
+  location.detail = fact.detail || location.detail;
+  location.placeId = fact.id || location.placeId;
+  for (const field of [
+    'hours', 'rating', 'userRatingCount', 'priceLevel', 'googleMapsUri',
+    'websiteUri', 'phone', 'primaryType', 'types',
+  ]) {
+    if (fact[field] !== undefined && fact[field] !== null) location[field] = fact[field];
+  }
+};
+
+async function verifyOpportunityBusinesses(input, emit, {
+  key = process.env.GOOGLE_MAPS_API_KEY, searchImpl, placeFacts,
+} = {}) {
   const copy = structuredClone(input ?? {});
+  for (const concept of copy.concepts ?? []) {
+    for (const location of concept.locations ?? []) {
+      enrichOpportunityLocation(location, placeFacts?.get(location.placeId));
+    }
+  }
   if (!key) return copy;
   const tasks = (copy.concepts ?? []).flatMap((concept) => (concept.locations ?? [])
     .filter((location) => SPECS[location.kind])
@@ -203,8 +230,7 @@ async function verifyOpportunityBusinesses(input, emit, { key = process.env.GOOG
         task.location.lat = hit.lat;
         task.location.lng = hit.lng;
         task.location.placeId = hit.id;
-        task.location.detail = hit.detail || task.location.detail;
-        task.location.hours = hit.hours ?? null;
+        enrichOpportunityLocation(task.location, hit);
         task.location.verified = 'google';
       } catch {
         // A Places outage is not evidence that a stop is fake. Leave it
@@ -219,7 +245,7 @@ async function verifyOpportunityBusinesses(input, emit, { key = process.env.GOOG
 // Answer every search_places call in a response; other tool calls in the same
 // (malformed) reply get a nudge so the API contract stays satisfied.
 async function answerToolCalls(response, emit, {
-  routeResults = null, routeOpts = {}, verifyOpts = {}, refinement = null,
+  routeResults = null, routeOpts = {}, verifyOpts = {}, refinement = null, placeFacts = null,
 } = {}) {
   const results = [];
   for (const block of response.content) {
@@ -228,9 +254,16 @@ async function answerToolCalls(response, emit, {
       emit({ type: 'beat', note: 'searching places' });
       let content;
       try {
-        const key = process.env.GOOGLE_MAPS_API_KEY;
+        const key = verifyOpts.key ?? process.env.GOOGLE_MAPS_API_KEY;
         if (!key) throw new Error('place search not configured on this site');
-        const places = await searchPlacesGoogle(key, block.input?.query ?? '', block.input?.near, { limit: 6, hours: true });
+        const search = verifyOpts.searchImpl ?? searchPlacesGoogle;
+        const places = await search(key, block.input?.query ?? '', block.input?.near, {
+          limit: 6,
+          hours: true,
+          enrich: true,
+          classify: true,
+        });
+        for (const place of places) placeFacts?.set(place.id, place);
         content = JSON.stringify(places.length ? places : { note: 'no matches — try a broader query' });
       } catch (e) {
         content = JSON.stringify({ error: String(e.message).slice(0, 200) });
@@ -245,7 +278,7 @@ async function answerToolCalls(response, emit, {
           refinement?.concepts,
           refinement?.request,
         );
-        const verifiedInput = await verifyOpportunityBusinesses(completeInput, emit, verifyOpts);
+        const verifiedInput = await verifyOpportunityBusinesses(completeInput, emit, { ...verifyOpts, placeFacts });
         const evaluation = await evaluateRouteOptions(verifiedInput, routeOpts);
         routeResults?.push(evaluation);
         content = JSON.stringify(evaluation);
@@ -580,6 +613,7 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
   const convo = buildChatMessages({ messages, tripDigest, tripJson, scenarios });
   const t0 = Date.now();
   let allText = '';
+  const placeFacts = new Map();
 
   // Agentic loop: the model may call search_places (answered server-side) any
   // number of rounds before its final answer / proposal, within the budget.
@@ -658,7 +692,7 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
     }
     // Answer the searches and go around again (a stray proposal in the same
     // reply gets deferred by answerToolCalls).
-    const toolResults = await answerToolCalls(response, emit, { routeOpts, verifyOpts });
+    const toolResults = await answerToolCalls(response, emit, { routeOpts, verifyOpts, placeFacts });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });
   }
@@ -673,8 +707,11 @@ function priorConceptContext(concepts = []) {
 // Pre-trip conversation. The model researches; Valhalla measures; the rider
 // decides. A generated itinerary is deliberately impossible from this mode.
 export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, background = false, routeOpts = {}, verifyOpts = {} }) {
-  const { messages = [], basics = {}, concepts = [] } = body;
-  const basicsBlock = `<trip_basics>\n${JSON.stringify(basics)}\n</trip_basics>${priorConceptContext(concepts)}`;
+  const { messages = [], basics = {}, concepts = [], preferenceProfile = null } = body;
+  const preferenceBlock = preferenceProfile
+    ? `\n\n<rider_place_preferences>\n${JSON.stringify(preferenceProfile)}\n</rider_place_preferences>`
+    : '';
+  const basicsBlock = `<trip_basics>\n${JSON.stringify(basics)}\n</trip_basics>${preferenceBlock}${priorConceptContext(concepts)}`;
   const convo = messages.map((m, i) => ({
     role: m.role,
     content: i === 0 && m.role === 'user' ? `${basicsBlock}\n\n${m.content}` : m.content,
@@ -682,6 +719,7 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
   const t0 = Date.now();
   let allText = '';
   const routeResults = [];
+  const placeFacts = new Map();
   const latestRequest = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
 
   for (let round = 0; round < 7; round++) {
@@ -754,6 +792,7 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
       routeOpts,
       verifyOpts,
       refinement: { concepts, request: latestRequest },
+      placeFacts,
     });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });

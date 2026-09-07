@@ -522,6 +522,7 @@ export default function App() {
         {newTrip && (
           <NewTripModal
             initial={newTrip}
+            account={auth.account}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setScreen('trip'); setMode('plan'); setPanelOpen(true); }}
           />
@@ -634,6 +635,7 @@ export default function App() {
         {newTrip && (
           <NewTripModal
             initial={newTrip}
+            account={auth.account}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setMode('plan'); setPanelOpen(true); }}
           />

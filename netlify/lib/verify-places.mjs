@@ -152,6 +152,7 @@ export async function findPlace(key, { name, near, spec, searchImpl }) {
   const run = (query) => search(key, query, near, {
     limit: 6,
     hours: spec.hours,
+    enrich: spec.hours,
     type: spec.type,
     classify: true,
     radiusM: Math.round(spec.maxMi * 1609.34),

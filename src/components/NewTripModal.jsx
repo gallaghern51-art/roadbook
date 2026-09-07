@@ -4,11 +4,12 @@ import { blankDay, uid } from '../engine/ops.js';
 import { cascadeDates } from '../engine/dates.js';
 import { geocode } from '../engine/geocode.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
+import { usePlacePreferences } from '../engine/placePreferences.js';
 import TripConstructionChat from './TripConstructionChat.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function NewTripModal({ onClose, onCreated, initial }) {
+export default function NewTripModal({ onClose, onCreated, initial, account }) {
   const { dispatch } = useTrip();
   const [tab, setTab] = useState(initial?.tab ?? 'ai'); // ai | blank | template
   const [name, setName] = useState('');
@@ -21,6 +22,7 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
   const [aiStarted, setAiStarted] = useState(false);
   const [editBasics, setEditBasics] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false); // two-tap close while a build runs
+  const placePreferences = usePlacePreferences(account);
   // Home hands off here after trip creation so the app can land in the workspace.
   const created = () => (onCreated ? onCreated() : onClose());
 
@@ -208,6 +210,7 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
               onTrip={acceptAiTrip}
               onBusyChange={setBusy}
               onStageChange={setAiStarted}
+              placePreferences={placePreferences}
             />
           </div>
           {tab === 'template' && (

@@ -172,6 +172,9 @@ await runExplore({
     searchImpl: async (_key, _query, near) => [{
       id: 'verified-fuel', name: 'Real Fuel', detail: 'On the route',
       lat: near.lat, lng: near.lng, status: 'OPERATIONAL', hours: ['Open daily'],
+      rating: 4.6, userRatingCount: 212, priceLevel: 'PRICE_LEVEL_INEXPENSIVE',
+      googleMapsUri: 'https://maps.google.com/fuel', websiteUri: 'https://fuel.example', phone: '555-0100',
+      primaryType: 'gas_station', types: ['gas_station'],
     }],
   },
 });
@@ -185,6 +188,8 @@ assert.equal(done.concepts.length, 2);
 assert.equal(done.concepts[0].locations[1].placeId, 'google-lunch');
 assert.equal(done.concepts[0].locations[2].placeId, 'verified-fuel');
 assert.equal(done.concepts[0].locations[2].verified, 'google');
+assert.equal(done.concepts[0].locations[2].rating, 4.6);
+assert.equal(done.concepts[0].locations[2].googleMapsUri, 'https://maps.google.com/fuel');
 assert.ok(Number.isFinite(done.concepts[0].metrics.miles));
 console.log('PASS AI construction researches, evaluates, and returns inspectable route options before generation');
 

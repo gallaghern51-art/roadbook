@@ -20,7 +20,7 @@ const options = (revision = 1) => [
       { name: 'Durango', lat: 37.2753, lng: -107.8801, kind: 'start' },
       { name: revision === 1 ? 'Million Dollar Highway' : 'Coal Bank Pass', lat: 37.9, lng: -107.67, kind: 'road', detail: 'US-550' },
       { name: 'Conoco, Ouray', lat: 38.02, lng: -107.67, kind: 'fuel', placeId: 'fuel-1', detail: 'Verified on the route' },
-      { name: 'Brickhouse 737', lat: 38.02, lng: -107.67, kind: 'food', placeId: 'food-1', detail: 'Verified lunch' },
+      { name: 'Brickhouse 737', lat: 38.02, lng: -107.67, kind: 'food', placeId: 'food-1', detail: '737 Main St, Ouray, CO', rating: 4.7, userRatingCount: 842, priceLevel: 'PRICE_LEVEL_MODERATE', googleMapsUri: 'https://maps.google.com/brickhouse', websiteUri: 'https://example.com/brickhouse', phone: '(970) 555-0137', hours: ['Monday: 11:00 AM–9:00 PM', 'Tuesday: 11:00 AM–9:00 PM'], preferenceTags: ['new American', 'date-night'] },
       { name: 'Ouray Hot Springs', lat: 38.03, lng: -107.67, kind: 'lodging', placeId: 'stay-1', detail: 'Recovery-night anchor' },
       { name: 'Durango', lat: 37.2753, lng: -107.8801, kind: 'end' },
     ],
@@ -121,6 +121,13 @@ check(await page.locator('.concept-tabs button').count() === 3, 'planner present
 check((await page.locator('.concept-facts').innerText()).includes('max fuel gap'), 'selected option exposes measured route and fuel facts');
 check(await page.locator('.concept-stops li').count() >= 5, 'selected option exposes its ordered road and stop pieces');
 check(await page.locator('.concept-stops .stop-verified').count() >= 2, 'verified opportunity stops are visibly distinguished');
+const placeDetails = page.locator('.concept-stop', { hasText: 'Brickhouse 737' }).locator('.place-details');
+check(await placeDetails.locator('summary').isVisible(), 'verified food, lodging, and experiences offer expandable place details');
+await placeDetails.locator('summary').click();
+check((await placeDetails.innerText()).includes('4.7 ★')
+  && (await placeDetails.innerText()).includes('737 Main St')
+  && await placeDetails.locator('a', { hasText: 'Google Maps' }).getAttribute('href') === 'https://maps.google.com/brickhouse', 'expanded place details show ratings, address, hours, and useful links');
+check(await placeDetails.locator('.place-attribution').getByText('Google Maps', { exact: true }).isVisible(), 'expanded Google place content carries visible attribution');
 check(await page.locator('.construction-confirm').getByText('Nothing is created yet.').isVisible(), 'trip stays uncommitted while the rider refines it');
 check(!await page.locator('.builder-basics').isVisible() && await page.locator('.builder-context').isVisible(), 'trip inputs collapse to a compact summary once construction starts');
 await page.getByText('Edit trip details', { exact: true }).click();
