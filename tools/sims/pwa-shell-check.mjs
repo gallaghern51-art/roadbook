@@ -248,8 +248,44 @@ const bottom = await page.evaluate(() => {
     padding: Math.round(parseFloat(getComputedStyle(bar).paddingBottom)),
   };
 });
-check(bottom.bottom === bottom.viewport && bottom.padding === 12,
+// The exact inset is a judgement call that has already moved twice on field
+// feedback ("too high", then "lower"). Assert the INTENT — the bar reaches the
+// glass and keeps only a token gutter — rather than a number that churns.
+check(bottom.bottom === bottom.viewport && bottom.padding > 0 && bottom.padding <= 12,
   `the mode bar reaches the edge with compact gesture clearance (bottom ${bottom.bottom}, inset ${bottom.padding}px)`);
+
+// ---- nothing may add scrollable overflow ---------------------------------
+// An absolutely positioned pseudo-element painting into the reserved bottom
+// strip extended the ancestor's scrollable overflow by its own height, and the
+// rider could scroll the mode bar off the screen. Measure the overflow of every
+// scroll container in the shell, not just the document.
+// Only the SHELL chain. Small overflows inside components are legitimate (the
+// ribbon chips carry ::after hit areas that overhang on purpose); what must
+// never overflow is the chain that holds the whole app, because that is what
+// lets a finger drag the mode bar off the screen.
+const overflow = await page.evaluate(() => {
+  const shell = ['html', 'body', '#root', '.app', '.app > .tabnav'];
+  return shell.map((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    return { sel, dy: el.scrollHeight - el.clientHeight };
+  }).filter((x) => x && x.dy > 1);
+});
+check(overflow.length === 0,
+  `the shell chain holds no scrollable overflow (${overflow.map((o) => `${o.sel}+${o.dy}px`).join(', ') || 'none'})`);
+
+const barStays = await page.evaluate(async () => {
+  const bar = document.querySelector('.tabnav');
+  const before = Math.round(bar.getBoundingClientRect().top);
+  // Try to scroll every ancestor of the bar, the way a finger on it would.
+  let el = bar;
+  while (el && el !== document.documentElement) { el.scrollTop = 999; el = el.parentElement; }
+  document.scrollingElement.scrollTop = 999;
+  await new Promise((r) => setTimeout(r, 150));
+  return { before, after: Math.round(bar.getBoundingClientRect().top) };
+});
+check(barStays.before === barStays.after,
+  `the mode bar cannot be scrolled away (top ${barStays.before} → ${barStays.after})`);
 
 // A measurement that is SHORT must not tear the layout either.
 await page.evaluate(() => {
