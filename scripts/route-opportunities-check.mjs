@@ -94,6 +94,7 @@ const conceptInput = {
     { id: 'mountain', title: 'Mountain road', locations: [
       { name: 'Start', lat: 44, lng: -108, kind: 'start' },
       { name: 'Verified lunch', lat: 44.2, lng: -107.8, kind: 'food', placeId: 'google-lunch' },
+      { name: 'Fuel candidate', lat: 44.3, lng: -107.7, kind: 'fuel' },
       { name: 'End', lat: 44.4, lng: -107.6, kind: 'end' },
     ] },
     { id: 'direct', title: 'Direct road', locations: [
@@ -126,6 +127,13 @@ await runExplore({
   body: { basics: { riders: 4, numDays: 3 }, messages: [{ role: 'user', content: 'Build a mountain trip.' }] },
   emit: (event) => events.push(event),
   routeOpts: { fetchImpl: mockFetch, baseUrl: 'https://valhalla.test' },
+  verifyOpts: {
+    key: 'test-key',
+    searchImpl: async (_key, _query, near) => [{
+      id: 'verified-fuel', name: 'Real Fuel', detail: 'On the route',
+      lat: near.lat, lng: near.lng, status: 'OPERATIONAL', hours: ['Open daily'],
+    }],
+  },
 });
 const done = events.find((event) => event.type === 'done');
 assert.equal(calls.length, 2);
@@ -135,5 +143,7 @@ assert.ok(calls[0].tools.some((tool) => tool.name === 'present_route_options'));
 assert.equal(done.recommendedId, 'mountain');
 assert.equal(done.concepts.length, 2);
 assert.equal(done.concepts[0].locations[1].placeId, 'google-lunch');
+assert.equal(done.concepts[0].locations[2].placeId, 'verified-fuel');
+assert.equal(done.concepts[0].locations[2].verified, 'google');
 assert.ok(Number.isFinite(done.concepts[0].metrics.miles));
 console.log('PASS AI construction researches, evaluates, and returns inspectable route options before generation');

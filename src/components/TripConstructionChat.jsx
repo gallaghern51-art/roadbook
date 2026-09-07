@@ -48,7 +48,10 @@ function ConceptDetail({ concept, onRefine }) {
           {(i === 0 || concept.locations[i - 1]?.kind === 'lodging') && <li className="concept-day">Day {(concept.locations.slice(0, i).filter((p) => p.kind === 'lodging').length) + 1}</li>}
           <li>
             <span className={`stop-kind ${stop.kind}`}>{kindLabel[stop.kind] || 'Stop'}</span>
-            <span className="stop-copy"><b>{stop.name}</b>{stop.detail && <small>{stop.detail}</small>}</span>
+            <span className="stop-copy">
+              <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified with Google Places"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
+              {stop.detail && <small>{stop.detail}</small>}
+            </span>
             {i > 0 && i < concept.locations.length - 1 && (
               <button type="button" onClick={() => onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`)}>Change</button>
             )}

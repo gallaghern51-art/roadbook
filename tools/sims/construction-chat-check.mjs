@@ -112,6 +112,7 @@ await page.waitForSelector('.concept-tabs button');
 check(await page.locator('.concept-tabs button').count() === 3, 'planner presents three selectable route options');
 check((await page.locator('.concept-facts').innerText()).includes('max fuel gap'), 'selected option exposes measured route and fuel facts');
 check(await page.locator('.concept-stops li').count() >= 5, 'selected option exposes its ordered road and stop pieces');
+check(await page.locator('.concept-stops .stop-verified').count() >= 2, 'verified opportunity stops are visibly distinguished');
 check(await page.locator('.construction-confirm').getByText('Nothing is created yet.').isVisible(), 'trip stays uncommitted while the rider refines it');
 const phoneFits = await page.locator('.trip-builder').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
 check(phoneFits, 'construction workbench fits a phone without horizontal clipping');

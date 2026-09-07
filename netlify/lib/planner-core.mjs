@@ -7,7 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { searchPlacesGoogle } from './places-core.mjs';
 import { evaluateRouteOptions } from './route-opportunities.mjs';
-import { verifyTrip, verifyProposal, describeVerification } from './verify-places.mjs';
+import { verifyTrip, verifyProposal, describeVerification, findPlace, SPECS } from './verify-places.mjs';
 
 export const SYSTEM = `You are the planning brain of a motorcycle trip planner — the tool riders use to plan multi-day trips end to end (routes, stops, fuel, lodging, meals, timing). The active trip's identity, dates, riders, bike range, and constraints all come from the provided trip state — read them there, never assume.
 
@@ -172,9 +172,53 @@ export const PRESENT_OPTIONS_TOOL = {
   },
 };
 
+async function verifyOpportunityBusinesses(input, emit, { key = process.env.GOOGLE_MAPS_API_KEY, searchImpl } = {}) {
+  const copy = structuredClone(input ?? {});
+  if (!key) return copy;
+  const tasks = (copy.concepts ?? []).flatMap((concept) => (concept.locations ?? [])
+    .filter((location) => SPECS[location.kind])
+    .map((location) => ({ location, spec: SPECS[location.kind] })));
+  if (!tasks.length) return copy;
+  emit({ type: 'beat', note: 'verifying option stops' });
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(4, tasks.length) }, async () => {
+    while (cursor < tasks.length) {
+      const task = tasks[cursor++];
+      if (task.location.placeId) {
+        task.location.verified = 'google';
+        continue;
+      }
+      try {
+        const hit = await findPlace(key, {
+          name: task.location.name,
+          near: { lat: task.location.lat, lng: task.location.lng },
+          spec: task.spec,
+          searchImpl,
+        });
+        if (!hit) {
+          task.location.verified = false;
+          continue;
+        }
+        task.location.name = hit.name || task.location.name;
+        task.location.lat = hit.lat;
+        task.location.lng = hit.lng;
+        task.location.placeId = hit.id;
+        task.location.detail = hit.detail || task.location.detail;
+        task.location.hours = hit.hours ?? null;
+        task.location.verified = 'google';
+      } catch {
+        // A Places outage is not evidence that a stop is fake. Leave it
+        // unstamped; the UI distinguishes unchecked from checked-and-missing.
+      }
+    }
+  });
+  await Promise.all(workers);
+  return copy;
+}
+
 // Answer every search_places call in a response; other tool calls in the same
 // (malformed) reply get a nudge so the API contract stays satisfied.
-async function answerToolCalls(response, emit, { routeResults = null, routeOpts = {} } = {}) {
+async function answerToolCalls(response, emit, { routeResults = null, routeOpts = {}, verifyOpts = {} } = {}) {
   const results = [];
   for (const block of response.content) {
     if (block.type !== 'tool_use') continue;
@@ -194,7 +238,8 @@ async function answerToolCalls(response, emit, { routeResults = null, routeOpts 
       emit({ type: 'beat', note: 'routing options' });
       let content;
       try {
-        const evaluation = await evaluateRouteOptions(block.input, routeOpts);
+        const verifiedInput = await verifyOpportunityBusinesses(block.input, emit, verifyOpts);
+        const evaluation = await evaluateRouteOptions(verifiedInput, routeOpts);
         routeResults?.push(evaluation);
         content = JSON.stringify(evaluation);
       } catch (e) {
@@ -606,7 +651,7 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
     }
     // Answer the searches and go around again (a stray proposal in the same
     // reply gets deferred by answerToolCalls).
-    const toolResults = await answerToolCalls(response, emit, { routeOpts });
+    const toolResults = await answerToolCalls(response, emit, { routeOpts, verifyOpts });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });
   }
@@ -620,7 +665,7 @@ function priorConceptContext(concepts = []) {
 
 // Pre-trip conversation. The model researches; Valhalla measures; the rider
 // decides. A generated itinerary is deliberately impossible from this mode.
-export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, background = false, routeOpts = {} }) {
+export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, background = false, routeOpts = {}, verifyOpts = {} }) {
   const { messages = [], basics = {}, concepts = [] } = body;
   const basicsBlock = `<trip_basics>\n${JSON.stringify(basics)}\n</trip_basics>${priorConceptContext(concepts)}`;
   const convo = messages.map((m, i) => ({
@@ -696,7 +741,7 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
       emit({ type: 'done', text: allText || 'Tell me what kind of trip you want to build.', concepts: [] });
       return;
     }
-    const toolResults = await answerToolCalls(response, emit, { routeResults, routeOpts });
+    const toolResults = await answerToolCalls(response, emit, { routeResults, routeOpts, verifyOpts });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });
   }

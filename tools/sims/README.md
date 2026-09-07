@@ -38,7 +38,7 @@ and mocks make the sims deterministic.
 | `head-font-check.mjs` | **5/6** | Masthead one-row + HUD type at 375/320px. The turn-card assertion never reaches a rendered card in this sim's scenario since the three-row bar restructure — **harness gap, not an app regression** (`.t-dist` is still 36px in `app.css`). |
 | `pace-check.mjs` | **times out** | Group-pace setting. Drifted against the current Trip settings UI — needs its selectors refreshed. |
 | `valhalla-check.mjs` | **17/17** | Valhalla owns planning, Ride Mode, and live reroutes; the trip route-character UI changes real costing and persists; Google and OSRM routing fallbacks remain idle while it is healthy. |
-| `construction-chat-check.mjs` | **14/14** | New-trip conversation, three selectable measured options, visible stop pieces, stop-level re-research, explicit final confirmation, phone/desktop fit. |
+| `construction-chat-check.mjs` | **15/15** | New-trip conversation, three selectable measured options, visible/verified stop pieces, stop-level re-research, explicit final confirmation, phone/desktop fit. |
 
 Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light-ribbon.mjs`,
 `light-late-sim.mjs`, `settings-shot.mjs`, `boot-check.mjs`.
