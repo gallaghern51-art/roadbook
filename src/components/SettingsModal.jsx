@@ -55,8 +55,12 @@ function readShell() {
     screenH: window.screen?.height ?? 0,
     appTop: app ? Math.round(app.top) : null,
     appBottom: app ? Math.round(app.bottom) : null,
-    // The number that answers "why does the bottom bar sit high".
-    gapBelow: app ? Math.round(window.innerHeight - app.bottom) : null,
+    // Measured against the SCREEN, not window.innerHeight. iOS under-reports
+    // innerHeight by the status-bar inset for a black-translucent standalone
+    // app, so a shell that correctly reaches the glass shows as a NEGATIVE gap
+    // against innerHeight — which reads like a fault and is not one. The screen
+    // is the thing the rider can actually see.
+    gapBelow: app ? Math.round((window.screen?.height ?? window.innerHeight) - app.bottom) : null,
   };
 }
 
@@ -277,7 +281,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                     {`inset top ${shell.top} · bottom ${shell.bottom}\n`}
                     {`guard top ${shell.guardTop} · bottom ${shell.guardBottom}\n`}
                     {`viewport ${shell.innerW}x${shell.innerH} · screen ${shell.screenW}x${shell.screenH}\n`}
-                    {`shell ${shell.appTop}→${shell.appBottom} · gap below ${shell.gapBelow}px`}
+                    {`shell ${shell.appTop}→${shell.appBottom} of ${shell.screenH}`}
+                    {shell.gapBelow === 0
+                      ? ' · reaches the glass'
+                      : ` · ${shell.gapBelow > 0 ? `${shell.gapBelow}px short of` : `${-shell.gapBelow}px past`} the glass`}
                   </code>
                 </div>
               )}
