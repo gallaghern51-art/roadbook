@@ -21,26 +21,44 @@ const SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 export async function searchPlacesGoogle(key, query, near, {
   limit = 6,
   hours = false,
+  enrich = false,
   type = null,
   classify = false,
   radiusM = 50000,
+  encodedPolyline = null,
 } = {}) {
   const body = {
     textQuery: query,
     pageSize: Math.min(10, limit),
     ...(type ? { includedType: type, strictTypeFiltering: true } : {}),
-    ...(near && Number.isFinite(near.lat) && Number.isFinite(near.lng)
+    ...(encodedPolyline
+      ? { searchAlongRouteParameters: { polyline: { encodedPolyline } } }
+      : near && Number.isFinite(near.lat) && Number.isFinite(near.lng)
       ? { locationBias: { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: radiusM } } }
       : {}),
   };
+  const fields = new Set(['places.id', 'places.displayName', 'places.formattedAddress', 'places.location']);
+  if (classify || enrich) {
+    fields.add('places.types');
+    fields.add('places.primaryType');
+    fields.add('places.businessStatus');
+  }
+  if (hours) fields.add('places.regularOpeningHours.weekdayDescriptions');
+  if (encodedPolyline) fields.add('routingSummaries');
+  if (enrich) {
+    fields.add('places.rating');
+    fields.add('places.userRatingCount');
+    fields.add('places.priceLevel');
+    fields.add('places.googleMapsUri');
+    fields.add('places.websiteUri');
+    fields.add('places.nationalPhoneNumber');
+  }
   const res = await fetch(SEARCH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': key,
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location'
-        + (classify ? ',places.types,places.primaryType,places.businessStatus' : '')
-        + (hours ? ',places.regularOpeningHours.weekdayDescriptions' : ''),
+      'X-Goog-FieldMask': [...fields].join(','),
     },
     body: JSON.stringify(body),
   });
@@ -51,13 +69,28 @@ export async function searchPlacesGoogle(key, query, near, {
     throw err;
   }
   const json = await res.json();
-  return (json.places ?? []).map((p) => ({
+  return (json.places ?? []).map((p, index) => ({
     id: p.id,
     name: p.displayName?.text ?? '',
     detail: p.formattedAddress ?? '',
     lat: p.location?.latitude,
     lng: p.location?.longitude,
-    ...(classify ? { types: p.types ?? [], primaryType: p.primaryType ?? '', status: p.businessStatus ?? '' } : {}),
+    ...((classify || enrich) ? { types: p.types ?? [], primaryType: p.primaryType ?? '', status: p.businessStatus ?? '' } : {}),
     ...(hours ? { hours: p.regularOpeningHours?.weekdayDescriptions ?? null } : {}),
+    ...(enrich ? {
+      rating: Number.isFinite(p.rating) ? p.rating : null,
+      userRatingCount: Number.isFinite(p.userRatingCount) ? p.userRatingCount : null,
+      priceLevel: p.priceLevel ?? null,
+      googleMapsUri: p.googleMapsUri ?? null,
+      websiteUri: p.websiteUri ?? null,
+      phone: p.nationalPhoneNumber ?? null,
+    } : {}),
+    ...(encodedPolyline ? {
+      routeDistanceMeters: (json.routingSummaries?.[index]?.legs ?? []).reduce((sum, leg) => sum + (Number(leg.distanceMeters) || 0), 0) || null,
+      routeDurationSeconds: (json.routingSummaries?.[index]?.legs ?? []).reduce((sum, leg) => {
+        const seconds = Number(String(leg.duration ?? '').replace(/s$/, ''));
+        return sum + (Number.isFinite(seconds) ? seconds : 0);
+      }, 0) || null,
+    } : {}),
   })).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 }

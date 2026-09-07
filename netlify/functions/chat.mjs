@@ -3,7 +3,7 @@
 // NDJSON back. Long jobs that cannot fit belong on planner-background.mjs,
 // which runs the same core against the 15-minute background ceiling.
 
-import { makeClient, runChat, runGenerate, friendlyError, BUDGET_MS } from '../lib/planner-core.mjs';
+import { makeClient, runChat, runExplore, runGenerate, friendlyError, BUDGET_MS } from '../lib/planner-core.mjs';
 
 // NDJSON lines: {type:'start'|'delta'|'building'|'beat'|'done'|'error', ms}.
 // A heartbeat keeps bytes flowing while the model works.
@@ -63,6 +63,13 @@ export default async (req) => {
   if (body.mode === 'generate') {
     if (!body.prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
     return streamResponse((send) => runGenerate({ client, body, emit: send, budgetMs: BUDGET_MS }));
+  }
+
+  if (body.mode === 'explore') {
+    if (!Array.isArray(body.messages) || !body.messages.length) {
+      return Response.json({ error: 'messages required' }, { status: 400 });
+    }
+    return streamResponse((send) => runExplore({ client, body, emit: send, budgetMs: BUDGET_MS }));
   }
 
   if (!Array.isArray(body.messages) || !body.messages.length) {

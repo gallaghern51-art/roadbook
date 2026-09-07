@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { TripContext, reducer, initialState } from './engine/store.js';
 import { routeDay } from './engine/routing.js';
-import { tripSummary, tripPace } from './engine/tripEngine.js';
+import { tripSummary, tripPace, tripRoutePrefs, routePrefsKey } from './engine/tripEngine.js';
+import { analyzeRouteChange, routeReconciliationPrompt } from './engine/routePreview.js';
 import { tripFeasibility } from './engine/timeline.js';
 import { useIsMobile } from './hooks/useMediaQuery.js';
 import Home from './components/Home.jsx';
@@ -16,11 +17,13 @@ import NewTripModal from './components/NewTripModal.jsx';
 import RideMode from './components/RideMode.jsx';
 import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import { RoadbookBrand, SettingsIcon, ThemeToggle } from './components/Chrome.jsx';
 import { ConfirmSheet, InputSheet } from './components/Sheets.jsx';
 import { useTripSync } from './engine/useTripSync.js';
 import { useAuth } from './engine/auth.js';
 import { useLibraryBackup } from './engine/cloudLibrary.js';
 import { useAutoTranslate } from './engine/autoTranslate.js';
+import { usePlacePreferences } from './engine/placePreferences.js';
 import { collabFor, saveCollab, clearCollab, collabApi, parseJoinParam, tripIdForShare } from './engine/collab.js';
 import { useT, useUnits } from './engine/settings.jsx';
 
@@ -64,6 +67,7 @@ export default function App() {
   // untouched by whether anyone is signed in. An account only adds a mirror of
   // the library, so deleting the app stops being the same as losing the trips.
   const auth = useAuth();
+  const placePreferences = usePlacePreferences(auth.account);
   const backup = useLibraryBackup(state, dispatch, auth.account);
   const [guest, setGuest] = useState(() => {
     try { return localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; }
@@ -80,6 +84,9 @@ export default function App() {
     setGuest(false);
   }, [auth.account]);
   const [routes, setRoutes] = useState({}); // dayId -> {legs, geometry}
+  const [routeLoad, setRouteLoad] = useState(null); // latest-only whole-trip route calculation
+  const [routePreview, setRoutePreview] = useState(null); // staged route character; never mutates the trip
+  const routePreviewControllerRef = useRef(null);
   const [screen, setScreen] = useState(() => {
     try { return localStorage.getItem(SCREEN_KEY) || 'home'; } catch { return 'home'; }
   });
@@ -112,20 +119,118 @@ export default function App() {
     try { localStorage.setItem(SCREEN_KEY, screen); } catch { /* non-fatal */ }
   }, [screen]);
 
-  // Route every day whenever its waypoint sequence changes.
-  const routeSignature = state.trip.days
+  // Route every day whenever its waypoint sequence OR the trip-wide road
+  // character changes. The same preferences also flow into Ride Mode.
+  const routePrefs = tripRoutePrefs(state.trip);
+  const routeSignature = routePrefsKey(routePrefs) + '|' + state.trip.days
     .map((d) => d.id + ':' + d.waypoints.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';'))
     .join('|');
-  useEffect(() => {
-    let cancelled = false;
+
+  const closeRoutePreview = () => {
+    routePreviewControllerRef.current?.abort();
+    routePreviewControllerRef.current = null;
+    setRoutePreview(null);
+  };
+
+  const beginRoutePreview = (nextPrefs) => {
+    if (routePrefsKey(nextPrefs) === routePrefsKey(routePrefs)) return;
+    routePreviewControllerRef.current?.abort();
+    const controller = new AbortController();
+    routePreviewControllerRef.current = controller;
+    const trip = state.trip;
+    const baseSignature = routeSignature;
+    const currentRoutes = routes;
+    const days = trip.days;
+    const nextRoutes = {};
+    let cursor = 0;
+    setRoutePreview({ prefs: nextPrefs, baseSignature, status: 'loading', done: 0, total: days.length, routes: null, analysis: null, error: null });
     (async () => {
-      for (const day of state.trip.days) {
-        const r = await routeDay(day);
-        if (cancelled) return;
-        setRoutes((prev) => ({ ...prev, [day.id]: r }));
-      }
-    })();
-    return () => { cancelled = true; };
+      const worker = async () => {
+        while (!controller.signal.aborted) {
+          const index = cursor++;
+          if (index >= days.length) return;
+          const day = days[index];
+          nextRoutes[day.id] = await routeDay(day, nextPrefs, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          setRoutePreview((current) => (
+            current?.baseSignature === baseSignature
+              ? { ...current, done: Object.keys(nextRoutes).length }
+              : current
+          ));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, days.length) }, worker));
+      if (controller.signal.aborted) return;
+      const analysis = analyzeRouteChange(trip, currentRoutes, nextRoutes, nextPrefs);
+      setRoutePreview((current) => (
+        current?.baseSignature === baseSignature
+          ? { ...current, status: 'ready', done: days.length, routes: nextRoutes, analysis }
+          : current
+      ));
+    })().catch((error) => {
+      if (error?.name === 'AbortError') return;
+      setRoutePreview((current) => (
+        current?.baseSignature === baseSignature
+          ? { ...current, status: 'error', error: error?.message || 'Route comparison failed.' }
+          : current
+      ));
+    });
+  };
+
+  const applyRoutePreview = () => {
+    if (routePreview?.status !== 'ready') return;
+    // A collaborator may have edited the trip behind the comparison sheet.
+    // Recalculate against the new facts rather than applying a stale draft.
+    if (routePreview.baseSignature !== routeSignature) {
+      beginRoutePreview(routePreview.prefs);
+      return;
+    }
+    setRoutes(routePreview.routes);
+    dispatch({ type: 'apply_ops', ops: [{ op: 'set_meta', patch: { routePrefs: routePreview.prefs } }] });
+    closeRoutePreview();
+  };
+
+  const researchRouteAlternatives = (styleLabel) => {
+    if (routePreview?.status !== 'ready') return;
+    dispatch({ type: 'ask_optimizer', text: routeReconciliationPrompt(state.trip, routePreview, styleLabel) });
+    closeRoutePreview();
+  };
+
+  useEffect(() => () => routePreviewControllerRef.current?.abort(), []);
+  useEffect(() => {
+    closeRoutePreview();
+  }, [state.lib.activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const days = state.trip.days;
+    const nextRoutes = {};
+    let cursor = 0;
+    setRouteLoad({ signature: routeSignature, style: routePrefs.style, done: 0, total: days.length });
+    (async () => {
+      // A small worker pool is materially faster than routing a long trip one
+      // day at a time without stampeding the public Valhalla service.
+      const worker = async () => {
+        while (!controller.signal.aborted) {
+          const index = cursor++;
+          if (index >= days.length) return;
+          const day = days[index];
+          nextRoutes[day.id] = await routeDay(day, routePrefs, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          const done = Object.keys(nextRoutes).length;
+          setRouteLoad((current) => (current?.signature === routeSignature ? { ...current, done } : current));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, days.length) }, worker));
+      if (controller.signal.aborted) return;
+      // Swap the route set atomically. The map can now never show a mixture of
+      // old and new route characters or apply a superseded click late.
+      setRoutes(nextRoutes);
+      setRouteLoad((current) => (current?.signature === routeSignature ? null : current));
+    })().catch((e) => {
+      if (e?.name !== 'AbortError') console.warn('route calculation failed', e);
+    });
+    return () => controller.abort();
   }, [routeSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cached legs are unpaced; the trip's group-pace multiplier is applied here,
@@ -149,7 +254,10 @@ export default function App() {
   const selectedDay = state.trip.days.find((d) => d.id === state.selectedDayId) ?? null;
 
   const showPanel = () => setPanelOpen(true);
-  const ui = { isMobile, panelOpen, setPanelOpen, showPanel };
+  const ui = {
+    isMobile, panelOpen, setPanelOpen, showPanel, routeLoad,
+    routePreview, beginRoutePreview, closeRoutePreview, applyRoutePreview, researchRouteAlternatives,
+  };
 
   // A new day is a new page: without this the panel keeps the previous day's
   // scroll depth and opens somewhere in the middle of the next one.
@@ -471,7 +579,7 @@ export default function App() {
     </>
   );
 
-  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab };
+  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab, placePreferences };
 
   // The join sheet rides over either screen — a link can arrive cold.
   const joinSheet = joinReq && (
@@ -520,6 +628,7 @@ export default function App() {
         {newTrip && (
           <NewTripModal
             initial={newTrip}
+            account={auth.account}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setScreen('trip'); setMode('plan'); setPanelOpen(true); }}
           />
@@ -541,7 +650,7 @@ export default function App() {
             <button className="mast-back" title={t('Your trips')} aria-label={t('Your trips')} onClick={() => setScreen('home')}>‹</button>
             <div className="mast-id">
               <h1 className="brand">
-                <button onClick={() => setScreen('home')} title={t('Your trips')}>ROAD<span className="yr">BOOK</span></button>
+                <button onClick={() => setScreen('home')} title={t('Your trips')}><RoadbookBrand /></button>
               </h1>
               <span className="sub">
                 <span className="mast-trip">{state.trip.meta.title}</span>
@@ -556,7 +665,8 @@ export default function App() {
               {state.history.length > 0 && (
                 <button className="btn" onClick={() => dispatch({ type: 'undo' })}>{t('Undo')}</button>
               )}
-              <button className="btn icon" title={t('Settings')} aria-label={t('Settings')} onClick={() => setSheet({ type: 'settings' })}>⚙</button>
+              <ThemeToggle />
+              <button className="btn icon" title={t('Settings')} aria-label={t('Settings')} onClick={() => setSheet({ type: 'settings' })}><SettingsIcon /></button>
             </div>
           </header>
           {!isMobile && <ModeBar />}
@@ -616,7 +726,7 @@ export default function App() {
         {isMobile && <ModeBar />}
 
         {/* The AI's one door. The dot means a proposal is waiting. */}
-        {!dockOpen && !rideOpen && (
+        {!dockOpen && !rideOpen && (!isMobile || !panelOpen) && (
           <button
             className={`dock-fab${state.pendingProposal ? ' has-proposal' : ''}`}
             onClick={() => setDockOpen(true)}
@@ -632,6 +742,7 @@ export default function App() {
         {newTrip && (
           <NewTripModal
             initial={newTrip}
+            account={auth.account}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setMode('plan'); setPanelOpen(true); }}
           />

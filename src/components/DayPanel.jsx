@@ -118,6 +118,13 @@ export default function DayPanel({ day }) {
               text: `${t('Review this day in detail — where is it tight, what breaks, and what would you change?')} (${day.dow} ${day.date} — ${day.title})`,
             })}
           >✦ {t('Ask Copilot')}</button>
+          <button
+            className="chip ask-ai"
+            onClick={() => dispatch({
+              type: 'ask_optimizer',
+              text: `${t('Research this day as route-and-stop opportunities. Use verified places and Valhalla to compare 2–3 bundles of roads, fuel, food, lodging, and attractions. Show the measured time, distance, fuel-gap, and group trade-offs. Do not change the trip yet — let me choose or combine pieces first.')} (${day.dow} ${day.date} — ${day.title})`,
+            })}
+          >⌁ {t('Find route opportunities')}</button>
         </div>
         {(day.phase === 'rally' || parks.length > 0) && (
           <div className="day-badges">

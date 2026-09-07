@@ -5,14 +5,16 @@
 // Kept out of netlify/functions/ so Netlify does not publish it as an endpoint.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { createHash } from 'node:crypto';
 import { searchPlacesGoogle } from './places-core.mjs';
-import { verifyTrip, verifyProposal, describeVerification } from './verify-places.mjs';
+import { evaluateRouteOptions, preserveAdditiveRefinement } from './route-opportunities.mjs';
+import { verifyTrip, verifyProposal, describeVerification, findPlace, SPECS } from './verify-places.mjs';
 
 export const SYSTEM = `You are the planning brain of a motorcycle trip planner — the tool riders use to plan multi-day trips end to end (routes, stops, fuel, lodging, meals, timing). The active trip's identity, dates, riders, bike range, and constraints all come from the provided trip state — read them there, never assume.
 
 You receive the CURRENT trip state plus engine-computed metrics, a stop-by-stop timeline simulation, and a FEASIBILITY STUDY with hard-gate ETA checks, fuel-range analysis against the trip's configured bike range, and per-day scores. Ground every recommendation in that data.
 
-You are authorized to restructure the ENTIRE trip when asked: reorder days, add or remove days, move stops across days, add or remove stops, retime departures, change lodging and meals, adjust trip settings — emit everything as one op list. Waypoint dwell minutes are editable via update_waypoint patch {dwell: N}; departure time via set_day_field field "depart" (e.g. "7:30 AM"); lodging via update_lodging patch {name, status: booked|reserve|none, where, note}; day dates cascade from meta.startDate automatically when days are added/removed/reordered. Trip-level settings edit via set_meta patch — including pace, the riding-duration multiplier every planned leg time scales by (1.0 solo, ~1.08 small group, ~1.15 large group).
+You are authorized to restructure the ENTIRE trip when asked: reorder days, add or remove days, move stops across days, add or remove stops, retime departures, change lodging and meals, adjust trip settings — emit everything as one op list. Waypoint dwell minutes are editable via update_waypoint patch {dwell: N}; departure time via set_day_field field "depart" (e.g. "7:30 AM"); lodging via update_lodging patch {name, status: booked|reserve|none, where, note}; day dates cascade from meta.startDate automatically when days are added/removed/reordered. Trip-level settings edit via set_meta patch — including pace, the riding-duration multiplier every planned leg time scales by (1.0 solo, ~1.08 small group, ~1.15 large group), and routePrefs {style: quick|touring|backroads, avoidTolls: boolean}, the trip-wide motorcycle routing choice used by both Plan and Ride.
 
 SCENARIOS: the app stores named trip permutations. You receive the current scenario list (ids + names). Rules:
 - Whenever you produce a route optimization or any restructure bigger than a one-stop tweak, ALWAYS set "saveAs" to a short descriptive name (e.g. "Balanced Monday", "Badlands swap") so the result is saved as a new permutation automatically.
@@ -25,6 +27,7 @@ BREAKING UP LOOPS AND LONG DAYS: the digest includes engine-computed break-point
 Non-negotiables unless the user explicitly overrides them:
 - Days flagged "anchor" in the trip data are protected — trim anywhere else first.
 - Hard time gates in the trip data (day.gates) are commitments, not suggestions.
+- Lodging with status "booked" is a hard anchor and defines the overnight/day boundary. Never move it, replace it, or change its city during an ordinary route-character refinement. Lodging with status "reserve" may be offered as an alternative, but only with the trade-off stated and the rider choosing it explicitly.
 - Fuel discipline uses the trip's configured range (meta.range). Flag any gap beyond it.
 - Group realities scale with rider count: more bikes park slower, eat slower, and fuel slower. Wildlife corridors at dawn/dusk are ridden slow.
 
@@ -60,12 +63,31 @@ How to respond:
 - The search_places tool returns verified names, addresses, exact coordinates, and weekly opening hours from the live places database. Use it whenever you add or move a stop whose coordinates you are not fully certain of (restaurants, gas stations, small attractions, lodging) — one focused query per place, then emit the ops using the returned lat/lng. Do not call propose_trip_changes and search_places in the same reply; search first, propose after the results come back. Skip searching for places you already know precisely (major cities, famous landmarks).
 - FUEL STOPS ARE STATIONS, NOT TOWNS: when you add or move a fuel stop, search_places for an actual gas station ("gas station <town>") and emit the station's name, exact coordinates, and placeId. Prefer a station at the highway exit or directly on the route so the group is never dragged through town for gas. A bare town-center pin flagged fuel is not acceptable.
 - THIS IS ENFORCED, NOT TRUSTED: any fuel stop, lodging, or restaurant in your proposal that arrives WITHOUT a placeId is looked up server-side before the rider sees it — a real one is snapped to its true coordinates, an invented one is flagged "unverified" in the plan and the correction is stated in your reply. Searching first is how you avoid being corrected in public.
-- HOURS MUST LINE UP: before recommending a restaurant, lodging, or any stop the plan puts a time on, compare its opening hours (in the search_places result) against the day's simulated ETA at that stop — never propose a place that will be closed when the riders arrive, and if hours are missing say the pick is unverified.`;
+- HOURS MUST LINE UP: before recommending a restaurant, lodging, or any stop the plan puts a time on, compare its opening hours (in the search_places result) against the day's simulated ETA at that stop — never propose a place that will be closed when the riders arrive, and if hours are missing say the pick is unverified.
+- ROUTE OPPORTUNITIES: when the rider asks to find, compare, or improve roads/stops/fuel/food/lodging/attractions, search the live places first, then call evaluate_route_options on 2–3 ordered bundles before recommending one. Explain the measured detour and fuel/time tradeoffs. Do not propose ops in that same reply; let the rider choose or combine pieces, then propose the selected change in their next turn.
+- ROUTE-CHARACTER RECONCILIATION: after a trip exists, Quick/Touring/Back roads changes are replans, not cosmetic settings. Preserve booked lodging, overnight cities, trip endpoints, hard gates, and explicitly reserved experiences. First evaluate the hard-anchor corridor with the requested routePrefs; then pass its returned searchAlongRouteId as routeOptionId to search_places so Google ranks flexible replacements along that exact Valhalla road shape. Preserve the role and time slot of flexible stops while researching lower-detour replacements. A fuel station may change; safe fuel coverage may not. A restaurant or lodging change must update both its itinerary record and the corresponding route waypoint so Valhalla actually visits it. Present replacements piece by piece before proposing ops. The final accepted proposal is one atomic op list and includes set_meta routePrefs.`;
+
+export const EXPLORE_SYSTEM = `You are Roadbook's AI-native motorcycle trip designer. You are having a planning conversation BEFORE a trip exists. Turn the rider's intent into 2–3 meaningfully different route-and-stop concepts they can compare, question and refine before committing.
+
+This is not a generic "twisty roads" picker. Discover the best opportunities inside the trip the rider described: memorable roads, safe fuel anchors, food worth the stop, lodging that improves the shape of the next day, and attractions that justify their detour. Explain what each bundle buys and costs for this specific group.
+
+Required workflow:
+1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly. For each food, lodging, or attraction location, also include preferenceTags: 1–3 broad, durable descriptors you author from the concept (for example "breakfast diner", "Italian", "boutique hotel", or "history museum"). Do not put ratings, addresses, opening hours, or other measured Places facts in preferenceTags.
+2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip.
+3. After the evaluator returns, call present_route_options. Reference the evaluated concept ids. Never invent miles, time, arrival, fuel gap, climbing or detour cost — Roadbook attaches those measured values itself.
+
+On a follow-up, read the prior conversation and the previously presented concepts. A localized request is a PATCH to each option, not permission to summarize or reconstruct the rest: reuse the prior option ids, retain every unchanged location in exact day/order, apply only the requested edits, then evaluate the complete options. Never omit later-day locations to save output space. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
+
+When <rider_place_preferences> is present, treat it as soft evidence learned from the rider's prior confirmed choices and replacements. Use it to rank otherwise-good candidates, never to violate route, hours, range, budget or group constraints. A useful surprise may beat habit; briefly say when a recommendation deliberately does.
+
+Group reality matters: rider count affects pace, parking, meal time and fuel time. A stop is not valuable merely because it is popular. Prefer combinations that make the whole day work. Flag opening-hours uncertainty, risky fuel gaps, after-dark arrival, and options that add a lot of saddle time.
+
+Use text only for a short conversational lead-in. Put the actual choices in present_route_options. Do not generate a full itinerary and do not propose trip ops in this mode.`;
 
 // Live place lookup for the model — verified coordinates instead of recalled ones.
 export const PLACES_TOOL = {
   name: 'search_places',
-  description: 'Search the live places database (Google) for real-world locations. Returns up to 6 matches with verified name, address, exact lat/lng, and weekly opening hours. Use before adding stops whose coordinates you are not certain of, and to check hours against planned arrival times.',
+  description: 'Search the live places database (Google) for real-world locations. Returns up to 6 matches with verified name, address, exact lat/lng, and weekly opening hours. When evaluate_route_options returns a searchAlongRouteId, pass it as routeOptionId to rank candidates along that exact Valhalla corridor.',
   input_schema: {
     type: 'object',
     additionalProperties: false,
@@ -77,13 +99,169 @@ export const PLACES_TOOL = {
         description: 'Optional bias point (e.g. the day\'s route area).',
         properties: { lat: { type: 'number' }, lng: { type: 'number' } },
       },
+      encodedPolyline: {
+        type: 'string',
+        description: 'Optional precision-5 encoded corridor. Prefer routeOptionId so the server carries the exact route without copying a long encoded value.',
+      },
+      routeOptionId: {
+        type: 'string',
+        description: 'The searchAlongRouteId returned by evaluate_route_options. Uses Google Places Search Along Route on that exact Valhalla corridor; prefer this over near for route-character reconciliation.',
+      },
     },
   },
 };
 
+export const ROUTE_OPTIONS_TOOL = {
+  name: 'evaluate_route_options',
+  description: 'Have Valhalla route and measure 2–3 ordered motorcycle route-and-stop concepts. Returns trusted distance, group-paced riding time, arrival, detour delta, fuel gap, and best-effort elevation gain.',
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['concepts'],
+    properties: {
+      depart: { type: 'string', description: '24-hour local departure time, e.g. 08:00.' },
+      pace: { type: 'number', description: 'Group duration multiplier; usually 1.08 for a small group and 1.15 for a large one.' },
+      range: {
+        type: 'object',
+        properties: { comfort: { type: 'number' }, absolute: { type: 'number' } },
+      },
+      routePrefs: {
+        type: 'object',
+        properties: {
+          style: { type: 'string', enum: ['quick', 'touring', 'backroads'] },
+          avoidTolls: { type: 'boolean' },
+        },
+      },
+      concepts: {
+        type: 'array', minItems: 2, maxItems: 3,
+        items: {
+          type: 'object', required: ['id', 'title', 'locations'],
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            locations: {
+              type: 'array', minItems: 2, maxItems: 20,
+              items: {
+                type: 'object', required: ['name', 'lat', 'lng', 'kind'],
+                properties: {
+                  name: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
+                  kind: { type: 'string', enum: ['start', 'end', 'road', 'fuel', 'food', 'lodging', 'attraction'] },
+                  detail: { type: 'string' }, placeId: { type: 'string' }, dwell: { type: 'number' },
+                  rating: { type: 'number' }, userRatingCount: { type: 'integer' }, priceLevel: { type: 'string' },
+                  googleMapsUri: { type: 'string' }, websiteUri: { type: 'string' }, phone: { type: 'string' },
+                  primaryType: { type: 'string' }, types: { type: 'array', items: { type: 'string' } },
+                  preferenceTags: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string' } },
+                  hours: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+export const PRESENT_OPTIONS_TOOL = {
+  name: 'present_route_options',
+  description: 'Present the evaluated choices to the rider. Roadbook joins these explanations to trusted evaluator metrics and verified locations.',
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['message', 'recommendedId', 'options'],
+    properties: {
+      message: { type: 'string', description: 'A concise comparison and what you recommend.' },
+      recommendedId: { type: 'string' },
+      options: {
+        type: 'array', minItems: 2, maxItems: 3,
+        items: {
+          type: 'object', required: ['evaluationId', 'summary', 'routeDescription', 'why', 'groupFit', 'tradeoff'],
+          properties: {
+            evaluationId: { type: 'string' },
+            summary: { type: 'string' },
+            routeDescription: { type: 'string' },
+            why: { type: 'string' },
+            groupFit: { type: 'string' },
+            tradeoff: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+const enrichOpportunityLocation = (location, fact) => {
+  if (!fact) return;
+  location.name = fact.name || location.name;
+  location.detail = fact.detail || location.detail;
+  location.placeId = fact.id || location.placeId;
+  for (const field of [
+    'hours', 'rating', 'userRatingCount', 'priceLevel', 'googleMapsUri',
+    'websiteUri', 'phone', 'primaryType', 'types',
+  ]) {
+    if (fact[field] !== undefined && fact[field] !== null) location[field] = fact[field];
+  }
+};
+
+async function verifyOpportunityBusinesses(input, emit, {
+  key = process.env.GOOGLE_MAPS_API_KEY, searchImpl, placeFacts,
+} = {}) {
+  const copy = structuredClone(input ?? {});
+  for (const concept of copy.concepts ?? []) {
+    for (const location of concept.locations ?? []) {
+      enrichOpportunityLocation(location, placeFacts?.get(location.placeId));
+    }
+  }
+  if (!key) return copy;
+  const tasks = (copy.concepts ?? []).flatMap((concept) => (concept.locations ?? [])
+    .filter((location) => SPECS[location.kind])
+    .map((location) => ({ location, spec: SPECS[location.kind] })));
+  if (!tasks.length) return copy;
+  emit({ type: 'beat', note: 'verifying option stops' });
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(4, tasks.length) }, async () => {
+    while (cursor < tasks.length) {
+      const task = tasks[cursor++];
+      if (task.location.placeId) {
+        task.location.verified = 'google';
+        continue;
+      }
+      try {
+        const hit = await findPlace(key, {
+          name: task.location.name,
+          near: { lat: task.location.lat, lng: task.location.lng },
+          spec: task.spec,
+          searchImpl,
+        });
+        if (!hit) {
+          task.location.verified = false;
+          continue;
+        }
+        task.location.name = hit.name || task.location.name;
+        task.location.lat = hit.lat;
+        task.location.lng = hit.lng;
+        task.location.placeId = hit.id;
+        enrichOpportunityLocation(task.location, hit);
+        task.location.verified = 'google';
+      } catch {
+        // A Places outage is not evidence that a stop is fake. Leave it
+        // unstamped; the UI distinguishes unchecked from checked-and-missing.
+      }
+    }
+  });
+  await Promise.all(workers);
+  return copy;
+}
+
 // Answer every search_places call in a response; other tool calls in the same
 // (malformed) reply get a nudge so the API contract stays satisfied.
-async function answerToolCalls(response, emit) {
+async function answerToolCalls(response, emit, {
+  routeResults = null, routeOpts = {}, verifyOpts = {}, refinement = null, placeFacts = null,
+  reconciliation = null,
+} = {}) {
+  const corridorFor = (optionId) => [...(routeResults ?? [])].reverse()
+    .flatMap((evaluation) => evaluation.options ?? [])
+    .find((option) => option.id === optionId)?.searchPolyline ?? null;
   const results = [];
   for (const block of response.content) {
     if (block.type !== 'tool_use') continue;
@@ -91,10 +269,52 @@ async function answerToolCalls(response, emit) {
       emit({ type: 'beat', note: 'searching places' });
       let content;
       try {
-        const key = process.env.GOOGLE_MAPS_API_KEY;
+        const key = verifyOpts.key ?? process.env.GOOGLE_MAPS_API_KEY;
         if (!key) throw new Error('place search not configured on this site');
-        const places = await searchPlacesGoogle(key, block.input?.query ?? '', block.input?.near, { limit: 6, hours: true });
+        const search = verifyOpts.searchImpl ?? searchPlacesGoogle;
+        const corridor = corridorFor(block.input?.routeOptionId);
+        const places = await search(key, block.input?.query ?? '', block.input?.near, {
+          limit: 6,
+          hours: true,
+          enrich: true,
+          classify: true,
+          encodedPolyline: corridor || block.input?.encodedPolyline || null,
+        });
+        if (corridor && reconciliation) reconciliation.corridorSearchUsed = true;
+        for (const place of places) placeFacts?.set(place.id, place);
         content = JSON.stringify(places.length ? places : { note: 'no matches — try a broader query' });
+      } catch (e) {
+        content = JSON.stringify({ error: String(e.message).slice(0, 200) });
+      }
+      results.push({ type: 'tool_result', tool_use_id: block.id, content });
+    } else if (block.name === 'evaluate_route_options') {
+      emit({ type: 'beat', note: 'routing options' });
+      let content;
+      try {
+        const completeInput = preserveAdditiveRefinement(
+          block.input,
+          refinement?.concepts,
+          refinement?.request,
+        );
+        const verifiedInput = await verifyOpportunityBusinesses(completeInput, emit, { ...verifyOpts, placeFacts });
+        const evaluation = await evaluateRouteOptions(verifiedInput, routeOpts);
+        routeResults?.push(evaluation);
+        if (reconciliation) {
+          reconciliation.routeEvaluations += 1;
+          if (reconciliation.corridorSearchUsed) {
+            reconciliation.postSearchEvaluation = true;
+            reconciliation.routePrefs = completeInput.routePrefs ?? reconciliation.requestedPrefs ?? null;
+          }
+        }
+        // The server retains the long encoded polylines. The model only needs
+        // the stable option id to search the same corridor on its next turn.
+        content = JSON.stringify({
+          ...evaluation,
+          options: (evaluation.options ?? []).map(({ searchPolyline: _searchPolyline, ...option }) => ({
+            ...option,
+            searchAlongRouteId: option.id,
+          })),
+        });
       } catch (e) {
         content = JSON.stringify({ error: String(e.message).slice(0, 200) });
       }
@@ -103,7 +323,9 @@ async function answerToolCalls(response, emit) {
       results.push({
         type: 'tool_result',
         tool_use_id: block.id,
-        content: 'Not executed — finish your place searches first, then issue this proposal in your next reply.',
+        content: reconciliation
+          ? 'Not executed — a route-character proposal requires a Valhalla corridor evaluation, a Google Places search using its routeOptionId, and a final Valhalla evaluation after replacements. Complete those checks first.'
+          : 'Not executed — finish your place searches first, then issue this proposal in your next reply.',
       });
     }
   }
@@ -151,7 +373,10 @@ export const TOOL = {
                 placeId: { type: 'string', description: 'the id returned by search_places — carry it so routing snaps to the place, not the raw coordinate' },
               },
             },
-            patch: { type: 'object' },
+            patch: {
+              type: 'object',
+              description: 'Fields for the selected op. For set_meta, routePrefs accepts {style: quick|touring|backroads, avoidTolls: boolean}; it controls both planned routes and Ride Mode reroutes.',
+            },
             field: {
               type: 'string',
               description: 'For set_day_field: one of title, summary, depart, arrive, phase, anchor, miles, hours. Rewrite "summary" (and "title" when the endpoints change) alongside any op that changes the day\'s stops.',
@@ -205,6 +430,7 @@ export const TOOL = {
 export const GENERATE_SYSTEM = `You are the itinerary builder for a motorcycle trip planning app. From the rider's description, produce a COMPLETE, realistic multi-day motorcycle itinerary via the generate_trip tool.
 
 Rules:
+- When the request includes a confirmed construction plan, treat it as the rider's decision: preserve the selected route order, verified placeIds/coordinates, opportunity roles, and explicit tradeoffs. Expand it into day-by-day detail without silently swapping the chosen pieces. If the selected route spans several days, use lodging anchors as day boundaries and distribute mileage realistically.
 - Real places, accurate lat/lng (4+ decimals). Route days along roads riders actually take; favor the famous riding roads of the region when they fit.
 - 4–10 waypoints per riding day: start point, the best scenic/riding stops (kind "photo"), fuel stops every 100–150 miles at real gas stations you know — the station's own coordinates at the highway exit, never a bare town-center pin (kind "fuel", fuel: true) — lunch-town stops, and the day's end point. First waypoint kind "start", last kind "end".
 - EVERY gas station, hotel, and restaurant you name is checked against the live places database after you answer: real ones get snapped to their exact coordinates, and anything that does not exist is flagged "unverified" in the rider's plan. So name the specific businesses you are actually confident about (brand and town — "Sinclair, Ten Sleep WY"), and where you are NOT confident, say so in the note or write an honest placeholder ("best option in town") rather than inventing a name. A guessed station is worse than an unnamed one: riders plan fuel around it.
@@ -403,8 +629,11 @@ export function deadlineMessage(seen, { background = false } = {}) {
 }
 
 // Trip context rides in the first user turn so the conversation stays clean.
-export function buildChatMessages({ messages, tripDigest, tripJson, scenarios }) {
-  const contextBlock = `<trip_state_digest>\n${tripDigest}\n</trip_state_digest>\n\n<saved_scenarios>\n${JSON.stringify(scenarios)}\n</saved_scenarios>\n\n<trip_json>\n${JSON.stringify(tripJson)}\n</trip_json>`;
+export function buildChatMessages({ messages, tripDigest, tripJson, scenarios, preferenceProfile = null }) {
+  const preferenceBlock = preferenceProfile
+    ? `\n\n<rider_place_preferences>\n${JSON.stringify(preferenceProfile)}\n</rider_place_preferences>`
+    : '';
+  const contextBlock = `<trip_state_digest>\n${tripDigest}\n</trip_state_digest>\n\n<saved_scenarios>\n${JSON.stringify(scenarios)}\n</saved_scenarios>\n\n<trip_json>\n${JSON.stringify(tripJson)}\n</trip_json>${preferenceBlock}`;
   return messages.map((m, i) => (
     i === 0 && m.role === 'user'
       ? { role: 'user', content: `${contextBlock}\n\n${m.content}` }
@@ -412,16 +641,110 @@ export function buildChatMessages({ messages, tripDigest, tripJson, scenarios })
   ));
 }
 
+// Route-character reconciliation may move flexible recommendations, but its
+// fixed anchors are enforced at the server boundary rather than entrusted to
+// model prose. This is intentionally narrower than general trip editing: a
+// rider can still explicitly change a booking or gate in an ordinary request.
+export function routeReconciliationViolations(trip, proposal) {
+  const days = new Map((trip?.days ?? []).map((day) => [day.id, day]));
+  const lockedWaypoints = new Set();
+  const bookedDays = new Set();
+  const protectedDays = new Set();
+  const completedReservations = new Set((trip?.reserveNow ?? []).filter((item) => item.done).map((item) => item.id));
+
+  for (const day of trip?.days ?? []) {
+    const waypoints = day.waypoints ?? [];
+    if (waypoints[0]?.id) lockedWaypoints.add(waypoints[0].id);
+    if (waypoints.at(-1)?.id) lockedWaypoints.add(waypoints.at(-1).id);
+    for (const gate of day.gates ?? []) if (gate.waypointId) lockedWaypoints.add(gate.waypointId);
+    if (day.lodging?.status === 'booked') bookedDays.add(day.id);
+    if (day.anchor || day.lodging?.status === 'booked' || (day.gates ?? []).length) protectedDays.add(day.id);
+  }
+
+  const violations = [];
+  for (const op of proposal?.ops ?? []) {
+    const waypointId = op.waypointId;
+    if (['add_day', 'reorder_days'].includes(op.op)) {
+      violations.push('the trip’s protected day boundaries');
+    }
+    if (['remove_waypoint', 'move_waypoint'].includes(op.op) && lockedWaypoints.has(waypointId)) {
+      violations.push('a trip endpoint or timed stop');
+    }
+    if (op.op === 'move_waypoint') {
+      const from = days.get(op.fromDayId);
+      const to = days.get(op.toDayId);
+      if (op.fromDayId !== op.toDayId || (from?.gates ?? []).length || (to?.gates ?? []).length) {
+        violations.push('a protected day or timed-stop order');
+      }
+    }
+    if (op.op === 'update_waypoint' && lockedWaypoints.has(waypointId)) {
+      const routeFields = ['name', 'lat', 'lng', 'kind', 'placeId'];
+      if (routeFields.some((field) => field in (op.patch ?? {}))) violations.push('a trip endpoint or timed stop');
+    }
+    if (op.op === 'reorder_waypoints') {
+      const original = days.get(op.dayId)?.waypoints ?? [];
+      if (original.length && (op.waypointIds?.[0] !== original[0]?.id || op.waypointIds?.at(-1) !== original.at(-1)?.id)) {
+        violations.push('an overnight or trip endpoint');
+      }
+      const nextIndex = new Map((op.waypointIds ?? []).map((id, index) => [id, index]));
+      if ((days.get(op.dayId)?.gates ?? []).some((gate) => (
+        nextIndex.get(gate.waypointId) !== original.findIndex((waypoint) => waypoint.id === gate.waypointId)
+      ))) {
+        violations.push('a timed-stop order');
+      }
+    }
+    if (op.op === 'update_lodging' && bookedDays.has(op.dayId)) violations.push('booked lodging');
+    if (op.op === 'remove_day') {
+      violations.push(protectedDays.has(op.dayId) ? 'an anchored or committed day' : 'the trip’s protected day boundaries');
+    }
+    if (op.op === 'set_day_field' && op.field === 'anchor') violations.push('an anchored or committed day');
+    if (['update_gate', 'remove_gate'].includes(op.op)) violations.push('a hard time gate');
+    if (op.op === 'remove_reservation' && completedReservations.has(op.reservationId)) violations.push('a completed reservation');
+    if (op.op === 'set_reservation_done' && op.done === false && completedReservations.has(op.reservationId)) violations.push('a completed reservation');
+  }
+  return [...new Set(violations)];
+}
+
 // One optimizer turn. `emit` receives the same event shapes on both transports,
 // so the client reads a streamed run and a polled run identically.
 // `verifyOpts` is a test seam: it overrides the places key and search
 // implementation so the verification wiring can be exercised without a live
 // Google account. Production passes nothing and gets the real database.
-export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {} }) {
-  const { messages = [], tripDigest = '', tripJson = null, scenarios = [] } = body;
-  const convo = buildChatMessages({ messages, tripDigest, tripJson, scenarios });
+export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {}, routeOpts = {} }) {
+  const {
+    messages = [], tripDigest = '', tripJson = null, scenarios = [], preferenceProfile = null,
+    reconciliationProof = null,
+  } = body;
+  const convo = buildChatMessages({ messages, tripDigest, tripJson, scenarios, preferenceProfile });
   const t0 = Date.now();
   let allText = '';
+  const placeFacts = new Map();
+  const routeResults = [];
+  const latestUser = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
+  const marker = latestUser.match(/<route_reconciliation_request>(.*?)<\/route_reconciliation_request>/s);
+  let requestedPrefs = null;
+  try { requestedPrefs = marker ? JSON.parse(marker[1])?.routePrefs ?? null : null; } catch { requestedPrefs = null; }
+  const tripHash = createHash('sha256').update(JSON.stringify(tripJson ?? null)).digest('hex');
+  const reconciliation = {
+    requested: Boolean(marker), requestedPrefs,
+    routeEvaluations: 0, corridorSearchUsed: false, postSearchEvaluation: false, routePrefs: null,
+  };
+  const proofMatches = (prefs) => {
+    if (!reconciliationProof || reconciliationProof.version !== 1 || reconciliationProof.tripHash !== tripHash) return false;
+    const proved = reconciliationProof.routePrefs ?? {};
+    return (!prefs?.style || prefs.style === proved.style)
+      && (typeof prefs?.avoidTolls !== 'boolean' || prefs.avoidTolls === proved.avoidTolls);
+  };
+  const proofReady = () => (
+    reconciliation.routeEvaluations >= 2
+    && reconciliation.corridorSearchUsed
+    && reconciliation.postSearchEvaluation
+  );
+  const proofPayload = () => proofReady() ? {
+    version: 1,
+    tripHash,
+    routePrefs: reconciliation.routePrefs ?? reconciliation.requestedPrefs,
+  } : null;
 
   // Agentic loop: the model may call search_places (answered server-side) any
   // number of rounds before its final answer / proposal, within the budget.
@@ -441,7 +764,7 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
       // misdiagnosed as "the model never started".
       thinking: { type: 'adaptive', display: 'summarized' },
       system: SYSTEM,
-      tools: [TOOL, PLACES_TOOL],
+      tools: [TOOL, PLACES_TOOL, ROUTE_OPTIONS_TOOL],
       messages: convo,
     });
     stream.on('text', (t) => emit({ type: 'delta', text: t }));
@@ -467,15 +790,33 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
 
     let text = '';
     let proposal = null;
-    let searched = false;
+    let researched = false;
     for (const block of response.content) {
       if (block.type === 'text') text += block.text;
       if (block.type === 'tool_use' && block.name === 'propose_trip_changes') proposal = block.input;
-      if (block.type === 'tool_use' && block.name === 'search_places') searched = true;
+      if (block.type === 'tool_use' && ['search_places', 'evaluate_route_options'].includes(block.name)) researched = true;
     }
     if (text.trim()) allText += (allText ? '\n\n' : '') + text.trim();
 
-    if (!searched) {
+    if (!researched) {
+      const routePrefsOp = proposal?.ops?.find((op) => op.op === 'set_meta' && op.patch?.routePrefs);
+      if (routePrefsOp && !proofReady() && !proofMatches(routePrefsOp.patch.routePrefs)) {
+        const toolResults = await answerToolCalls(response, emit, {
+          routeResults, routeOpts, verifyOpts, placeFacts, reconciliation,
+        });
+        convo.push({ role: 'assistant', content: response.content });
+        convo.push({ role: 'user', content: toolResults });
+        continue;
+      }
+      if (routePrefsOp) {
+        const violations = routeReconciliationViolations(tripJson, proposal);
+        if (violations.length) {
+          const reason = violations.join(', ');
+          allText += `${allText ? '\n\n' : ''}Roadbook blocked this proposal because it changed ${reason}. Those commitments stay fixed during a route-character replan.`;
+          emit({ type: 'done', text: allText, proposal: null, reconciliationProof: proofPayload() });
+          return;
+        }
+      }
       // The prompt ASKS the model to search before it commits a station or a
       // property; this is what makes it true. Only stops that arrived without
       // a placeId cost a lookup — a model that used the tool pays nothing.
@@ -495,16 +836,119 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
           /* the proposal stands unverified rather than not at all */
         }
       }
-      emit({ type: 'done', text: allText, proposal });
+      emit({ type: 'done', text: allText, proposal, reconciliationProof: proofPayload() });
       return;
     }
     // Answer the searches and go around again (a stray proposal in the same
     // reply gets deferred by answerToolCalls).
-    const toolResults = await answerToolCalls(response, emit);
+    const toolResults = await answerToolCalls(response, emit, {
+      routeResults, routeOpts, verifyOpts, placeFacts, reconciliation,
+    });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });
   }
   emit({ type: 'error', message: 'Too many place lookups in one request — ask for a smaller change.' });
+}
+
+function priorConceptContext(concepts = []) {
+  if (!concepts.length) return '';
+  return `\n\n<previous_route_options>\n${JSON.stringify(concepts)}\n</previous_route_options>`;
+}
+
+// Pre-trip conversation. The model researches; Valhalla measures; the rider
+// decides. A generated itinerary is deliberately impossible from this mode.
+export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, background = false, routeOpts = {}, verifyOpts = {} }) {
+  const { messages = [], basics = {}, concepts = [], preferenceProfile = null } = body;
+  const preferenceBlock = preferenceProfile
+    ? `\n\n<rider_place_preferences>\n${JSON.stringify(preferenceProfile)}\n</rider_place_preferences>`
+    : '';
+  const basicsBlock = `<trip_basics>\n${JSON.stringify(basics)}\n</trip_basics>${preferenceBlock}${priorConceptContext(concepts)}`;
+  const convo = messages.map((m, i) => ({
+    role: m.role,
+    content: i === 0 && m.role === 'user' ? `${basicsBlock}\n\n${m.content}` : m.content,
+  }));
+  const t0 = Date.now();
+  let allText = '';
+  const routeResults = [];
+  const placeFacts = new Map();
+  const latestRequest = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
+
+  for (let round = 0; round < 7; round++) {
+    const remaining = budgetMs - (Date.now() - t0);
+    if (remaining < 8000) {
+      emit({ type: 'error', message: 'I ran out of time comparing the route choices. Try a narrower region or fewer must-have stops.' });
+      return;
+    }
+    const stream = client.messages.stream({
+      model: 'claude-sonnet-5',
+      max_tokens: 8000,
+      output_config: { effort: 'medium' },
+      thinking: { type: 'adaptive', display: 'summarized' },
+      system: EXPLORE_SYSTEM,
+      tools: [PLACES_TOOL, ROUTE_OPTIONS_TOOL, PRESENT_OPTIONS_TOOL],
+      messages: convo,
+    });
+    stream.on('text', (text) => emit({ type: 'delta', text }));
+    const progress = trackProgress(stream, emit);
+    let response;
+    try {
+      response = await withDeadline(stream, remaining);
+    } catch (err) {
+      if (err?.code !== 'deadline') throw err;
+      emit({ type: 'error', message: deadlineMessage(progress, { background }) });
+      return;
+    }
+    if (response.stop_reason === 'refusal') {
+      emit({ type: 'done', text: 'I could not plan that request. Try rephrasing the ride you want.', concepts: [] });
+      return;
+    }
+    if (response.stop_reason === 'max_tokens') {
+      emit({ type: 'error', message: 'The comparison became too large to finish. Try fewer must-have places.' });
+      return;
+    }
+
+    let text = '';
+    let presented = null;
+    let needsTools = false;
+    for (const block of response.content) {
+      if (block.type === 'text') text += block.text;
+      if (block.type === 'tool_use' && block.name === 'present_route_options') presented = block.input;
+      if (block.type === 'tool_use' && ['search_places', 'evaluate_route_options'].includes(block.name)) needsTools = true;
+    }
+    if (text.trim()) allText += (allText ? '\n\n' : '') + text.trim();
+
+    if (presented) {
+      const evaluated = new Map(routeResults.flatMap((r) => r.options ?? []).map((o) => [o.id, o]));
+      const joined = (presented.options ?? []).map((option) => {
+        const facts = evaluated.get(option.evaluationId);
+        return facts ? { ...option, id: facts.id, title: facts.title, locations: facts.locations, metrics: facts.metrics, error: facts.error } : null;
+      }).filter(Boolean);
+      if (joined.length) {
+        emit({
+          type: 'done',
+          text: [allText, presented.message].filter(Boolean).join('\n\n'),
+          concepts: joined,
+          recommendedId: joined.some((o) => o.id === presented.recommendedId) ? presented.recommendedId : joined[0].id,
+        });
+        return;
+      }
+    }
+
+    if (!needsTools) {
+      emit({ type: 'done', text: allText || 'Tell me what kind of trip you want to build.', concepts: [] });
+      return;
+    }
+    const toolResults = await answerToolCalls(response, emit, {
+      routeResults,
+      routeOpts,
+      verifyOpts,
+      refinement: { concepts, request: latestRequest },
+      placeFacts,
+    });
+    convo.push({ role: 'assistant', content: response.content });
+    convo.push({ role: 'user', content: toolResults });
+  }
+  emit({ type: 'error', message: 'That plan needed too many research rounds. Narrow the request and try again.' });
 }
 
 // Square-zero trip generation.

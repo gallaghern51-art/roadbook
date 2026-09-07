@@ -1,8 +1,10 @@
-// Valhalla tier verification: Google absent (dev 501), the FOSSGIS endpoint
-// mocked with a spec-shaped response (polyline6 shapes, maneuver enums) —
-// nav steps must come from Valhalla, never falling through to OSRM steps.
+// Valhalla verification: the FOSSGIS endpoint is mocked with a spec-shaped
+// response (polyline6 shapes, per-leg summaries, maneuver enums). Planning
+// must use it directly; nav and live reroutes must use it before Google.
+// Neither path may fall through to another routing engine.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
+const REVIEW = (n) => new URL(`../../.impeccable/review/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
 const hav = (a, b) => {
   const dLat = ((b[1] - a[1]) * Math.PI) / 180;
@@ -32,18 +34,28 @@ const enc6 = (pts) => {
   return out;
 };
 
-let valhallaCalls = 0, valhallaCosting = null, osrmStepsCalls = 0;
+let valhallaCalls = 0, valhallaCosting = null, valhallaLocationTypes = [], valhallaOptions = [];
+let googleRouteCalls = 0, osrmPlanningCalls = 0, osrmStepsCalls = 0;
+let delayRouteChoices = false;
 
 function buildValhalla(reqBody) {
   valhallaCalls++;
   valhallaCosting = reqBody.costing;
+  valhallaLocationTypes.push(reqBody.locations.map((l) => l.type));
+  valhallaOptions.push(reqBody.costing_options?.motorcycle ?? null);
   const locs = reqBody.locations.map((l) => [l.lon, l.lat]);
+  const highwayBias = reqBody.costing_options?.motorcycle?.use_highways ?? 0.5;
+  const bend = highwayBias <= 0.05 ? 0.018 : highwayBias >= 0.95 ? -0.01 : 0;
   const legs = [];
   let totalMi = 0, totalSec = 0;
   for (let i = 0; i < locs.length - 1; i++) {
     const a = locs[i], b = locs[i + 1];
-    const pts = [a, lerp(a, b, 0.4), lerp(a, b, 0.7), b];
-    const mi = hav(a, b);
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = -dy / length, ny = dx / length;
+    const offset = (point) => [point[0] + nx * bend, point[1] + ny * bend];
+    const pts = [a, offset(lerp(a, b, 0.4)), offset(lerp(a, b, 0.7)), b];
+    const mi = pts.slice(1).reduce((sum, point, index) => sum + hav(pts[index], point), 0);
     const sec = (mi / 50) * 3600;
     totalMi += mi; totalSec += sec;
     legs.push({
@@ -59,21 +71,37 @@ function buildValhalla(reqBody) {
   return { trip: { legs, summary: { length: totalMi, time: totalSec }, status: 0, units: 'miles' } };
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/opt/pw-browsers/chromium');
+const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (r) => {
   const u = r.request().url();
+  if (u.includes('/.netlify/functions/google-route')) {
+    googleRouteCalls++;
+    return r.continue();
+  }
   if (u.includes('localhost:5199')) return r.continue();
   if (u.includes('valhalla1.openstreetmap.de/route')) {
-    return r.fulfill({ json: buildValhalla(r.request().postDataJSON()) });
+    const body = r.request().postDataJSON();
+    if (delayRouteChoices) {
+      const useHighways = body.costing_options?.motorcycle?.use_highways;
+      const delay = useHighways === 1 ? 700 : useHighways === 0.05 ? 450 : 180;
+      return new Promise((resolve) => setTimeout(resolve, delay))
+        .then(() => r.fulfill({ json: buildValhalla(body) }).catch(() => {}));
+    }
+    return r.fulfill({ json: buildValhalla(body) });
   }
   if (u.includes('router.project-osrm.org')) {
-    // attachLanes legitimately asks OSRM for lane data (annotations=false);
+    // attachRoadDetail legitimately asks OSRM for lane data (annotations=false);
     // only a ROUTING fallback (annotations=distance,duration) would mean the
     // Valhalla tier was skipped.
     if (u.includes('steps=true') && u.includes('annotations=distance')) osrmStepsCalls++;
-    // planning routes (steps=false) still served so the trip has geometry
+    if (u.includes('steps=false') && u.includes('annotations=distance,duration')) osrmPlanningCalls++;
+    // OSRM is still served so either fallback produces a debuggable failure.
     const m = /driving\/([^?]+)\?/.exec(u);
     const coords = m[1].split(';').map((p) => p.split(',').map(Number));
     const geometry = [];
@@ -96,35 +124,165 @@ await page.addInitScript(() => {
   };
 });
 await page.goto('http://localhost:5199/');
+const guestEntry = page.locator('.land-skip');
+if (await guestEntry.isVisible().catch(() => false)) await guestEntry.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForTimeout(600);
 await page.evaluate(() => {
   const mk = (id, name, lat, lng) => ({ id, kind: 'via', name, lat, lng, mile: null, note: '' });
-  const dayBase = { miles: 0, hours: 0, depart: '9:00 AM', arrive: '', anchor: false, summary: '', constraints: [], gates: [], meals: [], photos: [], modules: [], ops: [], lodging: { status: 'none', name: '', where: '', note: '' } };
+  const dayBase = {
+    miles: 0, hours: 0, depart: '9:00 AM', arrive: '', anchor: false, summary: '', constraints: [],
+    gates: [{ waypointId: 'va', by: '10:00 AM', label: 'Timed canyon entry' }],
+    meals: [{ meal: 'lunch', name: 'Rider’s Table', where: 'Granite', note: 'Flexible lunch pick' }],
+    photos: [], modules: [], ops: [], lodging: { status: 'booked', name: 'End Lodge', where: 'Granite', note: 'Confirmed' },
+  };
   window.__dispatch({
     type: 'create_trip',
     name: 'VALHALLA TEST',
     trip: {
       meta: { title: 'VALHALLA TEST', subtitle: '', summary: '', riders: 1, startDate: '2026-08-12', fuelRule: '', range: 200, roster: [] },
       days: [{ ...dayBase, id: 'v1', dow: 'Wed', date: '2026-08-12', title: 'Valhalla day', phase: 'rally', waypoints: [mk('vs', 'Basecamp', 44.0, -108.0), mk('va', 'Granite Diner', 44.06, -107.95), mk('vb', 'End Lodge', 44.10, -107.88)] }],
-      reserveNow: [],
+      reserveNow: [{ id: 'reservation-test', name: 'Canyon entry permit', done: true }],
     },
   });
 });
 await page.waitForTimeout(1200);
 
+const planningValhallaCalls = valhallaCalls;
+check(planningValhallaCalls >= 1 && valhallaCosting === 'motorcycle',
+  `planning fetched from Valhalla with motorcycle costing (${planningValhallaCalls} call(s))`);
+check(valhallaLocationTypes.some((types) => types.length >= 3
+  && types.slice(1, -1).every((type) => type === 'break_through')
+  && types.at(-1) === 'break'),
+`planning preserves legs without permitting intermediate U-turns`);
+check(osrmPlanningCalls === 0, `OSRM planning fallback never engaged (${osrmPlanningCalls})`);
+
+// The overview control is an op-backed trip preference, not ornamental UI.
+// Its selection must invalidate planning and change Valhalla's request body.
+if (await page.locator('.main').getAttribute('data-panel') === 'closed') {
+  await page.locator('.modebar button', { hasText: 'Plan' }).evaluate((el) => el.click());
+  await page.waitForFunction(() => document.querySelector('.main')?.dataset.panel === 'open');
+}
+await page.locator('.side-inner').evaluate((el) => {
+  const pref = el.querySelector('.route-pref');
+  el.scrollTop = Math.max(0, (pref?.offsetTop ?? 0) - 20);
+});
+const routeBox = await page.locator('.route-style-grid').boundingBox();
+check(Boolean(routeBox && routeBox.x >= 0 && routeBox.x + routeBox.width <= 375 && routeBox.y >= 0 && routeBox.y < 750),
+  'route character is reachable inside the open phone panel');
+check(await page.locator('.route-engine', { hasText: /Valhalla motorcycle/i }).isVisible(),
+  'Trip settings names the motorcycle routing engine');
+check(await page.locator('.route-style-grid [role="radio"][aria-checked="true"]', { hasText: 'Touring' }).isVisible(),
+  'legacy trips open on the neutral Touring route character');
+
+// A route character is now a protected replan. The click computes a draft,
+// leaves the stored/shared choice alone, and only commits after the rider sees
+// the route and stop impact.
+delayRouteChoices = true;
+const quick = page.locator('.route-style-grid [role="radio"]', { hasText: 'Quick' });
+await quick.click();
+await page.waitForSelector('.route-preview-loading');
+check(await page.locator('.route-style-grid [role="radio"][aria-checked="true"]', { hasText: 'Touring' }).isVisible(),
+  'previewing a character does not mutate the active trip');
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+check(await page.locator('.route-preview-sheet', { hasText: /Touring.*Quick/s }).isVisible(),
+  'route comparison names the current and proposed characters');
+check(await page.locator('.route-preview-sheet', { hasText: 'Keep every stop' }).isVisible(),
+  'route comparison makes stop preservation an explicit decision');
+check(await page.locator('.map-legend .preview-key').isVisible(),
+  'proposed Valhalla geometry is identified on the map');
+const previewPaint = await page.evaluate(() => ({
+  color: window.__map?.getPaintProperty('route-preview-v1-line', 'line-color'),
+  opacity: window.__map?.getPaintProperty('route-preview-v1-line', 'line-opacity'),
+  glow: window.__map?.getPaintProperty('route-preview-v1-glow', 'line-opacity'),
+}));
+check(previewPaint.color === '#3ee3d8' && previewPaint.opacity > 0 && previewPaint.glow > 0,
+  'proposed geometry is visibly painted as the turquoise comparison line');
+check(await page.locator('.route-preview-close').evaluate((button) => document.activeElement === button),
+  'route comparison takes keyboard focus on entry');
+await page.locator('.route-preview-actions .btn', { hasText: 'Cancel' }).click();
+check(await quick.getAttribute('aria-checked') === 'false', 'cancel leaves Quick unapplied');
+delayRouteChoices = false;
+
+const backRoads = page.locator('.route-style-grid [role="radio"]', { hasText: 'Back roads' });
+await backRoads.click();
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+await page.screenshot({ path: SHOT('valhalla-route-character-preview'), fullPage: true });
+await page.screenshot({ path: REVIEW('mobile'), fullPage: true });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+await page.waitForTimeout(200);
+await page.screenshot({ path: REVIEW('mobile-light'), fullPage: true });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+await page.locator('.route-preview-actions .btn', { hasText: 'Keep every stop' }).click();
+await page.waitForFunction(() => document.querySelector('.route-style-grid [aria-checked="true"]')?.textContent?.includes('Back roads'));
+
+const beforePreference = valhallaCalls;
+const preferenceRequest = page.waitForRequest((req) => {
+  if (!req.url().includes('valhalla1.openstreetmap.de/route')) return false;
+  try {
+    const options = req.postDataJSON()?.costing_options?.motorcycle;
+    return options?.use_highways === 0.05 && options?.use_tolls === 0;
+  } catch { return false; }
+});
+await page.locator('.route-tolls input').click();
+await preferenceRequest;
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+await page.locator('.route-preview-actions .btn', { hasText: 'Keep every stop' }).click();
+await page.waitForTimeout(800);
+const chosen = valhallaOptions.at(-1);
+check(valhallaCalls > beforePreference && chosen?.use_highways === 0.05 && chosen?.use_tolls === 0 && chosen?.use_trails === 0,
+  `UI reroutes with back-road, no-toll motorcycle costing (${JSON.stringify(chosen)})`);
+const storedPrefs = await page.evaluate(() => {
+  const lib = JSON.parse(localStorage.getItem('moto.trips.v1') || 'null');
+  return lib?.trips?.find((x) => x.id === lib.activeId)?.trip?.meta?.routePrefs;
+});
+check(storedPrefs?.style === 'backroads' && storedPrefs?.avoidTolls === true,
+  'route character persists on the trip through set_meta');
+await page.screenshot({ path: SHOT('valhalla-route-character'), fullPage: true });
+const phoneFit = await page.locator('.route-pref').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+check(phoneFit, 'route control fits the phone panel without horizontal clipping');
+await page.setViewportSize({ width: 1366, height: 900 });
+await page.waitForTimeout(400);
+const desktopFit = await page.locator('.route-pref').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+check(desktopFit, 'route control fits the desktop panel without horizontal clipping');
+await page.screenshot({ path: SHOT('valhalla-route-character-desktop') });
+await page.locator('.route-style-grid [role="radio"]', { hasText: 'Touring' }).click();
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+// The sheet and map overlay commit in the same React render; give MapLibre one
+// paint frame before capturing the dark comparison artifact.
+await page.waitForTimeout(250);
+await page.screenshot({ path: REVIEW('desktop') });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('valhalla-route-character-desktop-light') });
+await page.screenshot({ path: REVIEW('desktop-light') });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+await page.locator('.route-preview-actions .btn', { hasText: 'Cancel' }).click();
+await page.setViewportSize({ width: 375, height: 750 });
+await page.waitForTimeout(400);
+
 await page.locator('.modebar button', { hasText: /ride/i }).click();
 await page.waitForSelector('.ride-bar', { timeout: 15000 });
 await page.waitForTimeout(1200);
-check(valhallaCalls >= 1 && valhallaCosting === 'motorcycle',
-  `nav steps fetched from Valhalla with motorcycle costing (${valhallaCalls} call(s))`);
+check(valhallaCalls > planningValhallaCalls,
+  `nav steps fetched through Valhalla (${planningValhallaCalls}→${valhallaCalls} calls)`);
+const navOptions = valhallaOptions.at(-1);
+check(navOptions?.use_highways === 0.05 && navOptions?.use_tolls === 0,
+  'Ride Mode inherits the trip route character');
 check(osrmStepsCalls === 0, `OSRM routing fallback never engaged (${osrmStepsCalls})`);
 
 // ride a little so the turn card renders Valhalla's instruction text
+const navStart = [-108.0, 44.0], navStop = [-107.95, 44.06];
+const navDx = navStop[0] - navStart[0], navDy = navStop[1] - navStart[1];
+const navLen = Math.hypot(navDx, navDy);
+const navBend = lerp(navStart, navStop, 0.4);
+navBend[0] += (-navDy / navLen) * 0.018;
+navBend[1] += (navDx / navLen) * 0.018;
 for (const t of [0.05, 0.12, 0.2]) {
-  await page.evaluate(([lat, lng]) => window.__feed(lat, lng, 30, 15), [44.0 + 0.06 * t, -108.0 + 0.05 * t]);
+  const [lng, lat] = lerp(navStart, navBend, t / 0.4);
+  await page.evaluate(([feedLat, feedLng]) => window.__feed(feedLat, feedLng, 30, 15), [lat, lng]);
   await page.waitForTimeout(350);
 }
 const card = await page.locator('.turn-card').textContent().catch(() => '');
@@ -139,6 +297,7 @@ const before = valhallaCalls;
 await page.locator('.stop-card', { hasText: 'End Lodge' }).locator('.sc-actions button', { hasText: 'Go next' }).click();
 await page.waitForTimeout(800);
 check(valhallaCalls > before, `Go next rerouted through Valhalla (${before}→${valhallaCalls})`);
+check(googleRouteCalls === 0, `Google never replaced the Valhalla plan (${googleRouteCalls} routing calls)`);
 const nn2 = await page.locator('.rb-next').textContent().catch(() => '');
 check(nn2.includes('End Lodge'), `retarget landed ("${nn2.trim()}")`);
 await page.screenshot({ path: SHOT('valhalla-nav') });

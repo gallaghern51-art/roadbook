@@ -2,7 +2,7 @@
 // Every change to the trip is an op; applyOps is pure (returns a new trip).
 
 import { cascadeDates } from './dates.js';
-import { routeFingerprint } from './tripEngine.js';
+import { routeFingerprint, normalizeRoutePrefs } from './tripEngine.js';
 
 let counter = 0;
 export const uid = (p) => `${p}${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -117,12 +117,19 @@ function applyOp(t, op) {
       // roster: [{ id, name, bike }] — who's riding what, shown under Field notes
       // dusk: "8:30 PM" — after-dark warnings; utcOffset: hours for .ics export
       // pace: riding-duration multiplier (1.0 solo … ~1.15 big group)
-      const allowed = ['title', 'subtitle', 'summary', 'riders', 'startDate', 'fuelRule', 'range', 'roster', 'dusk', 'utcOffset', 'pace'];
+      // routePrefs: { style: quick|touring|backroads, avoidTolls: boolean }
+      const allowed = ['title', 'subtitle', 'summary', 'riders', 'startDate', 'fuelRule', 'range', 'roster', 'dusk', 'utcOffset', 'pace', 'routePrefs'];
       for (const k of Object.keys(op.patch ?? {})) {
         if (!allowed.includes(k)) throw new Error(`meta field ${k} not editable`);
       }
       const dateChanged = op.patch.startDate && op.patch.startDate !== t.meta.startDate;
-      Object.assign(t.meta, op.patch);
+      const patch = { ...(op.patch ?? {}) };
+      // A Copilot or remote op may change one route preference at a time. Merge
+      // it with the trip's current choice, then normalize before it is shared.
+      if (patch.routePrefs != null) {
+        patch.routePrefs = normalizeRoutePrefs({ ...(t.meta.routePrefs ?? {}), ...patch.routePrefs });
+      }
+      Object.assign(t.meta, patch);
       return dateChanged ? cascadeDates(t) : t;
     }
     case 'reorder_waypoints': {

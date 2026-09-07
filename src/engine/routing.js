@@ -1,22 +1,20 @@
-// Road routing. Planning uses the public OSRM demo server (free, cached hard).
-// Ride Mode navigation runs a three-tier chain: Google Routes first via the
-// google-route Netlify function (live-traffic ETAs; needs GOOGLE_MAPS_API_KEY
-// in the Netlify env), then Valhalla on the FOSSGIS public server (open
-// source, real motorcycle costing, heading-aware), then OSRM — each tier
-// backs off on failure and falls through, so the app never depends on any
-// single router.
+// Road routing. Valhalla motorcycle costing owns both planning and Ride Mode,
+// so opening navigation cannot replace the road the rider chose. If Valhalla
+// is unavailable, planning falls directly to OSRM; Ride Mode tries Google
+// Routes (via the Netlify function, when configured) and then OSRM. Each tier
+// backs off on failure, so the app never depends on a single router.
 
-import { legKey, haversineMiles } from './tripEngine.js';
+import {
+  legKey, haversineMiles, projectOnChain, normalizeRoutePrefs, routePrefsKey,
+} from './tripEngine.js';
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 
-// v3: cached legs are CALIBRATED but UNPACED — the per-trip group-pace
-// multiplier (meta.pace) is applied by consumers, so changing it never
-// invalidates the cache. v2 briefly carried routes computed with
-// snapping=any + continue_straight=false, which let the router U-turn at a
-// via instead of riding THROUGH it (it cut a mountain pass in half, touching
-// the summit stop and doubling back); those flush with the bump.
-const CACHE_KEY = 'sturgis.routeCache.v3';
+// v5: route-character preferences became part of every Valhalla request and
+// cache key. Flush v4 so a legacy neutral route cannot mask a rider's choice.
+// Cached legs remain UNPACED — the per-trip group-pace multiplier (meta.pace)
+// is applied by consumers, so changing pace never invalidates the cache.
+const CACHE_KEY = 'sturgis.routeCache.v5';
 
 // ---- speed calibration ----
 // The public OSRM demo times US highways like a cautious rental car: rural
@@ -149,7 +147,22 @@ const V_MANEUVER = {
   26: ['roundabout', null], 27: ['exit roundabout', null],
 };
 
-async function valhallaRoute(origin, wps) {
+// Valhalla exposes motorcycle preference weights rather than named profiles.
+// Keep their translation in one place so planning, maneuvers, and reroutes can
+// never disagree. `use_trails: 0` is intentional: an unpaved/trail control
+// needs its own safety language and should never arrive as a side effect of
+// asking for back roads.
+function valhallaMotorcycleOptions(value) {
+  const prefs = normalizeRoutePrefs(value);
+  const useHighways = { quick: 1, touring: 0.5, backroads: 0.05 }[prefs.style];
+  return {
+    use_highways: useHighways,
+    use_tolls: prefs.avoidTolls ? 0 : 0.5,
+    use_trails: 0,
+  };
+}
+
+async function valhallaRoute(origin, wps, routePrefs, signal) {
   if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
   const body = {
     locations: [
@@ -160,9 +173,17 @@ async function valhallaRoute(origin, wps) {
           ? { heading: ((Math.round(origin.heading) % 360) + 360) % 360, heading_tolerance: 60 }
           : {}),
       },
-      ...wps.map((w) => ({ lon: w.lng, lat: w.lat, type: 'break' })),
+      ...wps.map((w, i) => ({
+        lon: w.lng,
+        lat: w.lat,
+        // Intermediate points still split the response into per-stop legs,
+        // but the route must continue through them instead of U-turning. The
+        // final location is always a true break.
+        type: i === wps.length - 1 ? 'break' : 'break_through',
+      })),
     ],
     costing: 'motorcycle',
+    costing_options: { motorcycle: valhallaMotorcycleOptions(routePrefs) },
     directions_options: { units: 'miles' },
   };
   let res;
@@ -171,8 +192,12 @@ async function valhallaRoute(origin, wps) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
   } catch (e) {
+    // A newer route-character choice superseded this request. That is normal
+    // UI cancellation, not an engine outage, so it must not trigger backoff.
+    if (signal?.aborted || e?.name === 'AbortError') throw (signal?.reason ?? e);
     vSkipUntil = Date.now() + 10 * 60_000;
     throw e;
   }
@@ -294,28 +319,74 @@ function saveCache() {
   }
 }
 
-// Route one day's waypoints in one OSRM call (it handles many vias fine).
+// Route one day's waypoints in one Valhalla call, using real motorcycle
+// costing. OSRM remains the safety fallback if the community endpoint is down.
 // Returns { legs: {legKey: {miles, seconds}}, geometry, snaps: {wpId: meters} }.
-// Leg seconds are calibrated (see SPEED_CURVE) but unpaced. `snaps` records how
-// far each pin sat from the road network — a big number is a mis-placed pin
-// that forces the route into an out-and-back spur to touch it; the day panel
-// warns on those so the pin gets fixed at the source.
-// Deliberately NO continue_straight=false / snapping=any here: allowing
-// U-turns at vias let the router touch a mid-pass stop and double back
-// instead of riding through the pass — on a motorcycle route the road is
-// the point, so vias keep OSRM's ride-through default.
-export async function routeDay(day) {
+// Leg seconds are realistic Valhalla estimates (or calibrated OSRM fallback
+// estimates) but unpaced. `snaps` records how far each pin sat from the routed
+// road — a big number is a mis-placed pin that forces an out-and-back spur;
+// the day panel warns on those so the pin gets fixed at the source.
+export async function routeDay(day, routePrefs, options = {}) {
+  const { signal } = options;
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return { legs: {}, geometry: null };
 
   const c = loadCache();
-  const dayKey = wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
-  if (c[dayKey]) return c[dayKey];
+  const dayKey = `${routePrefsKey(routePrefs)}|${wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';')}`;
+  const hit = c[dayKey];
+  // A Valhalla result is static until the points move. An OSRM fallback only
+  // lives for Valhalla's backoff window; otherwise one transient outage would
+  // quietly pin this day to the fallback forever.
+  if (hit && (hit.source !== 'osrm' || Date.now() < (hit.retryAt ?? 0))) return hit;
+
+  // Valhalla returns road-snapped geometry but not the OSRM-style snap offset.
+  // Project each original pin onto the returned shape to preserve the existing
+  // >150 m warning. This is the same projection primitive Ride Mode uses.
+  const snapsFor = (geometry) => {
+    const chain = geometry.map(([lng, lat]) => ({ lng, lat }));
+    if (chain.length < 2) return {};
+    const snaps = {};
+    for (const w of wps) {
+      const p = projectOnChain(chain, w);
+      if (Number.isFinite(p?.off)) snaps[w.id] = Math.round(p.off * 1609.34);
+    }
+    return snaps;
+  };
+
+  try {
+    const trip = await valhallaRoute(wps[0], wps.slice(1), routePrefs, signal);
+    if (trip.legs.length !== wps.length - 1) throw new Error('valhalla leg mismatch');
+    const legs = {};
+    trip.legs.forEach((leg, i) => {
+      const miles = Number.isFinite(leg.summary?.length)
+        ? leg.summary.length
+        : (leg.maneuvers ?? []).reduce((sum, m) => sum + (Number.isFinite(m.length) ? m.length : 0), 0);
+      const seconds = Number.isFinite(leg.summary?.time)
+        ? leg.summary.time
+        : (leg.maneuvers ?? []).reduce((sum, m) => sum + (Number.isFinite(m.time) ? m.time : 0), 0);
+      legs[legKey(wps[i], wps[i + 1])] = {
+        miles,
+        seconds,
+      };
+    });
+    // 5 decimals ≈ 1 m — plenty for drawing, off-route checks (0.12 mi), and
+    // puck snapping (30 m), and it nearly halves the cached JSON. An 11-day
+    // trip's geometry has to fit localStorage next to everything else.
+    const geometry = valhallaGeometry(trip).map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
+    if (geometry.length < 2) throw new Error('valhalla geometry empty');
+    const result = { legs, geometry, snaps: snapsFor(geometry), source: 'valhalla' };
+    c[dayKey] = result;
+    saveCache();
+    return result;
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') throw (signal?.reason ?? e);
+    /* fall through to OSRM */
+  }
 
   const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
   const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=false&annotations=distance,duration`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (!res.ok) throw new Error(`OSRM ${res.status}`);
     const json = await res.json();
     const route = json.routes?.[0];
@@ -332,16 +403,14 @@ export async function routeDay(day) {
       const m = json.waypoints?.[i]?.distance;
       if (Number.isFinite(m)) snaps[w.id] = Math.round(m);
     });
-    // 5 decimals ≈ 1 m — plenty for drawing, off-route checks (0.12 mi), and
-    // puck snapping (30 m), and it nearly halves the cached JSON. An 11-day
-    // trip's geometry has to fit localStorage next to everything else.
     const geometry = route.geometry.coordinates.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
-    const result = { legs, geometry, snaps };
+    const result = { legs, geometry, snaps, source: 'osrm', retryAt: vSkipUntil };
     c[dayKey] = result;
     saveCache();
     return result;
-  } catch {
-    // Fallback: straight lines between waypoints, doc mileage drives the metrics.
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') throw (signal?.reason ?? e);
+    // Last-resort straight lines keep the itinerary usable without any router.
     return { legs: {}, geometry: wps.map((w) => [w.lng, w.lat]), fallback: true };
   }
 }
@@ -349,10 +418,11 @@ export async function routeDay(day) {
 // Turn-by-turn maneuvers for Ride Mode. Fetched per day on demand (steps inflate
 // payloads ~10x, so they never ride along with the planning fetch) and cached
 // as compact maneuver points only.
-// v4: step durations are calibrated (SPEED_CURVE) and UNPACED — pace applies at
-// read time — and arrive steps carry their stop name for per-leg ETAs. v3
-// briefly held routes allowed to U-turn at vias (see CACHE_KEY note).
-const STEP_CACHE = 'moto.stepsCache.v4';
+// v6: route character now keys navigation maneuvers as well as plan geometry.
+// Flush v5 so a legacy neutral route cannot mask the current trip preference.
+// Durations remain UNPACED — pace applies at read time — and arrive steps carry
+// their stop name for per-leg ETAs.
+const STEP_CACHE = 'moto.stepsCache.v6';
 
 // Old cache generations are multi-MB dead weight. Left in place they push
 // localStorage over the phone's quota, every save of the CURRENT cache then
@@ -500,28 +570,35 @@ function saveStepCache(key, value) {
   } catch { localStorage.removeItem(STEP_CACHE); }
 }
 
-export async function routeDaySteps(day, pace = 1) {
+export async function routeDaySteps(day, pace = 1, routePrefs) {
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return [];
-  const key = 'steps|' + wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';');
+  const key = `steps|${routePrefsKey(routePrefs)}|${wps.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';')}`;
   const c = loadStepCache();
   const hit = c[key];
-  if (Array.isArray(hit)) return paceSteps(hit, pace); // OSRM-sourced: static data, cache forever
-  if (hit?.g && Date.now() - hit.at < 15 * 60_000) return paceSteps(hit.steps, pace); // traffic goes stale
+  if (Array.isArray(hit)) return paceSteps(hit, pace); // open-source routers: static data, cache forever
+  if (hit?.g) {
+    // Google is an outage fallback now, not the route owner. Keep it only until
+    // either its traffic is stale or Valhalla's backoff ends, whichever is first.
+    const trafficUntil = hit.at + 15 * 60_000;
+    const freshUntil = Math.min(trafficUntil, Number.isFinite(hit.retryAt) ? hit.retryAt : trafficUntil);
+    if (Date.now() < freshUntil) return paceSteps(hit.steps, pace);
+  }
 
-  // Traffic-aware first; Valhalla (motorcycle costing, richer maneuvers) is
-  // the open-source middle tier; OSRM below is the always-works fallback.
+  // Motorcycle routing first: navigation follows the same engine as planning.
+  try {
+    const trip = await valhallaRoute(wps[0], wps.slice(1), routePrefs);
+    const steps = await attachRoadDetail(valhallaCompactSteps(trip, wps.slice(1)), wps);
+    saveStepCache(key, steps); // no traffic inside — static data caches forever
+    return paceSteps(steps, pace);
+  } catch { /* fall through to Google */ }
+
+  // A Valhalla outage should not strand a rider. Google remains the stronger
+  // hosted fallback when configured; OSRM below is the final open fallback.
   try {
     const g = await googleRoute(wps[0], wps.slice(1));
     const steps = await attachRoadDetail(googleCompactSteps(g, wps.slice(1)), wps);
-    saveStepCache(key, { g: 1, at: Date.now(), steps });
-    return paceSteps(steps, pace);
-  } catch { /* fall through to Valhalla */ }
-
-  try {
-    const trip = await valhallaRoute(wps[0], wps.slice(1));
-    const steps = await attachRoadDetail(valhallaCompactSteps(trip, wps.slice(1)), wps);
-    saveStepCache(key, steps); // no traffic inside — static data caches forever
+    saveStepCache(key, { g: 1, at: Date.now(), retryAt: vSkipUntil, steps });
     return paceSteps(steps, pace);
   } catch { /* fall through to OSRM */ }
 
@@ -541,9 +618,9 @@ export async function routeDaySteps(day, pace = 1) {
 // ---- road numbers for the PLAN map ----
 // Shields on the planning map need one thing the planning route does not
 // carry: which route number each stretch runs on. Deliberately NOT served by
-// routeDaySteps — that one tries Google first (billable, per selected day,
-// and Google has no ref field anyway), while OSRM answers with real OSM refs
-// for free. Only the ref and the length it holds are kept, so the whole cache
+// routeDaySteps — routing there may still call Google during a Valhalla outage,
+// and Google has no ref field anyway, while OSRM answers with real OSM refs for
+// free. Only the ref and the length it holds are kept, so the whole cache
 // for an 11-day trip is a few KB.
 const ROAD_CACHE = 'moto.roadCache.v1';
 
@@ -573,11 +650,21 @@ export async function routeDayRoads(day) {
 
 // Live reroute: current GPS position → the day's remaining waypoints.
 // Never cached (the origin is wherever the bike is right now).
-// Traffic-aware via Google when configured, OSRM otherwise.
+// Valhalla first, then Google when configured, then OSRM.
 // Returns { geometry, steps, miles, seconds, traffic? } or throws.
-export async function routeFrom(pos, waypoints, pace = 1) {
+export async function routeFrom(pos, waypoints, pace = 1, routePrefs) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
+
+  try {
+    const trip = await valhallaRoute(pos, wps, routePrefs);
+    return {
+      geometry: valhallaGeometry(trip),
+      steps: paceSteps(valhallaCompactSteps(trip, wps), pace),
+      miles: trip.summary?.length ?? 0,
+      seconds: (trip.summary?.time ?? 0) * pace,
+    };
+  } catch { /* fall through to Google */ }
 
   try {
     const g = await googleRoute(pos, wps);
@@ -587,16 +674,6 @@ export async function routeFrom(pos, waypoints, pace = 1) {
       miles: g.distanceMeters / 1609.34,
       seconds: g.durationSeconds * pace,
       traffic: true,
-    };
-  } catch { /* fall through to Valhalla */ }
-
-  try {
-    const trip = await valhallaRoute(pos, wps);
-    return {
-      geometry: valhallaGeometry(trip),
-      steps: paceSteps(valhallaCompactSteps(trip, wps), pace),
-      miles: trip.summary?.length ?? 0,
-      seconds: (trip.summary?.time ?? 0) * pace,
     };
   } catch { /* fall through to OSRM */ }
 

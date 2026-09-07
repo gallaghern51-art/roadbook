@@ -54,7 +54,7 @@ function arrowImage(size = 26) {
 const lineWidth = (base) => ['interpolate', ['linear'], ['zoom'], 5, base * 0.75, 9, base, 13, base * 1.9];
 
 export default function MapView() {
-  const { state, dispatch, routes, routedLegsByDay } = useTrip();
+  const { state, dispatch, routes, routedLegsByDay, ui } = useTrip();
   const { trip, selectedDayId } = state;
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -78,8 +78,8 @@ export default function MapView() {
   const tt = useTT();
   const u = useUnits();
   const scaleRef = useRef(null);
-  const stateRef = useRef({ trip, selectedDayId });
-  stateRef.current = { trip, selectedDayId };
+  const stateRef = useRef({ trip, selectedDayId, routePreview: ui?.routePreview });
+  stateRef.current = { trip, selectedDayId, routePreview: ui?.routePreview };
 
   const phaseColor = (phase) => {
     if (basemapRef.current === 'light' && LIGHT_SAFE[phase]) return LIGHT_SAFE[phase];
@@ -183,8 +183,8 @@ export default function MapView() {
   // not what you are reading at that scale anyway.
   //
   // The refs come from a separate OSRM fetch (routeDayRoads) rather than from
-  // routeDaySteps — that one tries Google first, which is billable per day and
-  // carries no ref field to begin with.
+  // routeDaySteps — its Valhalla output has no route-ref field and its Google
+  // outage fallback is billable, while this small OSRM fetch is static.
   useEffect(() => {
     if (!selectedDayId) { setDayRoads(null); return undefined; }
     const day = trip.days.find((d) => d.id === selectedDayId);
@@ -217,8 +217,14 @@ export default function MapView() {
 
   // redraw on data change
   useEffect(() => {
-    if (readyRef.current) drawAll();
-  }, [trip, selectedDayId, routes]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!readyRef.current) return undefined;
+    drawAll();
+    // MapLibre applies GeoJSON source changes on its render worker. Reassert
+    // the overlay on the next frame so a preview opened in an otherwise-idle
+    // dark map does not wait for some unrelated UI change before appearing.
+    const frame = requestAnimationFrame(() => drawAllRef.current());
+    return () => cancelAnimationFrame(frame);
+  }, [trip, selectedDayId, routes, ui?.routePreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Google tile sessions arrive async — swap the roster in and lead with Google
   // satellite unless the user already picked something else.
@@ -295,7 +301,7 @@ export default function MapView() {
   function drawAll() {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    const { trip: t, selectedDayId: sel } = stateRef.current;
+    const { trip: t, selectedDayId: sel, routePreview: preview } = stateRef.current;
     ensureTerrain(map, terrainRef.current);
     // our shields are the ones on this map — setStyle brings the basemap's back
     hideNativeRoadShields(map);
@@ -351,6 +357,51 @@ export default function MapView() {
       map.setPaintProperty(`${srcId}-glow`, 'line-opacity', active ? 0.2 : 0.05);
       map.setPaintProperty(`${srcId}-arrows`, 'icon-opacity', active ? 0.9 : 0);
     }
+
+    // A route-character choice is a draft until the rider confirms it. Draw
+    // that draft as one turquoise dashed instrument line over the current
+    // colored plan; the map comparison disappears with the sheet on cancel.
+    for (const day of t.days) {
+      const srcId = `route-preview-${day.id}`;
+      const geom = preview?.status === 'ready' ? preview.routes?.[day.id]?.geometry : null;
+      const data = {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: geom?.length > 1 ? geom : [] },
+      };
+      if (map.getSource(srcId)) {
+        map.getSource(srcId).setData(data);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data });
+        const round = { 'line-cap': 'round', 'line-join': 'round' };
+        map.addLayer({
+          id: `${srcId}-glow`, type: 'line', source: srcId,
+          paint: { 'line-color': '#3ee3d8', 'line-width': lineWidth(9), 'line-opacity': 0.28, 'line-blur': 4 },
+          layout: round,
+        });
+        map.addLayer({
+          id: `${srcId}-casing`, type: 'line', source: srcId,
+          paint: { 'line-color': '#071014', 'line-width': lineWidth(7), 'line-opacity': 0.86 },
+          layout: round,
+        });
+        map.addLayer({
+          id: `${srcId}-line`, type: 'line', source: srcId,
+          paint: {
+            'line-color': '#3ee3d8', 'line-width': lineWidth(3.5), 'line-opacity': 1,
+          },
+          layout: round,
+        });
+      }
+      const active = sel === null || sel === day.id;
+      map.setPaintProperty(`${srcId}-glow`, 'line-opacity', geom?.length > 1 && active ? 0.2 : 0);
+      map.setPaintProperty(`${srcId}-casing`, 'line-opacity', geom?.length > 1 && active ? 0.86 : 0);
+      map.setPaintProperty(`${srcId}-line`, 'line-opacity', geom?.length > 1 && active ? 0.96 : 0);
+      // Existing route layers can be recreated after a basemap/style change.
+      // Reassert the comparison stack so the active route never paints over
+      // the proposed geometry merely because its layer was added later.
+      map.moveLayer(`${srcId}-glow`);
+      map.moveLayer(`${srcId}-casing`);
+      map.moveLayer(`${srcId}-line`);
+    }
     // The leg-highlight layer rides on top of every route: hovering a stop row
     // in the day panel lights the stretch of road that leg actually covers.
     if (!map.getSource('leg-hi')) {
@@ -369,6 +420,10 @@ export default function MapView() {
     }
     // prune sources for deleted days
     drawMarkers();
+    // Source updates can land in the same commit as the comparison sheet.
+    // Explicitly request a frame so the WebGL canvas cannot remain visually
+    // one React render behind until another DOM/theme change wakes it.
+    map.triggerRepaint();
   }
 
   // Hovered leg → the slice of routed geometry between its two waypoints.
@@ -569,7 +624,7 @@ export default function MapView() {
 
   const selectedDay = trip.days.find((d) => d.id === selectedDayId);
   return (
-    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}`}>
+    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}${ui?.routeLoad ? ' route-pending' : ''}`}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
@@ -578,13 +633,12 @@ export default function MapView() {
           ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {t('— click map to add a stop · drag markers · click stops & legs for details')}</span></>
           : <>{t('Whole-trip view')}<span className="hint-more"> {t('— hover a route for leg info, click for details, pick a day to edit')}</span></>}
       </div>
-      {/* The first minute of a cold load is OSRM routing eleven days one by
-          one — without narration it reads as a broken map. Say what the
-          engine is doing until every day has road geometry. */}
-      {Object.keys(routes).length < trip.days.length && (
-        <div className="routing-chip">
+      {/* Keep the previous complete route visible while the latest choice is
+          calculated, but name that work so it never reads as a missed click. */}
+      {ui?.routeLoad && (
+        <div className="routing-chip" role="status" aria-live="polite">
           <span className="routing-dot" />
-          {t('Routing')} {Math.min(Object.keys(routes).length + 1, trip.days.length)}/{trip.days.length}…
+          {t('Routing')} {ui.routeLoad.done}/{ui.routeLoad.total}…
         </div>
       )}
       {/* Collapsed by default: one layers pill naming the current basemap.
@@ -621,6 +675,9 @@ export default function MapView() {
         )}
       </div>
       <div className="map-legend">
+        {ui?.routePreview?.status === 'ready' && (
+          <span className="key preview-key"><i />{t('Proposed route')}</span>
+        )}
         {Object.entries(PHASES).map(([k, p]) => (
           <span key={k} className="key"><i style={{ background: p.color }} />{t(p.label)}</span>
         ))}

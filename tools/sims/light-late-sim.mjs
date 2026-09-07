@@ -34,7 +34,11 @@ function buildOsrm(url) {
   if (record) firstSteps = coords;
   return { code: 'Ok', routes: [{ distance: totalM, duration: totalS, legs, geometry: { coordinates: geometry } }], waypoints: coords.map((c) => ({ distance: 10, location: c })) };
 }
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/opt/pw-browsers/chromium');
+const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (route) => {
@@ -53,12 +57,14 @@ await page.addInitScript(() => {
   window.__feed = (lat, lng, heading, mps) => { window.__geoCb?.({ coords: { latitude: lat, longitude: lng, accuracy: 5, speed: mps, heading }, timestamp: Date.now() }); };
 });
 await page.goto('http://localhost:5199/');
+const guest = page.locator('.land-skip');
+if (await guest.isVisible().catch(() => false)) await guest.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.screenshot({ path: SHOT('light-home') });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {
-  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v3') || '{}')).length >= 3; } catch { return false; }
+  try { return Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v5') || '{}')).length >= 3; } catch { return false; }
 }, { timeout: 30000 });
 await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400);
 await page.locator('.rchip').nth(1).click();
@@ -79,16 +85,18 @@ const names = await page.evaluate(() => {
   return day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng)).map((w) => w.name);
 });
 const bearing = (a, b) => ((Math.atan2((b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]) * 180) / Math.PI + 360) % 360;
+if (!wps || wps.length < 2) throw new Error('No routed waypoints captured for the late-start check');
+const startIndex = Math.min(2, wps.length - 2);
 {
-  const p = lerp(wps[2], wps[3], 0.3);
+  const p = lerp(wps[startIndex], wps[startIndex + 1], 0.3);
   for (let k = 0; k < 3; k++) {
-    await page.evaluate(({ lat, lng, hdg }) => window.__feed(lat, lng, hdg, 29), { lat: p[1], lng: p[0], hdg: bearing(wps[2], wps[3]) });
+    await page.evaluate(({ lat, lng, hdg }) => window.__feed(lat, lng, hdg, 29), { lat: p[1], lng: p[0], hdg: bearing(wps[startIndex], wps[startIndex + 1]) });
     await page.waitForTimeout(500);
   }
 }
 await page.waitForTimeout(800);
 const nextTxt = await page.locator('.rb-next .mq-seg').first().textContent();
-const expect = names[3] ?? '';
+const expect = names[startIndex + 1] ?? '';
 console.log(`${nextTxt?.includes(expect.slice(0, 8)) ? 'PASS' : 'FAIL'} late start targets the stop AHEAD — next="${nextTxt}" expected~"${expect}"`);
 // light-theme ride sheet
 await page.click('.ride-bar');

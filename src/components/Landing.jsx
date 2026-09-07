@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useT } from '../engine/settings.jsx';
 import { signIn, signUp, sendReset, updatePassword } from '../engine/auth.js';
 import { SYNC_ENABLED } from '../engine/supabase.js';
+import { RoadbookBrand, ThemeToggle } from './Chrome.jsx';
 
 // The front door, for anyone who is not signed in.
 //
@@ -89,12 +90,12 @@ export default function Landing({ onGuest, recovery, finishAccount, onRecovered,
           second copy up here said the same words twice on one desktop screen,
           and the quieter of the two is the one that can explain itself. */}
       <header className="landing-mast">
-        <h1 className="brand">ROAD<span className="yr">BOOK</span></h1>
+        <h1 className="brand"><RoadbookBrand /></h1>
+        <ThemeToggle />
       </header>
 
       <div className="landing-inner">
         <section className="land-pitch">
-          <div className="eyebrow">{t('The AI roadbook for motorcycle trips')}</div>
           <h2>
             {t('Plan the ride.')}
             <br />

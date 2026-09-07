@@ -17,7 +17,7 @@ Grades are for *functional utility as built*, judged against what a paying rider
 ### Map — A−
 Phase-colored routes with direction chevrons, glow/casing, real highway shields, waypoint labels in edit mode, six basemaps + 3D terrain, imperial scale, legend, hover-for-leg-info, whole-trip vs. day-edit modes. Nothing in the category renders routes this well.
 
-**Fragile first impression:** a cold visitor sees a black rectangle (satellite tiles), then bare dots for 10–20 s while all 11 days route through OSRM sequentially — with **no progress indicator**. The single moment a new visitor decides if the app is broken. Cheap fix: a "routing day 4 of 11…" chip and day-skeleton polylines (straight lines between waypoints) that fatten into road geometry as legs arrive.
+**Fragile first impression:** a cold visitor sees a black rectangle (satellite tiles), then bare dots while all days route through Valhalla sequentially. The routing-progress chip now makes that work visible; skeleton polylines remain a possible refinement if cold-start latency still reads as broken in field testing.
 
 ### Day ribbon — A
 The app's true spine: always present, every day's date/number/title/miles/hours, warning dots, selected-state. It *is* the trip's table of contents and it survives every view. Keep it central in any restructure.
@@ -80,7 +80,7 @@ Language switch triggers visible auto-translation with a progress pill; AI answe
 
 Beyond the infrastructure gaps in the market assessment:
 
-- **Ride-quality routing preferences** — no curvy/scenic/avoid-interstate option anywhere; OSRM fastest-path only. This is Calimoto's and Kurviger's *entire identity* and the #1 expectation a switching rider brings. Needs Valhalla custom costing, GraphHopper curvature routing, or a curated best-roads overlay (pairs with the Phase 0 self-hosted-routing decision).
+- **Ride-quality routing preferences — partially resolved Sept 6, 2026.** Trip settings now offers Quick / Touring / Back roads plus toll avoidance, stored on the shared trip and applied through Valhalla to Plan geometry, Ride maneuvers, and live reroutes. The remaining competitive gap is a genuine curvature/road-quality score: Back roads strongly reduces highway use but must not be marketed as a true “twisty” optimizer yet.
 - **No shareable artifact.** No trip link, no read-only view, no printable day sheet / roadbook PDF. For the founding seven-rider crew, JSON import is the only distribution. The share page is also the growth loop and the SEO surface — highest-leverage single feature in the whole plan.
 - **No POI/discovery layer** for hand-building days (passes, byways, moto-POIs, "best roads near me"). Defensible to defer; the AI's `search_places` partially substitutes.
 - **No progress narration** for the two long waits (first route load, AI runs) — both protocols already emit the events; the UI just doesn't tell the story.

@@ -24,7 +24,7 @@ Network is fully mocked — every sim aborts non-localhost requests and fulfils 
 Nominatim itself. That is deliberate: the dev sandbox's egress proxy blocks those hosts anyway,
 and mocks make the sims deterministic.
 
-## Status against `main` @ 6cee7ea (verified Sept 6, 2026)
+## Status (verified Sept 6, 2026)
 
 | script | result | covers |
 |---|---|---|
@@ -37,7 +37,8 @@ and mocks make the sims deterministic.
 | `proposal-check.mjs` | **2/2** | Copilot proposal card fits mobile; "apply as new trip" forks cleanly |
 | `head-font-check.mjs` | **5/6** | Masthead one-row + HUD type at 375/320px. The turn-card assertion never reaches a rendered card in this sim's scenario since the three-row bar restructure — **harness gap, not an app regression** (`.t-dist` is still 36px in `app.css`). |
 | `pace-check.mjs` | **times out** | Group-pace setting. Drifted against the current Trip settings UI — needs its selectors refreshed. |
-| `valhalla-check.mjs` | **2/6 on `main`, expected** | The Valhalla routing tier lives on **PR #49**, not on `main` — this sim only means anything on that branch, where it now passes **6/6**. See the note below; it is the most instructive script here. |
+| `valhalla-check.mjs` | **17/17** | Valhalla owns planning, Ride Mode, and live reroutes; the trip route-character UI changes real costing and persists; Google and OSRM routing fallbacks remain idle while it is healthy. |
+| `construction-chat-check.mjs` | **25/25** | Full-screen staged builder, desktop conversation/plan split, phone view switch, collapsed trip facts, expandable attributed place intelligence, tab-safe state, refinement and confirmation. |
 
 Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light-ribbon.mjs`,
 `light-late-sim.mjs`, `settings-shot.mjs`, `boot-check.mjs`.
@@ -45,19 +46,11 @@ Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light
 `scenario-check.mjs` was deleted — superseded by `plans-check.mjs` (the day panel is a compact pill
 now, not a chip strip).
 
-## What `valhalla-check.mjs` actually taught us
+## What `valhalla-check.mjs` guards
 
-An earlier version of this README claimed this sim "would pass while testing nothing." **That was
-wrong** and the correction is the useful part.
-
-`main` renamed `attachLanes` → `attachRoadDetail`; the Valhalla tier on PR #49 still called the old
-name, which is a `ReferenceError` swallowed by that tier's own `try/catch` — so it fell through to
-OSRM on every route while the build stayed green. Run against that broken state, this sim fails
-**4/6**, on `OSRM routing fallback never engaged`, because it asserts the fall-through never fires.
-Against the fixed tier it passes 6/6.
-
-So the harness was sound. It was simply never re-run after the rename. **That is a CI gap, not a
-test-design gap** — the argument it makes is for wiring these sims into CI, not for distrusting
-them. It is also the reason to prefer assertions about *observable behaviour* (did the fallback
-engage? does the turn card render text?) over assertions about a fixture's shape: the behavioural
-ones survive refactors of everything around them.
+The sim independently counts Valhalla, OSRM planning, and OSRM navigation requests. Before Ride
+Mode opens, it proves the plan was built by Valhalla with motorcycle costing, that intermediate
+locations use `break_through`, and that OSRM planning did not engage. It then proves navigation and
+manual retargeting use Valhalla without calling Google while the turn card renders Valhalla maneuver text. These are
+observable behavior checks: a swallowed exception or accidental fallback fails the sim even when
+the production build still compiles.
