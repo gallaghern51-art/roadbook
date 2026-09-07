@@ -101,7 +101,14 @@ async function runBackground(payload, onLine) {
       onLine?.({ type: 'delta', text: rec.text.slice(deliveredText), ms: rec.ms });
       deliveredText = rec.text.length;
     }
-    onLine?.({ type: 'building', chars: rec.chars ?? 0, thinking: rec.thinking ?? 0, ms: rec.ms, note: rec.note });
+    onLine?.({
+      type: 'building',
+      chars: rec.chars ?? 0,
+      thinking: rec.thinking ?? 0,
+      ms: rec.ms,
+      note: rec.note,
+      thought: rec.thought,
+    });
 
     if (rec.status === 'error') {
       const err = new Error(rec.message || 'The optimizer failed without saying why.');

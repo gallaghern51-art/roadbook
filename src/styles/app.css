@@ -272,6 +272,10 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   max-width: 36%; /* never run under the basemap switch on a narrow map column */
 }
 .map-hint b { color: var(--rally); font-weight: 500; }
+/* While the route wheel is open this line IS the instrument — it is what the
+   rider reads to know how far they have pulled. Give it the room, and keep it
+   clear of the basemap pill on the other side. */
+.map-hint.wheel { max-width: 52%; color: var(--ink); }
 
 .wp-marker { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #000000; cursor: pointer; box-shadow: 0 0 0 1px rgba(206, 206, 206, 0.35); }
 .wp-marker.fuel { border-radius: 3px; }
@@ -639,6 +643,21 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .builder-basics-grid { display: grid; grid-template-columns: 1.2fr 0.8fr 0.65fr 0.65fr; gap: 12px; align-items: end; }
 .builder-basics-grid .fld { margin: 0; }
 .builder-basics-grid input { min-height: 40px; }
+.builder-basics-grid select { min-height: 40px; }
+.builder-basics-grid .roads { grid-column: span 2; }
+/* A checkbox is not a labelled field — it needs its own row shape so the
+   caption sits beside the box rather than under a phantom label. */
+.builder-basics-grid .check {
+  display: flex; align-items: flex-start; gap: 9px; min-height: 40px; padding-top: 2px;
+  grid-column: span 2;
+}
+.builder-basics-grid .check input { width: 18px; min-height: 18px; height: 18px; margin: 2px 0 0; flex: none; }
+.builder-basics-grid .check span { display: block; font-size: 13px; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.builder-basics-grid .check small {
+  display: block; margin-top: 1px; color: var(--ink-faint);
+  font-family: var(--body); font-size: 11.5px; line-height: 1.35;
+  text-transform: none; letter-spacing: 0;
+}
 .builder-basics-grid .basics-done { min-height: 40px; justify-content: center; }
 .builder-context {
   flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 24px;
@@ -670,6 +689,71 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .construction-chat:not(.started) .construction-thread { min-height: auto; max-height: none; padding: 12px 24px; overflow: visible; }
 .construction-thread .msg { max-width: min(78%, 620px); }
+/* The in-flight turn: what the planner has written so far, the phase it is in,
+   and the line of reasoning it is on. All three move, so the block reads as
+   work happening rather than a stalled label. */
+.construction-thread .msg.streaming { display: flex; flex-direction: column; gap: 7px; }
+.msg.streaming .live-text { white-space: pre-wrap; }
+.msg.streaming .thinking::after {
+  content: '';
+  display: inline-block; width: 6px; height: 6px; margin-left: 7px; border-radius: 50%;
+  background: var(--route, currentColor); vertical-align: middle;
+  animation: builder-pulse 1.1s ease-in-out infinite;
+}
+.msg.streaming .thought {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-faint); font-size: 12px; font-style: italic; opacity: 0.85;
+}
+.construction-thread .msg.partial { border-style: dashed; }
+@keyframes builder-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* ---- route wheel: the touch way to reshape a leg -------------------------
+   Anchored to the point the rider tapped. The grip is the marker itself (so
+   MapLibre owns the drag and suppresses its own pan); the three actions are
+   satellites that swallow their own pointer events, or pressing one would
+   start a drag instead. Everything here is at least 44pt. */
+.route-wheel { position: relative; width: 0; height: 0; }
+.route-wheel .rw-ring {
+  position: absolute; left: 50%; top: 50%; width: 116px; height: 116px;
+  margin: -58px 0 0 -58px; border-radius: 50%;
+  border: 2px dashed color-mix(in srgb, var(--route, #3fd0c9) 70%, transparent);
+  background: color-mix(in srgb, var(--route, #3fd0c9) 10%, transparent);
+  pointer-events: none;
+}
+.route-wheel .rw-grip {
+  position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; cursor: grab; touch-action: none;
+  color: #06222a; background: var(--route, #3fd0c9);
+  border: 2px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.route-wheel .rw-grip svg { width: 26px; height: 26px; }
+.route-wheel .rw-act {
+  position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  border-radius: 50%; font-size: 19px; line-height: 1; cursor: pointer;
+  color: var(--ink); background: var(--asphalt-1);
+  border: 1px solid var(--line);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+/* Confirm sits above the grip, where a thumb arrives from below finds it
+   without covering the road being aimed at. */
+.route-wheel .rw-act.confirm {
+  transform: translate(0, -74px);
+  color: #fff; background: var(--rally, #d8542a); border-color: transparent; font-weight: 700;
+}
+.route-wheel .rw-act.cancel { transform: translate(-62px, 46px); }
+.route-wheel .rw-act.info { transform: translate(62px, 46px); }
+@media (max-width: 359px) {
+  .route-wheel .rw-act.cancel { transform: translate(-56px, 42px); }
+  .route-wheel .rw-act.info { transform: translate(56px, 42px); }
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .msg.streaming .thinking::after { animation: none; opacity: 0.7; }
+}
 .builder-intro { display: flex; gap: 12px; max-width: 62ch; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
 .builder-intro b { color: var(--ink); font-family: var(--display); font-size: 17px; letter-spacing: 0.04em; text-transform: uppercase; }
 .builder-intro p { margin-top: 2px; }
@@ -1503,6 +1587,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .builder-basics-copy p { font-size: 12.5px; }
   .builder-basics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .builder-basics-grid .wide { grid-column: 1 / -1; }
+  /* The whole label is the target, and on a phone it owes the rider 44pt. */
+  .builder-basics-grid .check { min-height: 44px; align-items: center; }
+  .builder-basics-grid .check input { width: 22px; height: 22px; min-height: 22px; margin-top: 0; }
   .builder-basics-grid .basics-done { grid-column: 1 / -1; }
   .builder-context { padding: 8px 14px; }
   .builder-context span { font-size: 9.5px; }

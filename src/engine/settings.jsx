@@ -251,6 +251,14 @@ const ES = {
   'Open this day': 'Abrir este día',
   'Close (btn)': 'Cerrar',
   'Add a stop here — name it:': 'Agregar una parada aquí — ponle nombre:',
+  'Add a stop': 'Agregar una parada',
+  'Add stop': 'Agregar parada',
+  'What is here?': '¿Qué hay aquí?',
+  'e.g. Palisades Parkway': 'p. ej. Palisades Parkway',
+  'Via': 'Punto de paso',
+  'off route': 'fuera de ruta',
+  '✓ to place': '✓ para colocar',
+  'Drag onto the road you want': 'Arrastra hasta la carretera que quieres',
   'Add a stop — search any real place (e.g. \'Wall Drug, SD\')…': 'Agregar una parada — busca cualquier lugar real (p. ej. \'Wall Drug, SD\')…',
   'Click for details': 'Clic para ver detalles',
   // day panel details
@@ -368,6 +376,8 @@ const ES = {
   // map hints
   'Editing': 'Editando',
   '— click map to add a stop · drag markers · click stops & legs for details': '— clic en el mapa para agregar una parada · arrastra los marcadores · clic en paradas y tramos para detalles',
+  '— drag the route to reshape it · click the map to add a stop · drag markers': '— arrastra la ruta para remodelarla · clic en el mapa para agregar una parada · arrastra los marcadores',
+  '— tap the map to add a stop · drag markers · tap stops & legs for details': '— toca el mapa para agregar una parada · arrastra los marcadores · toca paradas y tramos para ver detalles',
   'Whole-trip view': 'Vista del viaje completo',
   '— hover a route for leg info, click for details, pick a day to edit': '— pasa el cursor por una ruta para info del tramo, clic para detalles, elige un día para editar',
   // packing edit

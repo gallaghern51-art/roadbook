@@ -16,6 +16,12 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
   const [startDate, setStartDate] = useState(today());
   const [numDays, setNumDays] = useState(5);
   const [riders, setRiders] = useState(2);
+  // Route character is a rider decision that has to exist BEFORE the first
+  // evaluation: the options are measured with it, and the created trip is
+  // planned and ridden with it. Left implicit, a tolled crossing can be
+  // priced into a concept the rider would never have picked.
+  const [routeStyle, setRouteStyle] = useState('touring');
+  const [avoidTolls, setAvoidTolls] = useState(false);
   const [startPlace, setStartPlace] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -47,6 +53,10 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
     nights: Math.max(0, Number(numDays) - 1),
     fuelRule: 'Fill at half tank on any stretch over 100 miles.',
     range: { comfort: 180, absolute: 200, mpg: 45 },
+    // Same object the builder evaluated with — otherwise the trip is created
+    // under the engine's defaults and re-routes onto roads the rider was
+    // never shown.
+    routePrefs: { style: routeStyle, avoidTolls },
   });
 
   const createBlank = async () => {
@@ -136,7 +146,7 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
     riders: Number(riders),
     pace: Number(riders) > 4 ? 1.15 : Number(riders) > 1 ? 1.08 : 1,
     range: { comfort: 180, absolute: 200 },
-    routePrefs: { style: 'touring', avoidTolls: false },
+    routePrefs: { style: routeStyle, avoidTolls },
   };
 
   const basicsFields = (
@@ -152,6 +162,17 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
         <label className="fld">Start date<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
         <label className="fld">Days<input type="number" min="1" max="30" value={numDays} onChange={(e) => setNumDays(e.target.value)} /></label>
         <label className="fld">Riders<input type="number" min="1" max="30" value={riders} onChange={(e) => setRiders(e.target.value)} /></label>
+        <label className="fld roads">Roads
+          <select value={routeStyle} onChange={(e) => setRouteStyle(e.target.value)}>
+            <option value="quick">Quick — highways welcome</option>
+            <option value="touring">Touring — balanced</option>
+            <option value="backroads">Back roads — avoid highways</option>
+          </select>
+        </label>
+        <label className="fld check">
+          <input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} />
+          <span>Avoid tolls<small>Keeps tolled bridges and tunnels out of every route</small></span>
+        </label>
         {aiStarted && <button className="btn basics-done" type="button" onClick={() => setEditBasics(false)}>Done</button>}
       </div>
     </section>
@@ -182,6 +203,8 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
                 <span>{startDate}</span>
                 <span>{numDays} {Number(numDays) === 1 ? 'day' : 'days'}</span>
                 <span>{riders} {Number(riders) === 1 ? 'rider' : 'riders'}</span>
+                <span>{routeStyle === 'quick' ? 'quick roads' : routeStyle === 'backroads' ? 'back roads' : 'touring roads'}</span>
+                {avoidTolls && <span>no tolls</span>}
               </div>
               <button type="button" onClick={() => setEditBasics(true)}>Edit trip details</button>
             </div>

@@ -38,6 +38,8 @@ and mocks make the sims deterministic.
 | `head-font-check.mjs` | **5/6** | Masthead one-row + HUD type at 375/320px. The turn-card assertion never reaches a rendered card in this sim's scenario since the three-row bar restructure — **harness gap, not an app regression** (`.t-dist` is still 36px in `app.css`). |
 | `pace-check.mjs` | **times out** | Group-pace setting. Drifted against the current Trip settings UI — needs its selectors refreshed. |
 | `valhalla-check.mjs` | **17/17** | Valhalla owns planning, Ride Mode, and live reroutes; the trip route-character UI changes real costing and persists; Google and OSRM routing fallbacks remain idle while it is healthy. |
+| `live-route-drag.mjs` | **12/12 (live)** | Route-line drag against the REAL network: signs in to a real account, reproduces the Weehawken→Nyack Manhattan crossing on live Valhalla (470 vertices east of the Hudson), drags the line into NJ, and confirms the re-route drops to 0. Needs `RB_EMAIL`/`RB_PASSWORD` and internet; not deterministic, not for a pre-push loop. |
+| `live-route-wheel.mjs` | **23/23 (live)** | The touch half, at 375px with real touch events: tapping the route opens the wheel and edits nothing, 44pt targets, cancel backs out clean, dragging the grip rubber-bands the leg, confirm places the stop and the live re-route leaves Manhattan. Same real account + real Valhalla, same env vars, same cleanup. |
 | `construction-chat-check.mjs` | **25/25** | Full-screen staged builder, desktop conversation/plan split, phone view switch, collapsed trip facts, expandable attributed place intelligence, tab-safe state, refinement and confirmation. |
 
 Screenshot utilities with no assertions, not re-verified: `ui-sweep.mjs`, `light-ribbon.mjs`,
