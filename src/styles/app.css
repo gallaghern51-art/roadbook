@@ -4111,6 +4111,6 @@ input:focus, textarea:focus, select:focus {
        installs report a bottom env() far taller than the gesture itself; using
        it lifted this entire control row by ~70pt in the field. Keep the bar at
        the glass and reserve only a small visual gutter. */
-    padding-bottom: 4px;
+    padding-bottom: 12px;
   }
 }
