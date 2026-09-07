@@ -255,7 +255,10 @@ const ES = {
   'Add stop': 'Agregar parada',
   'What is here?': '¿Qué hay aquí?',
   'e.g. Palisades Parkway': 'p. ej. Palisades Parkway',
-  Via: 'Punto de paso',
+  'Via': 'Punto de paso',
+  'off route': 'fuera de ruta',
+  '✓ to place': '✓ para colocar',
+  'Drag onto the road you want': 'Arrastra hasta la carretera que quieres',
   'Add a stop — search any real place (e.g. \'Wall Drug, SD\')…': 'Agregar una parada — busca cualquier lugar real (p. ej. \'Wall Drug, SD\')…',
   'Click for details': 'Clic para ver detalles',
   // day panel details

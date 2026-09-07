@@ -11,6 +11,7 @@ import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, h
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
+import RouteWheel from './RouteWheel.jsx';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { InputSheet } from './Sheets.jsx';
 
@@ -76,6 +77,11 @@ export default function MapView() {
   const dragRef = useRef(null);
   const [dragging, setDragging] = React.useState(false); // for the cursor + hint only
   const [addAt, setAddAt] = React.useState(null); // {dayId, pt, index} awaiting a name
+  // Touch's answer to the drag: a wheel anchored where the rider tapped the
+  // route, with adjust and confirm as separate acts.
+  const [wheel, setWheel] = React.useState(null);
+  const wheelRef = useRef(null);
+  wheelRef.current = wheel;
   const beginDragRef = useRef(() => {});
   const [maps, setMaps] = React.useState(buildBasemapList);
   const [basemap, setBasemap] = React.useState(() => (cachedGoogleStyle('hybrid') ? 'gsat' : 'sat'));
@@ -170,6 +176,7 @@ export default function MapView() {
       if (!dayId) return;
       if (e.originalEvent._wpHandled) return;
       if (dragRef.current) return; // the click that ends a drag is not an add
+      if (wheelRef.current) { setWheel(null); paintDrag(); return; } // dismiss first
       // clicking a route line opens the leg modal, not the add-stop prompt
       const lineIds = stateRef.current.trip.days
         .map((d) => `route-${d.id}-line`)
@@ -622,13 +629,63 @@ export default function MapView() {
     return bestInsertIndex(day.waypoints, pt);
   }
 
+  const openWheelRef = useRef(() => {});
+  openWheelRef.current = (dayId, pt) => {
+    const day = stateRef.current.trip.days.find((d) => d.id === dayId);
+    if (!day) return;
+    const index = routeAwareIndex(day, pt, { grabbedOnLine: true });
+    if (index == null) return;
+    setWheel({
+      key: `${dayId}:${Date.now()}`, // identity of THIS opening, not of the handle position
+      dayId,
+      index,
+      anchor: [pt.lng, pt.lat],
+      at: [pt.lng, pt.lat],
+      a: day.waypoints[index - 1],
+      b: day.waypoints[index],
+      movedMi: 0,
+    });
+  };
+
+  const moveWheel = (at) => {
+    setWheel((w) => {
+      if (!w) return w;
+      const next = { ...w, at, movedMi: haversineMiles({ lng: w.anchor[0], lat: w.anchor[1] }, { lng: at[0], lat: at[1] }) };
+      wheelRef.current = next; // paintDrag runs before React commits
+      return next;
+    });
+    paintDrag();
+  };
+
+  const confirmWheel = () => {
+    const w = wheelRef.current;
+    setWheel(null);
+    wheelRef.current = null;
+    paintDrag();
+    if (!w) return;
+    const day = stateRef.current.trip.days.find((d) => d.id === w.dayId);
+    if (!day) return;
+    const vias = day.waypoints.filter((x) => x.kind === 'via').length;
+    dispatch({
+      type: 'apply_ops',
+      ops: [{
+        op: 'add_waypoint',
+        dayId: w.dayId,
+        index: w.index,
+        waypoint: { name: `${t('Via')} ${vias + 1}`, lat: w.at[1], lng: w.at[0], kind: 'via' },
+      }],
+    });
+  };
+
+  const closeWheel = () => { setWheel(null); wheelRef.current = null; paintDrag(); };
+
   // The rubber band while a drag is live: from the stop before the grab,
   // through the cursor, to the stop after it — so the rider can see which
   // stretch of the day they are moving, and that only that stretch moves.
   function paintDrag() {
     const map = mapRef.current;
     if (!map || !map.getSource('route-drag')) return;
-    const d = dragRef.current;
+    const d = dragRef.current ?? wheelRef.current;
     const coords = d?.a && d?.b ? [[d.a.lng, d.a.lat], d.at, [d.b.lng, d.b.lat]] : [];
     map.getSource('route-drag').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
     map.getSource('route-drag-pt').setData({
@@ -696,9 +753,15 @@ export default function MapView() {
       e.originalEvent._wpHandled = true;
       const day = stateRef.current.trip.days.find((d) => d.id === dayId);
       if (!day) return;
-      const li = nearestLegIndex(day, { lat: e.lngLat.lat, lng: e.lngLat.lng });
+      const pt = { lat: e.lngLat.lat, lng: e.lngLat.lng };
       hoverPopupRef.current?.remove();
-      dispatch({ type: 'open_modal', modal: { type: 'leg', dayId, legIndex: li } });
+      // On a phone this tap is the entry to reshaping the route — the wheel
+      // carries leg details as one of its options, so nothing is lost.
+      if (isTouch() && stateRef.current.selectedDayId === dayId && day.waypoints.length >= 2) {
+        openWheelRef.current(dayId, pt);
+        return;
+      }
+      dispatch({ type: 'open_modal', modal: { type: 'leg', dayId, legIndex: nearestLegIndex(day, pt) } });
     });
   }
 
@@ -814,13 +877,33 @@ export default function MapView() {
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
-      <div className="map-hint">
-        {selectedDay
+      <div className={`map-hint${wheel ? ' wheel' : ''}`}>
+        {wheel
+          ? (wheel.movedMi > 0.03
+            ? <><b>{u.mi(wheel.movedMi, wheel.movedMi < 10 ? 1 : 0)}</b> {t('off route')} · {t('✓ to place')}</>
+            : <>{t('Drag onto the road you want')}</>)
+          : selectedDay
           ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {isTouch()
               ? t('— tap the map to add a stop · drag markers · tap stops & legs for details')
               : t('— drag the route to reshape it · click the map to add a stop · drag markers')}</span></>
           : <>{t('Whole-trip view')}<span className="hint-more"> {t('— hover a route for leg info, click for details, pick a day to edit')}</span></>}
       </div>
+      {/* Touch: tap the route, pull the handle, confirm. */}
+      <RouteWheel
+        map={mapObj}
+        pull={wheel}
+        onMove={moveWheel}
+        onConfirm={confirmWheel}
+        onCancel={closeWheel}
+        onDetails={() => {
+          const w = wheelRef.current;
+          closeWheel();
+          if (!w) return;
+          const day = trip.days.find((d) => d.id === w.dayId);
+          if (day) dispatch({ type: 'open_modal', modal: { type: 'leg', dayId: w.dayId, legIndex: nearestLegIndex(day, { lat: w.anchor[1], lng: w.anchor[0] }) } });
+        }}
+      />
+
       {/* Naming a tapped stop — the app's sheet, not window.prompt (which is
           unstyled, unlocalised, and on iOS can be suppressed outright). */}
       {addAt && (
