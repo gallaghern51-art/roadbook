@@ -46,7 +46,11 @@ function buildOsrm(url) {
   return { code: 'Ok', routes: [{ distance: totalM, duration: totalS, legs, geometry: { coordinates: geometry } }], waypoints: coords.map((c, i) => ({ distance: i === 2 ? 420 : 12, location: c })) };
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/opt/pw-browsers/chromium');
+const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 375, height: 750 } });
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (route) => {
@@ -68,8 +72,39 @@ await page.addInitScript(() => {
 });
 
 await page.goto('http://localhost:5199/');
+const guest = page.locator('.land-skip');
+if (await guest.isVisible().catch(() => false)) {
+  await page.screenshot({ path: SHOT('landing-dark') });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: SHOT('landing-light') });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  await page.waitForTimeout(250);
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.screenshot({ path: SHOT('landing-desktop') });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: SHOT('landing-desktop-light') });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  await page.setViewportSize({ width: 375, height: 750 });
+  await page.waitForTimeout(250);
+  await guest.click();
+}
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.screenshot({ path: SHOT('home') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('home-light') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+await page.waitForTimeout(250);
+await page.setViewportSize({ width: 1366, height: 900 });
+await page.screenshot({ path: SHOT('home-desktop') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('home-desktop-light') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+await page.setViewportSize({ width: 375, height: 750 });
+await page.waitForTimeout(250);
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {
@@ -80,7 +115,22 @@ await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch((
 await page.screenshot({ path: SHOT('plan-map') });
 await page.locator('.rchip').nth(1).click();
 await page.waitForSelector('.wp-row', { timeout: 8000 });
+await page.waitForTimeout(350);
 await page.screenshot({ path: SHOT('plan-day') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('plan-day-light') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+await page.waitForTimeout(250);
+await page.setViewportSize({ width: 1366, height: 900 });
+await page.waitForTimeout(350);
+await page.screenshot({ path: SHOT('plan-day-desktop') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('plan-day-desktop-light') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+await page.setViewportSize({ width: 375, height: 750 });
+await page.waitForTimeout(350);
 // trip settings live on the overview panel: first rchip = Trip seat
 await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400);
 await page.locator('.rchip').nth(0).click();
@@ -93,6 +143,20 @@ await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch((
 await page.locator('.modebar button', { hasText: 'Prep' }).first().click();
 await page.waitForTimeout(700);
 await page.screenshot({ path: SHOT('prep') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('prep-light') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+await page.waitForTimeout(250);
+await page.setViewportSize({ width: 1366, height: 900 });
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('prep-desktop') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('prep-desktop-light') });
+await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+await page.setViewportSize({ width: 375, height: 750 });
+await page.waitForTimeout(350);
 
 // RIDE
 await page.click('.ride-seat');

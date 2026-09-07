@@ -16,6 +16,7 @@ import NewTripModal from './components/NewTripModal.jsx';
 import RideMode from './components/RideMode.jsx';
 import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import { RoadbookBrand, SettingsIcon, ThemeToggle } from './components/Chrome.jsx';
 import { ConfirmSheet, InputSheet } from './components/Sheets.jsx';
 import { useTripSync } from './engine/useTripSync.js';
 import { useAuth } from './engine/auth.js';
@@ -544,7 +545,7 @@ export default function App() {
             <button className="mast-back" title={t('Your trips')} aria-label={t('Your trips')} onClick={() => setScreen('home')}>‹</button>
             <div className="mast-id">
               <h1 className="brand">
-                <button onClick={() => setScreen('home')} title={t('Your trips')}>ROAD<span className="yr">BOOK</span></button>
+                <button onClick={() => setScreen('home')} title={t('Your trips')}><RoadbookBrand /></button>
               </h1>
               <span className="sub">
                 <span className="mast-trip">{state.trip.meta.title}</span>
@@ -559,7 +560,8 @@ export default function App() {
               {state.history.length > 0 && (
                 <button className="btn" onClick={() => dispatch({ type: 'undo' })}>{t('Undo')}</button>
               )}
-              <button className="btn icon" title={t('Settings')} aria-label={t('Settings')} onClick={() => setSheet({ type: 'settings' })}>⚙</button>
+              <ThemeToggle />
+              <button className="btn icon" title={t('Settings')} aria-label={t('Settings')} onClick={() => setSheet({ type: 'settings' })}><SettingsIcon /></button>
             </div>
           </header>
           {!isMobile && <ModeBar />}
