@@ -83,6 +83,7 @@ export default function MapView() {
   const wheelRef = useRef(null);
   wheelRef.current = wheel;
   const beginDragRef = useRef(() => {});
+  const paintedDragRef = useRef(0); // how many points the drag layer currently holds
   const [maps, setMaps] = React.useState(buildBasemapList);
   const [basemap, setBasemap] = React.useState(() => (cachedGoogleStyle('hybrid') ? 'gsat' : 'sat'));
   const basemapRef = useRef(basemap);
@@ -166,8 +167,21 @@ export default function MapView() {
       setMapObj(map); // shield markers mount against a loaded map
       drawAllRef.current();
     });
+    // `styledata` exists here for ONE reason: setStyle (a basemap swap) throws
+    // away every source and layer we added, and they have to go back. But the
+    // event also fires for ordinary style traffic — and drawAll itself mutates
+    // the style (ensureTerrain, hideNativeRoadShields, addImage), so an
+    // unconditional redraw here is a feedback loop: drawAll → styledata →
+    // drawAll. Measured at 3 styledata/sec, 445 sourcedata/sec and 66 marker
+    // rebuilds a second on an idle map — which is the flashing, and the reason
+    // a tap could land between a marker being destroyed and re-created.
+    //
+    // So: redraw only when our own layers are actually GONE. That is exactly
+    // the condition this handler was written for, and it is cheap to ask.
     map.on('styledata', () => {
-      if (readyRef.current) scheduleDraw();
+      if (!readyRef.current) return;
+      if (map.getLayer('leg-hi-line')) return; // our layers survived — nothing to rebuild
+      scheduleDraw();
     });
     hoverPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, maxWidth: '280px' });
     // click empty map = add waypoint to the selected day
@@ -687,6 +701,11 @@ export default function MapView() {
     if (!map || !map.getSource('route-drag')) return;
     const d = dragRef.current ?? wheelRef.current;
     const coords = d?.a && d?.b ? [[d.a.lng, d.a.lat], d.at, [d.b.lng, d.b.lat]] : [];
+    // Setting a source's data fires sourcedata whether or not anything changed,
+    // and this runs on every drawAll. Skip the write when there is nothing to
+    // paint and nothing painted.
+    if (!coords.length && paintedDragRef.current === 0) return;
+    paintedDragRef.current = coords.length;
     map.getSource('route-drag').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
     map.getSource('route-drag-pt').setData({
       type: 'FeatureCollection',
