@@ -6,6 +6,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { searchPlacesGoogle } from './places-core.mjs';
+import { evaluateRouteOptions } from './route-opportunities.mjs';
 import { verifyTrip, verifyProposal, describeVerification } from './verify-places.mjs';
 
 export const SYSTEM = `You are the planning brain of a motorcycle trip planner — the tool riders use to plan multi-day trips end to end (routes, stops, fuel, lodging, meals, timing). The active trip's identity, dates, riders, bike range, and constraints all come from the provided trip state — read them there, never assume.
@@ -60,7 +61,23 @@ How to respond:
 - The search_places tool returns verified names, addresses, exact coordinates, and weekly opening hours from the live places database. Use it whenever you add or move a stop whose coordinates you are not fully certain of (restaurants, gas stations, small attractions, lodging) — one focused query per place, then emit the ops using the returned lat/lng. Do not call propose_trip_changes and search_places in the same reply; search first, propose after the results come back. Skip searching for places you already know precisely (major cities, famous landmarks).
 - FUEL STOPS ARE STATIONS, NOT TOWNS: when you add or move a fuel stop, search_places for an actual gas station ("gas station <town>") and emit the station's name, exact coordinates, and placeId. Prefer a station at the highway exit or directly on the route so the group is never dragged through town for gas. A bare town-center pin flagged fuel is not acceptable.
 - THIS IS ENFORCED, NOT TRUSTED: any fuel stop, lodging, or restaurant in your proposal that arrives WITHOUT a placeId is looked up server-side before the rider sees it — a real one is snapped to its true coordinates, an invented one is flagged "unverified" in the plan and the correction is stated in your reply. Searching first is how you avoid being corrected in public.
-- HOURS MUST LINE UP: before recommending a restaurant, lodging, or any stop the plan puts a time on, compare its opening hours (in the search_places result) against the day's simulated ETA at that stop — never propose a place that will be closed when the riders arrive, and if hours are missing say the pick is unverified.`;
+- HOURS MUST LINE UP: before recommending a restaurant, lodging, or any stop the plan puts a time on, compare its opening hours (in the search_places result) against the day's simulated ETA at that stop — never propose a place that will be closed when the riders arrive, and if hours are missing say the pick is unverified.
+- ROUTE OPPORTUNITIES: when the rider asks to find, compare, or improve roads/stops/fuel/food/lodging/attractions, search the live places first, then call evaluate_route_options on 2–3 ordered bundles before recommending one. Explain the measured detour and fuel/time tradeoffs. Do not propose ops in that same reply; let the rider choose or combine pieces, then propose the selected change in their next turn.`;
+
+export const EXPLORE_SYSTEM = `You are Roadbook's AI-native motorcycle trip designer. You are having a planning conversation BEFORE a trip exists. Turn the rider's intent into 2–3 meaningfully different route-and-stop concepts they can compare, question and refine before committing.
+
+This is not a generic "twisty roads" picker. Discover the best opportunities inside the trip the rider described: memorable roads, safe fuel anchors, food worth the stop, lodging that improves the shape of the next day, and attractions that justify their detour. Explain what each bundle buys and costs for this specific group.
+
+Required workflow:
+1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly.
+2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 12 locations maximum. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip.
+3. After the evaluator returns, call present_route_options. Reference the evaluated concept ids. Never invent miles, time, arrival, fuel gap, climbing or detour cost — Roadbook attaches those measured values itself.
+
+On a follow-up, read the prior conversation and the previously presented concepts. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
+
+Group reality matters: rider count affects pace, parking, meal time and fuel time. A stop is not valuable merely because it is popular. Prefer combinations that make the whole day work. Flag opening-hours uncertainty, risky fuel gaps, after-dark arrival, and options that add a lot of saddle time.
+
+Use text only for a short conversational lead-in. Put the actual choices in present_route_options. Do not generate a full itinerary and do not propose trip ops in this mode.`;
 
 // Live place lookup for the model — verified coordinates instead of recalled ones.
 export const PLACES_TOOL = {
@@ -81,9 +98,83 @@ export const PLACES_TOOL = {
   },
 };
 
+export const ROUTE_OPTIONS_TOOL = {
+  name: 'evaluate_route_options',
+  description: 'Have Valhalla route and measure 2–3 ordered motorcycle route-and-stop concepts. Returns trusted distance, group-paced riding time, arrival, detour delta, fuel gap, and best-effort elevation gain.',
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['concepts'],
+    properties: {
+      depart: { type: 'string', description: '24-hour local departure time, e.g. 08:00.' },
+      pace: { type: 'number', description: 'Group duration multiplier; usually 1.08 for a small group and 1.15 for a large one.' },
+      range: {
+        type: 'object',
+        properties: { comfort: { type: 'number' }, absolute: { type: 'number' } },
+      },
+      routePrefs: {
+        type: 'object',
+        properties: {
+          style: { type: 'string', enum: ['quick', 'touring', 'backroads'] },
+          avoidTolls: { type: 'boolean' },
+        },
+      },
+      concepts: {
+        type: 'array', minItems: 2, maxItems: 3,
+        items: {
+          type: 'object', required: ['id', 'title', 'locations'],
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            locations: {
+              type: 'array', minItems: 2, maxItems: 12,
+              items: {
+                type: 'object', required: ['name', 'lat', 'lng', 'kind'],
+                properties: {
+                  name: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
+                  kind: { type: 'string', enum: ['start', 'end', 'road', 'fuel', 'food', 'lodging', 'attraction'] },
+                  detail: { type: 'string' }, placeId: { type: 'string' }, dwell: { type: 'number' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+export const PRESENT_OPTIONS_TOOL = {
+  name: 'present_route_options',
+  description: 'Present the evaluated choices to the rider. Roadbook joins these explanations to trusted evaluator metrics and verified locations.',
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['message', 'recommendedId', 'options'],
+    properties: {
+      message: { type: 'string', description: 'A concise comparison and what you recommend.' },
+      recommendedId: { type: 'string' },
+      options: {
+        type: 'array', minItems: 2, maxItems: 3,
+        items: {
+          type: 'object', required: ['evaluationId', 'summary', 'routeDescription', 'why', 'groupFit', 'tradeoff'],
+          properties: {
+            evaluationId: { type: 'string' },
+            summary: { type: 'string' },
+            routeDescription: { type: 'string' },
+            why: { type: 'string' },
+            groupFit: { type: 'string' },
+            tradeoff: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
 // Answer every search_places call in a response; other tool calls in the same
 // (malformed) reply get a nudge so the API contract stays satisfied.
-async function answerToolCalls(response, emit) {
+async function answerToolCalls(response, emit, { routeResults = null, routeOpts = {} } = {}) {
   const results = [];
   for (const block of response.content) {
     if (block.type !== 'tool_use') continue;
@@ -95,6 +186,17 @@ async function answerToolCalls(response, emit) {
         if (!key) throw new Error('place search not configured on this site');
         const places = await searchPlacesGoogle(key, block.input?.query ?? '', block.input?.near, { limit: 6, hours: true });
         content = JSON.stringify(places.length ? places : { note: 'no matches — try a broader query' });
+      } catch (e) {
+        content = JSON.stringify({ error: String(e.message).slice(0, 200) });
+      }
+      results.push({ type: 'tool_result', tool_use_id: block.id, content });
+    } else if (block.name === 'evaluate_route_options') {
+      emit({ type: 'beat', note: 'routing options' });
+      let content;
+      try {
+        const evaluation = await evaluateRouteOptions(block.input, routeOpts);
+        routeResults?.push(evaluation);
+        content = JSON.stringify(evaluation);
       } catch (e) {
         content = JSON.stringify({ error: String(e.message).slice(0, 200) });
       }
@@ -208,6 +310,7 @@ export const TOOL = {
 export const GENERATE_SYSTEM = `You are the itinerary builder for a motorcycle trip planning app. From the rider's description, produce a COMPLETE, realistic multi-day motorcycle itinerary via the generate_trip tool.
 
 Rules:
+- When the request includes a confirmed construction plan, treat it as the rider's decision: preserve the selected route order, verified placeIds/coordinates, opportunity roles, and explicit tradeoffs. Expand it into day-by-day detail without silently swapping the chosen pieces. If the selected route spans several days, use lodging anchors as day boundaries and distribute mileage realistically.
 - Real places, accurate lat/lng (4+ decimals). Route days along roads riders actually take; favor the famous riding roads of the region when they fit.
 - 4–10 waypoints per riding day: start point, the best scenic/riding stops (kind "photo"), fuel stops every 100–150 miles at real gas stations you know — the station's own coordinates at the highway exit, never a bare town-center pin (kind "fuel", fuel: true) — lunch-town stops, and the day's end point. First waypoint kind "start", last kind "end".
 - EVERY gas station, hotel, and restaurant you name is checked against the live places database after you answer: real ones get snapped to their exact coordinates, and anything that does not exist is flagged "unverified" in the rider's plan. So name the specific businesses you are actually confident about (brand and town — "Sinclair, Ten Sleep WY"), and where you are NOT confident, say so in the note or write an honest placeholder ("best option in town") rather than inventing a name. A guessed station is worse than an unnamed one: riders plan fuel around it.
@@ -420,7 +523,7 @@ export function buildChatMessages({ messages, tripDigest, tripJson, scenarios })
 // `verifyOpts` is a test seam: it overrides the places key and search
 // implementation so the verification wiring can be exercised without a live
 // Google account. Production passes nothing and gets the real database.
-export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {} }) {
+export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {}, routeOpts = {} }) {
   const { messages = [], tripDigest = '', tripJson = null, scenarios = [] } = body;
   const convo = buildChatMessages({ messages, tripDigest, tripJson, scenarios });
   const t0 = Date.now();
@@ -444,7 +547,7 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
       // misdiagnosed as "the model never started".
       thinking: { type: 'adaptive', display: 'summarized' },
       system: SYSTEM,
-      tools: [TOOL, PLACES_TOOL],
+      tools: [TOOL, PLACES_TOOL, ROUTE_OPTIONS_TOOL],
       messages: convo,
     });
     stream.on('text', (t) => emit({ type: 'delta', text: t }));
@@ -470,15 +573,15 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
 
     let text = '';
     let proposal = null;
-    let searched = false;
+    let researched = false;
     for (const block of response.content) {
       if (block.type === 'text') text += block.text;
       if (block.type === 'tool_use' && block.name === 'propose_trip_changes') proposal = block.input;
-      if (block.type === 'tool_use' && block.name === 'search_places') searched = true;
+      if (block.type === 'tool_use' && ['search_places', 'evaluate_route_options'].includes(block.name)) researched = true;
     }
     if (text.trim()) allText += (allText ? '\n\n' : '') + text.trim();
 
-    if (!searched) {
+    if (!researched) {
       // The prompt ASKS the model to search before it commits a station or a
       // property; this is what makes it true. Only stops that arrived without
       // a placeId cost a lookup — a model that used the tool pays nothing.
@@ -503,11 +606,101 @@ export async function runChat({ client, body, emit, budgetMs = BUDGET_MS, backgr
     }
     // Answer the searches and go around again (a stray proposal in the same
     // reply gets deferred by answerToolCalls).
-    const toolResults = await answerToolCalls(response, emit);
+    const toolResults = await answerToolCalls(response, emit, { routeOpts });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });
   }
   emit({ type: 'error', message: 'Too many place lookups in one request — ask for a smaller change.' });
+}
+
+function priorConceptContext(concepts = []) {
+  if (!concepts.length) return '';
+  return `\n\n<previous_route_options>\n${JSON.stringify(concepts)}\n</previous_route_options>`;
+}
+
+// Pre-trip conversation. The model researches; Valhalla measures; the rider
+// decides. A generated itinerary is deliberately impossible from this mode.
+export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, background = false, routeOpts = {} }) {
+  const { messages = [], basics = {}, concepts = [] } = body;
+  const basicsBlock = `<trip_basics>\n${JSON.stringify(basics)}\n</trip_basics>${priorConceptContext(concepts)}`;
+  const convo = messages.map((m, i) => ({
+    role: m.role,
+    content: i === 0 && m.role === 'user' ? `${basicsBlock}\n\n${m.content}` : m.content,
+  }));
+  const t0 = Date.now();
+  let allText = '';
+  const routeResults = [];
+
+  for (let round = 0; round < 7; round++) {
+    const remaining = budgetMs - (Date.now() - t0);
+    if (remaining < 8000) {
+      emit({ type: 'error', message: 'I ran out of time comparing the route choices. Try a narrower region or fewer must-have stops.' });
+      return;
+    }
+    const stream = client.messages.stream({
+      model: 'claude-sonnet-5',
+      max_tokens: 8000,
+      output_config: { effort: 'medium' },
+      thinking: { type: 'adaptive', display: 'summarized' },
+      system: EXPLORE_SYSTEM,
+      tools: [PLACES_TOOL, ROUTE_OPTIONS_TOOL, PRESENT_OPTIONS_TOOL],
+      messages: convo,
+    });
+    stream.on('text', (text) => emit({ type: 'delta', text }));
+    const progress = trackProgress(stream, emit);
+    let response;
+    try {
+      response = await withDeadline(stream, remaining);
+    } catch (err) {
+      if (err?.code !== 'deadline') throw err;
+      emit({ type: 'error', message: deadlineMessage(progress, { background }) });
+      return;
+    }
+    if (response.stop_reason === 'refusal') {
+      emit({ type: 'done', text: 'I could not plan that request. Try rephrasing the ride you want.', concepts: [] });
+      return;
+    }
+    if (response.stop_reason === 'max_tokens') {
+      emit({ type: 'error', message: 'The comparison became too large to finish. Try fewer must-have places.' });
+      return;
+    }
+
+    let text = '';
+    let presented = null;
+    let needsTools = false;
+    for (const block of response.content) {
+      if (block.type === 'text') text += block.text;
+      if (block.type === 'tool_use' && block.name === 'present_route_options') presented = block.input;
+      if (block.type === 'tool_use' && ['search_places', 'evaluate_route_options'].includes(block.name)) needsTools = true;
+    }
+    if (text.trim()) allText += (allText ? '\n\n' : '') + text.trim();
+
+    if (presented) {
+      const evaluated = new Map(routeResults.flatMap((r) => r.options ?? []).map((o) => [o.id, o]));
+      const joined = (presented.options ?? []).map((option) => {
+        const facts = evaluated.get(option.evaluationId);
+        return facts ? { ...option, id: facts.id, title: facts.title, locations: facts.locations, metrics: facts.metrics, error: facts.error } : null;
+      }).filter(Boolean);
+      if (joined.length) {
+        emit({
+          type: 'done',
+          text: [allText, presented.message].filter(Boolean).join('\n\n'),
+          concepts: joined,
+          recommendedId: joined.some((o) => o.id === presented.recommendedId) ? presented.recommendedId : joined[0].id,
+        });
+        return;
+      }
+    }
+
+    if (!needsTools) {
+      emit({ type: 'done', text: allText || 'Tell me what kind of trip you want to build.', concepts: [] });
+      return;
+    }
+    const toolResults = await answerToolCalls(response, emit, { routeResults, routeOpts });
+    convo.push({ role: 'assistant', content: response.content });
+    convo.push({ role: 'user', content: toolResults });
+  }
+  emit({ type: 'error', message: 'That plan needed too many research rounds. Narrow the request and try again.' });
 }
 
 // Square-zero trip generation.

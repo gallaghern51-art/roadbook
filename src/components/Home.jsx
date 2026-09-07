@@ -52,7 +52,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         <section className="home-hero">
           <div className="eyebrow">{t('The AI roadbook for motorcycle trips')}</div>
           <h2>{t('Where do you want to ride?')}</h2>
-          <p className="home-sub">{t('Describe riders, days, region, pace — the AI drafts a routed, dated, feasibility-graded plan you can negotiate with.')}</p>
+          <p className="home-sub">{t('Describe riders, days, region, and pace. Roadbook researches real opportunities, compares routed choices, and lets you shape every piece before the trip is created.')}</p>
           <div className="home-intake">
             <textarea
               rows={3}
@@ -62,11 +62,11 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) build(); }}
             />
             <div className="intake-actions">
-              <button className="btn gold" onClick={build}>{t('Build with AI')}</button>
+              <button className="btn gold" onClick={build}>{t('Plan with AI')}</button>
               <span className="intake-hint">
                 {/* the shortcut half means nothing to a thumb — CSS drops it on touch */}
-                <span className="kbd-only">{t('⌘↵ builds it · ')}</span>
-                {t('every draft is editable, gradeable, undoable')}
+                <span className="kbd-only">{t('⌘↵ opens the planner · ')}</span>
+                {t('compare first, create when it feels right')}
               </span>
             </div>
           </div>

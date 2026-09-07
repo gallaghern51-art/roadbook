@@ -109,7 +109,11 @@ async function runBackground(payload, onLine) {
       throw err;
     }
     if (rec.status === 'done') {
-      return { type: 'done', text: rec.text ?? '', proposal: rec.proposal ?? null, trip: rec.trip, verify: rec.verify ?? null };
+      return {
+        type: 'done', text: rec.text ?? '', proposal: rec.proposal ?? null,
+        trip: rec.trip, verify: rec.verify ?? null,
+        concepts: rec.concepts ?? [], recommendedId: rec.recommendedId ?? null,
+      };
     }
 
     if (Date.now() - startedAt > POLL_TIMEOUT_MS) {

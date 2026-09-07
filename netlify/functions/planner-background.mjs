@@ -10,7 +10,7 @@
 // emits, so the client reads either transport the same way.
 
 import { jobStore } from '../lib/job-store.mjs';
-import { makeClient, runChat, runGenerate, friendlyError, BACKGROUND_BUDGET_MS } from '../lib/planner-core.mjs';
+import { makeClient, runChat, runExplore, runGenerate, friendlyError, BACKGROUND_BUDGET_MS } from '../lib/planner-core.mjs';
 
 // Blob writes are network round-trips; a token-by-token write would cost more
 // than the model does. Coalesce to roughly one write a second, but never lose
@@ -69,6 +69,8 @@ export default async (req) => {
       if (obj.proposal !== undefined) record.proposal = obj.proposal;
       if (obj.trip !== undefined) record.trip = obj.trip;
       if (obj.verify !== undefined) record.verify = obj.verify;
+      if (obj.concepts !== undefined) record.concepts = obj.concepts;
+      if (obj.recommendedId !== undefined) record.recommendedId = obj.recommendedId;
     } else if (obj.type === 'error') {
       record.status = 'error';
       record.message = obj.message;
@@ -85,6 +87,8 @@ export default async (req) => {
     const client = makeClient();
     if (body.mode === 'generate') {
       await runGenerate({ client, body, emit, budgetMs: BACKGROUND_BUDGET_MS, background: true });
+    } else if (body.mode === 'explore') {
+      await runExplore({ client, body, emit, budgetMs: BACKGROUND_BUDGET_MS, background: true });
     } else {
       await runChat({ client, body, emit, budgetMs: BACKGROUND_BUDGET_MS, background: true });
     }

@@ -3,8 +3,8 @@ import { useTrip } from '../engine/store.js';
 import { blankDay, uid } from '../engine/ops.js';
 import { cascadeDates } from '../engine/dates.js';
 import { geocode } from '../engine/geocode.js';
-import { runPlanner } from '../engine/planner.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
+import TripConstructionChat from './TripConstructionChat.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -16,10 +16,8 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
   const [numDays, setNumDays] = useState(5);
   const [riders, setRiders] = useState(2);
   const [startPlace, setStartPlace] = useState('');
-  const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [progress, setProgress] = useState(null); // {chars, thinking, ms} streamed so far
   const [confirmCancel, setConfirmCancel] = useState(false); // two-tap close while a build runs
   // Home hands off here after trip creation so the app can land in the workspace.
   const created = () => (onCreated ? onCreated() : onClose());
@@ -75,31 +73,9 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
     created();
   };
 
-  const createWithAi = async () => {
-    if (!prompt.trim()) { setErr('Describe the trip first.'); return; }
-    setBusy(true);
+  const acceptAiTrip = async (data) => {
     setErr('');
-    setProgress(null);
     try {
-      const data = await runPlanner({
-        mode: 'generate',
-        prompt: prompt.trim(),
-        basics: { name: name.trim(), startDate, numDays: Number(numDays), riders: Number(riders) },
-      }, (obj) => {
-        // Every planner event is stamped with elapsed ms — drive a live
-        // counter off it so a minutes-long build never looks like a hang.
-        if (typeof obj.ms === 'number') {
-          setProgress((p) => ({
-            chars: obj.chars ?? p?.chars ?? 0,
-            thinking: obj.thinking ?? p?.thinking ?? 0,
-            // Phase label from the server (place verification) — it outranks
-            // the character counter, because "checking the stops are real" is
-            // a different thing happening, not more of the same thing.
-            note: obj.note ?? p?.note ?? '',
-            ms: obj.ms,
-          }));
-        }
-      });
       if (!data.trip?.days?.length) throw new Error('The builder returned an empty plan — try a more specific description.');
       // assign fresh ids + defaults, then pin dates
       const trip = {
@@ -145,25 +121,13 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
       created();
     } catch (e) {
       setErr(String(e.message || e));
-    } finally {
-      setBusy(false);
-      setProgress(null);
+      throw e;
     }
-  };
-
-  // What the foot-note says while the AI builds: thinking first (most of the
-  // wall time on a full trip), then the itinerary character count.
-  const buildNote = () => {
-    const secs = progress?.ms ? ` · ${Math.round(progress.ms / 1000)}s` : '';
-    if (progress?.note) return `Checking every gas station, hotel and restaurant is real — ${progress.note}${secs}`;
-    if (progress?.chars > 0) return `Writing the itinerary — ${progress.chars.toLocaleString()} characters${secs}`;
-    if (progress?.thinking > 0) return `Designing the route…${secs}`;
-    return `Building the itinerary — routing real places…${secs}`;
   };
 
   return (
     <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal${tab === 'ai' ? ' trip-builder' : ''}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
             <div className="eyebrow">Trip library</div>
@@ -196,14 +160,12 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
           )}
 
           {tab === 'ai' && (
-            <label className="fld">Describe the trip
-              <textarea
-                rows={4}
-                value={prompt}
-                placeholder="e.g. 4 riders, 6 days, Denver loop through the San Juans — Million Dollar Highway, Black Canyon, hot springs one night, big scenic passes, moderate daily miles, back to Denver."
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-            </label>
+            <TripConstructionChat
+              initialPrompt={initial?.prompt ?? ''}
+              basics={{ name: name.trim(), startDate, numDays: Number(numDays), riders: Number(riders) }}
+              onTrip={acceptAiTrip}
+              onBusyChange={setBusy}
+            />
           )}
           {tab === 'template' && (
             <p style={{ fontSize: 12.5, color: 'var(--ink-dim)' }}>
@@ -216,12 +178,11 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
         </div>
         <div className="modal-foot">
           <span className="foot-note">
-            {tab === 'ai' ? (busy ? buildNote() : 'The AI drafts days, waypoints with coordinates, fuel stops, and lodging notes.') : ''}
+            {tab === 'ai' ? 'Research, compare, refine, then confirm.' : ''}
           </span>
           <button className={`btn${confirmCancel ? ' danger-ghost' : ''}`} onClick={requestClose}>{confirmCancel ? 'Sure?' : 'Cancel'}</button>
           {tab === 'blank' && <button className="btn gold" disabled={busy} onClick={createBlank}>{busy ? 'Creating…' : 'Create trip'}</button>}
           {tab === 'template' && <button className="btn gold" onClick={createFromTemplate}>Create from template</button>}
-          {tab === 'ai' && <button className="btn gold" disabled={busy} onClick={createWithAi}>{busy ? 'Building…' : 'Build with AI'}</button>}
         </div>
       </div>
     </div>
