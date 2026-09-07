@@ -260,6 +260,10 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .map-legend .key { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
 .map-legend .key i { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+.map-legend .preview-key { color: #8be9e3; }
+.map-legend .preview-key i {
+  height: 3px; width: 22px; background: #3ee3d8; border-radius: 2px;
+}
 .map-hint {
   position: absolute; top: 12px; left: 12px; z-index: 5;
   background: rgba(0, 0, 0, 0.88);
@@ -947,6 +951,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 }
 .route-style-grid button:last-child { border-right: 0; }
 .route-style-grid button:hover { background: var(--asphalt-3); }
+.route-style-grid button:disabled, .route-tolls input:disabled { cursor: wait; opacity: 0.58; }
 .route-style-grid button.active {
   background: var(--wash-rally); color: var(--ink);
   box-shadow: inset 0 -3px var(--rally);
@@ -960,6 +965,10 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   color: var(--ink-faint);
 }
 .route-style-grid button.active small { color: var(--ink-dim); }
+.route-style-grid button.previewing:not(.active) {
+  background: color-mix(in srgb, #57d8d0 11%, var(--asphalt-2));
+  box-shadow: inset 0 -3px #57d8d0;
+}
 .route-style-grid button.is-routing::after {
   content: ''; position: absolute; right: 10px; top: 12px; width: 6px; height: 6px;
   border-radius: 50%; background: var(--rally); animation: route-pulse 900ms ease-in-out infinite alternate;
@@ -973,6 +982,126 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   text-transform: uppercase; color: var(--ink-dim);
 }
 .route-tolls input { width: 15px; height: 15px; padding: 0; accent-color: var(--rally); }
+
+/* Route character is a protected planning change once the itinerary exists.
+   The comparison opens as a right-side instrument sheet so the map remains
+   readable behind it; phones use the same hierarchy as a bottom sheet. */
+.modal-backdrop.route-preview-backdrop {
+  justify-content: flex-end; padding: 14px;
+  background: transparent; backdrop-filter: none;
+}
+.modal.route-preview-sheet {
+  width: min(560px, 100%); height: calc(100dvh - 28px); max-height: none;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--asphalt-1); border-color: color-mix(in srgb, #57d8d0 30%, var(--line));
+  border-radius: 14px; box-shadow: -18px 16px 54px rgba(0, 0, 0, 0.42);
+}
+.route-preview-head {
+  flex: none; display: flex; align-items: flex-start; gap: 18px;
+  padding: 22px 22px 18px; border-bottom: 1px solid var(--line);
+}
+.route-preview-head > div { flex: 1; min-width: 0; }
+.route-preview-head h3 {
+  font-family: var(--display); font-size: 28px; line-height: 1; letter-spacing: 0.015em;
+}
+.route-preview-head h3 span { padding: 0 5px; color: var(--ink-faint); font-weight: 500; }
+.route-preview-head p { margin-top: 8px; max-width: 54ch; font-size: 12.5px; line-height: 1.45; color: var(--ink-faint); }
+.route-preview-close { flex: none; width: 42px; height: 42px; display: grid; place-items: center; padding: 0; }
+.route-preview-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px 24px; }
+
+.route-preview-loading {
+  min-height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;
+  text-align: center; padding: 30px 12px;
+}
+.route-preview-route-mark { display: flex; align-items: center; gap: 7px; margin-bottom: 20px; }
+.route-preview-route-mark i {
+  width: 34px; height: 3px; background: #57d8d0; border-radius: 4px;
+  animation: route-preview-travel 1.1s ease-in-out infinite alternate;
+}
+.route-preview-route-mark i:nth-child(2) { width: 52px; animation-delay: 130ms; }
+.route-preview-route-mark i:nth-child(3) { width: 22px; animation-delay: 260ms; }
+@keyframes route-preview-travel { to { opacity: 0.25; transform: translateY(4px); } }
+.route-preview-loading h4, .route-preview-error h4 {
+  font-family: var(--display); font-size: 20px; letter-spacing: 0.015em;
+}
+.route-preview-loading p, .route-preview-error p {
+  max-width: 43ch; margin-top: 7px; font-size: 12.5px; line-height: 1.5; color: var(--ink-faint);
+}
+.route-preview-progress {
+  width: min(320px, 100%); height: 3px; margin-top: 24px;
+  overflow: hidden; background: var(--asphalt-3); border-radius: 4px;
+}
+.route-preview-progress i {
+  display: block; width: 100%; height: 100%; background: #57d8d0;
+  transform: scaleX(var(--route-progress, 0)); transform-origin: left; transition: transform 180ms ease-out;
+}
+.route-preview-loading > span { margin-top: 9px; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.route-preview-error { padding: 20px; background: color-mix(in srgb, var(--danger) 9%, transparent); border-radius: 12px; }
+.route-preview-error .btn { margin-top: 18px; }
+
+.route-preview-metrics {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.route-preview-metrics > div { min-width: 0; padding: 15px 13px; border-right: 1px solid var(--line); }
+.route-preview-metrics > div:first-child { padding-left: 0; }
+.route-preview-metrics > div:last-child { padding-right: 0; border-right: 0; }
+.route-preview-metrics span, .route-preview-metrics small {
+  display: block; font-family: var(--mono); font-size: 9px; line-height: 1.35; letter-spacing: 0.055em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.route-preview-metrics strong {
+  display: block; margin: 4px 0 3px; font-family: var(--display); font-size: 24px;
+  line-height: 1; letter-spacing: 0.01em; white-space: nowrap;
+}
+.route-preview-metrics strong em { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); font-style: normal; }
+.route-preview-metrics small.cost { color: #f89d66; }
+.route-preview-metrics small.gain { color: #83c77a; }
+
+.route-commitment-band {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 15px;
+  margin-top: 18px; padding: 13px 15px; border-radius: 12px;
+  background: color-mix(in srgb, #57d8d0 8%, var(--asphalt-2));
+}
+.route-commitment-band > div { display: flex; align-items: baseline; gap: 7px; }
+.route-commitment-band b { font-family: var(--display); font-size: 25px; line-height: 1; color: #8be9e3; }
+.route-commitment-band span { font-size: 12px; font-weight: 600; }
+.route-commitment-band p { font-family: var(--mono); font-size: 9.5px; line-height: 1.5; color: var(--ink-faint); }
+
+.route-impact-section { margin-top: 24px; }
+.route-impact-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.route-impact-heading h4 { font-family: var(--display); font-size: 17px; letter-spacing: 0.02em; }
+.route-impact-heading > span { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); }
+.route-day-deltas { border-top: 1px solid var(--line); }
+.route-day-delta {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  padding: 11px 0; border-bottom: 1px solid var(--line);
+}
+.route-day-delta > div { min-width: 0; }
+.route-day-delta > div span { display: block; font-family: var(--mono); font-size: 9px; color: var(--ink-faint); }
+.route-day-delta > div b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.route-day-delta p { display: flex; align-items: baseline; gap: 10px; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.route-day-delta p strong { color: var(--ink); font-size: 11px; }
+.route-warning-list { list-style: none; }
+.route-warning-list li {
+  display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 9px 11px;
+  margin-bottom: 6px; border-radius: 9px; background: color-mix(in srgb, var(--danger) 9%, transparent);
+  font-size: 11.5px; line-height: 1.4; color: var(--ink-dim);
+}
+.route-warning-list li b { font-family: var(--mono); font-size: 9px; color: #f89d66; }
+.route-impact-quiet { padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--ink-faint); }
+.route-place-note { margin-top: 22px; padding: 14px 15px; background: var(--asphalt-2); border-radius: 12px; }
+.route-place-note b { font-size: 12.5px; }
+.route-place-note p { margin-top: 5px; font-size: 11.5px; line-height: 1.5; color: var(--ink-faint); }
+.route-preview-actions {
+  flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 13px 18px;
+  border-top: 1px solid var(--line); background: var(--asphalt-1);
+}
+.route-preview-actions .btn { min-height: 42px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .route-preview-route-mark i, .route-engine.working i, .route-style-grid button.is-routing::after { animation: none; }
+}
 
 .mini-edit {
   font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
@@ -1307,6 +1436,20 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .route-style-grid button { min-height: 54px; padding: 9px 7px; text-align: center; }
   .route-style-grid button small { display: none; }
   .route-pref-foot { align-items: center; }
+  .modal-backdrop.route-preview-backdrop { align-items: flex-end; padding: 0; }
+  .modal.route-preview-sheet {
+    width: 100%; height: min(88dvh, 760px); max-height: none; border-width: 1px 0 0;
+    border-radius: 14px 14px 0 0; box-shadow: 0 -16px 44px rgba(0, 0, 0, 0.42);
+  }
+  .modal.route-preview-sheet::before { display: none; }
+  .route-preview-head { padding: 18px 14px 14px; }
+  .route-preview-head h3 { font-size: 24px; }
+  .route-preview-body { padding: 16px 14px 20px; }
+  .route-preview-metrics > div { padding: 13px 8px; }
+  .route-preview-metrics strong { font-size: 20px; }
+  .route-commitment-band { grid-template-columns: 1fr; gap: 5px; }
+  .route-preview-actions { padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .route-preview-actions .btn { flex: 1; min-width: 0; padding-left: 8px; padding-right: 8px; font-size: 11px; }
   .table-wrap .scen-table { min-width: 430px; }
 
   /* feasibility rows go two-deep instead of squeezing five columns */

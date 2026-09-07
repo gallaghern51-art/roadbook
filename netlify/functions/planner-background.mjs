@@ -71,6 +71,7 @@ export default async (req) => {
       if (obj.verify !== undefined) record.verify = obj.verify;
       if (obj.concepts !== undefined) record.concepts = obj.concepts;
       if (obj.recommendedId !== undefined) record.recommendedId = obj.recommendedId;
+      if (obj.reconciliationProof !== undefined) record.reconciliationProof = obj.reconciliationProof;
     } else if (obj.type === 'error') {
       record.status = 'error';
       record.message = obj.message;

@@ -4,6 +4,7 @@
 // Neither path may fall through to another routing engine.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
+const REVIEW = (n) => new URL(`../../.impeccable/review/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
 const hav = (a, b) => {
   const dLat = ((b[1] - a[1]) * Math.PI) / 180;
@@ -43,12 +44,18 @@ function buildValhalla(reqBody) {
   valhallaLocationTypes.push(reqBody.locations.map((l) => l.type));
   valhallaOptions.push(reqBody.costing_options?.motorcycle ?? null);
   const locs = reqBody.locations.map((l) => [l.lon, l.lat]);
+  const highwayBias = reqBody.costing_options?.motorcycle?.use_highways ?? 0.5;
+  const bend = highwayBias <= 0.05 ? 0.018 : highwayBias >= 0.95 ? -0.01 : 0;
   const legs = [];
   let totalMi = 0, totalSec = 0;
   for (let i = 0; i < locs.length - 1; i++) {
     const a = locs[i], b = locs[i + 1];
-    const pts = [a, lerp(a, b, 0.4), lerp(a, b, 0.7), b];
-    const mi = hav(a, b);
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = -dy / length, ny = dx / length;
+    const offset = (point) => [point[0] + nx * bend, point[1] + ny * bend];
+    const pts = [a, offset(lerp(a, b, 0.4)), offset(lerp(a, b, 0.7)), b];
+    const mi = pts.slice(1).reduce((sum, point, index) => sum + hav(pts[index], point), 0);
     const sec = (mi / 50) * 3600;
     totalMi += mi; totalSec += sec;
     legs.push({
@@ -125,14 +132,19 @@ await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForTimeout(600);
 await page.evaluate(() => {
   const mk = (id, name, lat, lng) => ({ id, kind: 'via', name, lat, lng, mile: null, note: '' });
-  const dayBase = { miles: 0, hours: 0, depart: '9:00 AM', arrive: '', anchor: false, summary: '', constraints: [], gates: [], meals: [], photos: [], modules: [], ops: [], lodging: { status: 'none', name: '', where: '', note: '' } };
+  const dayBase = {
+    miles: 0, hours: 0, depart: '9:00 AM', arrive: '', anchor: false, summary: '', constraints: [],
+    gates: [{ waypointId: 'va', by: '10:00 AM', label: 'Timed canyon entry' }],
+    meals: [{ meal: 'lunch', name: 'Rider’s Table', where: 'Granite', note: 'Flexible lunch pick' }],
+    photos: [], modules: [], ops: [], lodging: { status: 'booked', name: 'End Lodge', where: 'Granite', note: 'Confirmed' },
+  };
   window.__dispatch({
     type: 'create_trip',
     name: 'VALHALLA TEST',
     trip: {
       meta: { title: 'VALHALLA TEST', subtitle: '', summary: '', riders: 1, startDate: '2026-08-12', fuelRule: '', range: 200, roster: [] },
       days: [{ ...dayBase, id: 'v1', dow: 'Wed', date: '2026-08-12', title: 'Valhalla day', phase: 'rally', waypoints: [mk('vs', 'Basecamp', 44.0, -108.0), mk('va', 'Granite Diner', 44.06, -107.95), mk('vb', 'End Lodge', 44.10, -107.88)] }],
-      reserveNow: [],
+      reserveNow: [{ id: 'reservation-test', name: 'Canyon entry permit', done: true }],
     },
   });
 });
@@ -165,23 +177,46 @@ check(await page.locator('.route-engine', { hasText: /Valhalla motorcycle/i }).i
 check(await page.locator('.route-style-grid [role="radio"][aria-checked="true"]', { hasText: 'Touring' }).isVisible(),
   'legacy trips open on the neutral Touring route character');
 
-// Rapid changes used to look one click behind: every choice launched a whole
-// sequential reroute while the map kept accepting piecemeal results. Exercise
-// the exact interaction under deliberately out-of-order response timing.
+// A route character is now a protected replan. The click computes a draft,
+// leaves the stored/shared choice alone, and only commits after the rider sees
+// the route and stop impact.
 delayRouteChoices = true;
-for (const label of ['Quick', 'Back roads', 'Touring', 'Quick']) {
-  const choice = page.locator('.route-style-grid [role="radio"]', { hasText: label });
-  await choice.click();
-  await page.waitForFunction((name) => document.querySelector('.route-style-grid [aria-checked="true"]')?.textContent?.includes(name), label);
-  check(await choice.getAttribute('aria-checked') === 'true', `rapid route choice selects ${label} immediately`);
-}
-await page.waitForFunction(() => document.querySelector('.route-pref')?.getAttribute('aria-busy') === 'true');
-check(await page.locator('.route-engine.working').isVisible() && await page.locator('.routing-chip').isVisible(),
-  'route recalculation is visibly pending in both the control and map');
-await page.waitForFunction(() => document.querySelector('.route-pref')?.getAttribute('aria-busy') === 'false', { timeout: 10000 });
-check(await page.locator('.route-engine').getAttribute('class') === 'route-engine',
-  'only the latest route calculation can settle the map');
+const quick = page.locator('.route-style-grid [role="radio"]', { hasText: 'Quick' });
+await quick.click();
+await page.waitForSelector('.route-preview-loading');
+check(await page.locator('.route-style-grid [role="radio"][aria-checked="true"]', { hasText: 'Touring' }).isVisible(),
+  'previewing a character does not mutate the active trip');
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+check(await page.locator('.route-preview-sheet', { hasText: /Touring.*Quick/s }).isVisible(),
+  'route comparison names the current and proposed characters');
+check(await page.locator('.route-preview-sheet', { hasText: 'Keep every stop' }).isVisible(),
+  'route comparison makes stop preservation an explicit decision');
+check(await page.locator('.map-legend .preview-key').isVisible(),
+  'proposed Valhalla geometry is identified on the map');
+const previewPaint = await page.evaluate(() => ({
+  color: window.__map?.getPaintProperty('route-preview-v1-line', 'line-color'),
+  opacity: window.__map?.getPaintProperty('route-preview-v1-line', 'line-opacity'),
+  glow: window.__map?.getPaintProperty('route-preview-v1-glow', 'line-opacity'),
+}));
+check(previewPaint.color === '#3ee3d8' && previewPaint.opacity > 0 && previewPaint.glow > 0,
+  'proposed geometry is visibly painted as the turquoise comparison line');
+check(await page.locator('.route-preview-close').evaluate((button) => document.activeElement === button),
+  'route comparison takes keyboard focus on entry');
+await page.locator('.route-preview-actions .btn', { hasText: 'Cancel' }).click();
+check(await quick.getAttribute('aria-checked') === 'false', 'cancel leaves Quick unapplied');
 delayRouteChoices = false;
+
+const backRoads = page.locator('.route-style-grid [role="radio"]', { hasText: 'Back roads' });
+await backRoads.click();
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+await page.screenshot({ path: SHOT('valhalla-route-character-preview'), fullPage: true });
+await page.screenshot({ path: REVIEW('mobile'), fullPage: true });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+await page.waitForTimeout(200);
+await page.screenshot({ path: REVIEW('mobile-light'), fullPage: true });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+await page.locator('.route-preview-actions .btn', { hasText: 'Keep every stop' }).click();
+await page.waitForFunction(() => document.querySelector('.route-style-grid [aria-checked="true"]')?.textContent?.includes('Back roads'));
 
 const beforePreference = valhallaCalls;
 const preferenceRequest = page.waitForRequest((req) => {
@@ -191,11 +226,10 @@ const preferenceRequest = page.waitForRequest((req) => {
     return options?.use_highways === 0.05 && options?.use_tolls === 0;
   } catch { return false; }
 });
-const backRoads = page.locator('.route-style-grid [role="radio"]', { hasText: 'Back roads' });
-await backRoads.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-await backRoads.click();
-await page.locator('.route-tolls input').check();
+await page.locator('.route-tolls input').click();
 await preferenceRequest;
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+await page.locator('.route-preview-actions .btn', { hasText: 'Keep every stop' }).click();
 await page.waitForTimeout(800);
 const chosen = valhallaOptions.at(-1);
 check(valhallaCalls > beforePreference && chosen?.use_highways === 0.05 && chosen?.use_tolls === 0 && chosen?.use_trails === 0,
@@ -214,10 +248,18 @@ await page.waitForTimeout(400);
 const desktopFit = await page.locator('.route-pref').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
 check(desktopFit, 'route control fits the desktop panel without horizontal clipping');
 await page.screenshot({ path: SHOT('valhalla-route-character-desktop') });
+await page.locator('.route-style-grid [role="radio"]', { hasText: 'Touring' }).click();
+await page.waitForSelector('.route-preview-metrics', { timeout: 10000 });
+// The sheet and map overlay commit in the same React render; give MapLibre one
+// paint frame before capturing the dark comparison artifact.
+await page.waitForTimeout(250);
+await page.screenshot({ path: REVIEW('desktop') });
 await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
 await page.waitForTimeout(250);
 await page.screenshot({ path: SHOT('valhalla-route-character-desktop-light') });
+await page.screenshot({ path: REVIEW('desktop-light') });
 await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+await page.locator('.route-preview-actions .btn', { hasText: 'Cancel' }).click();
 await page.setViewportSize({ width: 375, height: 750 });
 await page.waitForTimeout(400);
 
@@ -232,8 +274,15 @@ check(navOptions?.use_highways === 0.05 && navOptions?.use_tolls === 0,
 check(osrmStepsCalls === 0, `OSRM routing fallback never engaged (${osrmStepsCalls})`);
 
 // ride a little so the turn card renders Valhalla's instruction text
+const navStart = [-108.0, 44.0], navStop = [-107.95, 44.06];
+const navDx = navStop[0] - navStart[0], navDy = navStop[1] - navStart[1];
+const navLen = Math.hypot(navDx, navDy);
+const navBend = lerp(navStart, navStop, 0.4);
+navBend[0] += (-navDy / navLen) * 0.018;
+navBend[1] += (navDx / navLen) * 0.018;
 for (const t of [0.05, 0.12, 0.2]) {
-  await page.evaluate(([lat, lng]) => window.__feed(lat, lng, 30, 15), [44.0 + 0.06 * t, -108.0 + 0.05 * t]);
+  const [lng, lat] = lerp(navStart, navBend, t / 0.4);
+  await page.evaluate(([feedLat, feedLng]) => window.__feed(feedLat, feedLng, 30, 15), [lat, lng]);
   await page.waitForTimeout(350);
 }
 const card = await page.locator('.turn-card').textContent().catch(() => '');

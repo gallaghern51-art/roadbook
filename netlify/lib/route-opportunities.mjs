@@ -136,6 +136,33 @@ function compactShape(legs, max = 350) {
   return Array.from({ length: max }, (_, i) => all[Math.round(i * step)]);
 }
 
+// Google Places Search Along Route accepts a standard precision-5 encoded
+// polyline, including one we encode ourselves. Valhalla emits polyline6, so we
+// decode first and expose this compact corridor only as a discovery aid;
+// Valhalla still measures every final motorcycle option.
+function encodePolyline5(points = []) {
+  let lastLat = 0;
+  let lastLng = 0;
+  const chunk = (delta) => {
+    let value = delta < 0 ? ~(delta << 1) : delta << 1;
+    let out = '';
+    while (value >= 0x20) {
+      out += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
+      value >>= 5;
+    }
+    return out + String.fromCharCode(value + 63);
+  };
+  let encoded = '';
+  for (const point of points) {
+    const lat = Math.round(Number(point.lat) * 1e5);
+    const lng = Math.round(Number(point.lon) * 1e5);
+    encoded += chunk(lat - lastLat) + chunk(lng - lastLng);
+    lastLat = lat;
+    lastLng = lng;
+  }
+  return encoded;
+}
+
 async function jsonPost(fetchImpl, url, body, timeoutMs = 12000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -266,6 +293,7 @@ export async function evaluateRouteOptions(input, {
         id: String(concept.id || `option-${Math.random().toString(36).slice(2, 7)}`),
         title: String(concept.title || 'Route option'),
         locations,
+        searchPolyline: encodePolyline5(compactShape(legs)),
         metrics: {
           miles: round(miles),
           rideMinutes: round(rideMinutes),

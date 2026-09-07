@@ -113,6 +113,7 @@ async function runBackground(payload, onLine) {
         type: 'done', text: rec.text ?? '', proposal: rec.proposal ?? null,
         trip: rec.trip, verify: rec.verify ?? null,
         concepts: rec.concepts ?? [], recommendedId: rec.recommendedId ?? null,
+        reconciliationProof: rec.reconciliationProof ?? null,
       };
     }
 

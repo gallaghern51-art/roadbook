@@ -6,6 +6,7 @@ import { splitsDigest } from '../engine/splits.js';
 import { describeOps, applyOps } from '../engine/ops.js';
 import { runPlanner } from '../engine/planner.js';
 import { useT } from '../engine/settings.jsx';
+import { placesFromRouteReconciliation } from '../engine/placePreferences.js';
 
 const SUGGESTIONS = [
   'Run a full feasibility read — where does this plan break?',
@@ -14,8 +15,12 @@ const SUGGESTIONS = [
   'Give me a lower-mileage version of the whole trip, save as "Relaxed"',
 ];
 
+const visibleMessage = (content) => String(content ?? '')
+  .replace(/\s*<route_reconciliation_request>.*?<\/route_reconciliation_request>/gs, '')
+  .trim();
+
 export default function ChatPanel({ onClose }) {
-  const { state, dispatch, routedLegsByDay } = useTrip();
+  const { state, dispatch, routedLegsByDay, placePreferences } = useTrip();
   const [messages, setMessages] = useState(state.chat ?? []); // {role, content} — hydrated from the trip record
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,6 +70,8 @@ export default function ChatPanel({ onClose }) {
         // is prefill the model pays for before it can start answering.
         tripJson: compactTripForModel(state.trip),
         scenarios: state.scenarios.map((s) => ({ id: s.id, name: s.name, savedAt: s.savedAt })),
+        preferenceProfile: placePreferences?.profile ?? null,
+        reconciliationProof: [...next].reverse().find((message) => message.reconciliationProof)?.reconciliationProof ?? null,
       };
       // Background transport when the deployment has it (15-minute ceiling),
       // streaming otherwise. Both deliver the same events.
@@ -89,7 +96,7 @@ export default function ChatPanel({ onClose }) {
       const finalText = data.text || '(proposed changes below)';
       setMessages((m) => {
         const rest = m[m.length - 1]?.streaming ? m.slice(0, -1) : m;
-        return [...rest, { role: 'assistant', content: finalText }];
+        return [...rest, { role: 'assistant', content: finalText, reconciliationProof: data.reconciliationProof ?? null }];
       });
       if (data.proposal?.ops?.length) {
         dispatch({ type: 'set_proposal', proposal: data.proposal });
@@ -116,7 +123,14 @@ export default function ChatPanel({ onClose }) {
 
   const applyProposal = () => {
     const { ops, saveAs, overwriteScenarioId } = state.pendingProposal;
+    const learnedPlaces = placesFromRouteReconciliation(state.trip, ops);
     dispatch({ type: 'apply_ops', ops });
+    if (learnedPlaces.length) {
+      placePreferences?.record('confirmed', learnedPlaces, {
+        source: 'route_reconciliation',
+        optionId: saveAs || overwriteScenarioId || null,
+      });
+    }
     const target = state.scenarios.find((s) => s.id === overwriteScenarioId);
     if (target) dispatch({ type: 'overwrite_scenario', id: target.id });
     else if (saveAs) dispatch({ type: 'save_scenario', name: saveAs });
@@ -178,7 +192,7 @@ export default function ChatPanel({ onClose }) {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.role === 'user' ? 'user' : 'ai'}`}>
-            {m.content}
+            {visibleMessage(m.content)}
             {m.partial && <span className="cut">⋯ cut off here</span>}
           </div>
         ))}

@@ -78,8 +78,8 @@ export default function MapView() {
   const tt = useTT();
   const u = useUnits();
   const scaleRef = useRef(null);
-  const stateRef = useRef({ trip, selectedDayId });
-  stateRef.current = { trip, selectedDayId };
+  const stateRef = useRef({ trip, selectedDayId, routePreview: ui?.routePreview });
+  stateRef.current = { trip, selectedDayId, routePreview: ui?.routePreview };
 
   const phaseColor = (phase) => {
     if (basemapRef.current === 'light' && LIGHT_SAFE[phase]) return LIGHT_SAFE[phase];
@@ -217,8 +217,14 @@ export default function MapView() {
 
   // redraw on data change
   useEffect(() => {
-    if (readyRef.current) drawAll();
-  }, [trip, selectedDayId, routes]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!readyRef.current) return undefined;
+    drawAll();
+    // MapLibre applies GeoJSON source changes on its render worker. Reassert
+    // the overlay on the next frame so a preview opened in an otherwise-idle
+    // dark map does not wait for some unrelated UI change before appearing.
+    const frame = requestAnimationFrame(() => drawAllRef.current());
+    return () => cancelAnimationFrame(frame);
+  }, [trip, selectedDayId, routes, ui?.routePreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Google tile sessions arrive async — swap the roster in and lead with Google
   // satellite unless the user already picked something else.
@@ -295,7 +301,7 @@ export default function MapView() {
   function drawAll() {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    const { trip: t, selectedDayId: sel } = stateRef.current;
+    const { trip: t, selectedDayId: sel, routePreview: preview } = stateRef.current;
     ensureTerrain(map, terrainRef.current);
     // our shields are the ones on this map — setStyle brings the basemap's back
     hideNativeRoadShields(map);
@@ -351,6 +357,51 @@ export default function MapView() {
       map.setPaintProperty(`${srcId}-glow`, 'line-opacity', active ? 0.2 : 0.05);
       map.setPaintProperty(`${srcId}-arrows`, 'icon-opacity', active ? 0.9 : 0);
     }
+
+    // A route-character choice is a draft until the rider confirms it. Draw
+    // that draft as one turquoise dashed instrument line over the current
+    // colored plan; the map comparison disappears with the sheet on cancel.
+    for (const day of t.days) {
+      const srcId = `route-preview-${day.id}`;
+      const geom = preview?.status === 'ready' ? preview.routes?.[day.id]?.geometry : null;
+      const data = {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: geom?.length > 1 ? geom : [] },
+      };
+      if (map.getSource(srcId)) {
+        map.getSource(srcId).setData(data);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data });
+        const round = { 'line-cap': 'round', 'line-join': 'round' };
+        map.addLayer({
+          id: `${srcId}-glow`, type: 'line', source: srcId,
+          paint: { 'line-color': '#3ee3d8', 'line-width': lineWidth(9), 'line-opacity': 0.28, 'line-blur': 4 },
+          layout: round,
+        });
+        map.addLayer({
+          id: `${srcId}-casing`, type: 'line', source: srcId,
+          paint: { 'line-color': '#071014', 'line-width': lineWidth(7), 'line-opacity': 0.86 },
+          layout: round,
+        });
+        map.addLayer({
+          id: `${srcId}-line`, type: 'line', source: srcId,
+          paint: {
+            'line-color': '#3ee3d8', 'line-width': lineWidth(3.5), 'line-opacity': 1,
+          },
+          layout: round,
+        });
+      }
+      const active = sel === null || sel === day.id;
+      map.setPaintProperty(`${srcId}-glow`, 'line-opacity', geom?.length > 1 && active ? 0.2 : 0);
+      map.setPaintProperty(`${srcId}-casing`, 'line-opacity', geom?.length > 1 && active ? 0.86 : 0);
+      map.setPaintProperty(`${srcId}-line`, 'line-opacity', geom?.length > 1 && active ? 0.96 : 0);
+      // Existing route layers can be recreated after a basemap/style change.
+      // Reassert the comparison stack so the active route never paints over
+      // the proposed geometry merely because its layer was added later.
+      map.moveLayer(`${srcId}-glow`);
+      map.moveLayer(`${srcId}-casing`);
+      map.moveLayer(`${srcId}-line`);
+    }
     // The leg-highlight layer rides on top of every route: hovering a stop row
     // in the day panel lights the stretch of road that leg actually covers.
     if (!map.getSource('leg-hi')) {
@@ -369,6 +420,10 @@ export default function MapView() {
     }
     // prune sources for deleted days
     drawMarkers();
+    // Source updates can land in the same commit as the comparison sheet.
+    // Explicitly request a frame so the WebGL canvas cannot remain visually
+    // one React render behind until another DOM/theme change wakes it.
+    map.triggerRepaint();
   }
 
   // Hovered leg → the slice of routed geometry between its two waypoints.
@@ -620,6 +675,9 @@ export default function MapView() {
         )}
       </div>
       <div className="map-legend">
+        {ui?.routePreview?.status === 'ready' && (
+          <span className="key preview-key"><i />{t('Proposed route')}</span>
+        )}
         {Object.entries(PHASES).map(([k, p]) => (
           <span key={k} className="key"><i style={{ background: p.color }} />{t(p.label)}</span>
         ))}

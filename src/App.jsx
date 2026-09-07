@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { TripContext, reducer, initialState } from './engine/store.js';
 import { routeDay } from './engine/routing.js';
 import { tripSummary, tripPace, tripRoutePrefs, routePrefsKey } from './engine/tripEngine.js';
+import { analyzeRouteChange, routeReconciliationPrompt } from './engine/routePreview.js';
 import { tripFeasibility } from './engine/timeline.js';
 import { useIsMobile } from './hooks/useMediaQuery.js';
 import Home from './components/Home.jsx';
@@ -22,6 +23,7 @@ import { useTripSync } from './engine/useTripSync.js';
 import { useAuth } from './engine/auth.js';
 import { useLibraryBackup } from './engine/cloudLibrary.js';
 import { useAutoTranslate } from './engine/autoTranslate.js';
+import { usePlacePreferences } from './engine/placePreferences.js';
 import { collabFor, saveCollab, clearCollab, collabApi, parseJoinParam, tripIdForShare } from './engine/collab.js';
 import { useT, useUnits } from './engine/settings.jsx';
 
@@ -65,6 +67,7 @@ export default function App() {
   // untouched by whether anyone is signed in. An account only adds a mirror of
   // the library, so deleting the app stops being the same as losing the trips.
   const auth = useAuth();
+  const placePreferences = usePlacePreferences(auth.account);
   const backup = useLibraryBackup(state, dispatch, auth.account);
   const [guest, setGuest] = useState(() => {
     try { return localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; }
@@ -82,6 +85,8 @@ export default function App() {
   }, [auth.account]);
   const [routes, setRoutes] = useState({}); // dayId -> {legs, geometry}
   const [routeLoad, setRouteLoad] = useState(null); // latest-only whole-trip route calculation
+  const [routePreview, setRoutePreview] = useState(null); // staged route character; never mutates the trip
+  const routePreviewControllerRef = useRef(null);
   const [screen, setScreen] = useState(() => {
     try { return localStorage.getItem(SCREEN_KEY) || 'home'; } catch { return 'home'; }
   });
@@ -120,6 +125,82 @@ export default function App() {
   const routeSignature = routePrefsKey(routePrefs) + '|' + state.trip.days
     .map((d) => d.id + ':' + d.waypoints.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';'))
     .join('|');
+
+  const closeRoutePreview = () => {
+    routePreviewControllerRef.current?.abort();
+    routePreviewControllerRef.current = null;
+    setRoutePreview(null);
+  };
+
+  const beginRoutePreview = (nextPrefs) => {
+    if (routePrefsKey(nextPrefs) === routePrefsKey(routePrefs)) return;
+    routePreviewControllerRef.current?.abort();
+    const controller = new AbortController();
+    routePreviewControllerRef.current = controller;
+    const trip = state.trip;
+    const baseSignature = routeSignature;
+    const currentRoutes = routes;
+    const days = trip.days;
+    const nextRoutes = {};
+    let cursor = 0;
+    setRoutePreview({ prefs: nextPrefs, baseSignature, status: 'loading', done: 0, total: days.length, routes: null, analysis: null, error: null });
+    (async () => {
+      const worker = async () => {
+        while (!controller.signal.aborted) {
+          const index = cursor++;
+          if (index >= days.length) return;
+          const day = days[index];
+          nextRoutes[day.id] = await routeDay(day, nextPrefs, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          setRoutePreview((current) => (
+            current?.baseSignature === baseSignature
+              ? { ...current, done: Object.keys(nextRoutes).length }
+              : current
+          ));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, days.length) }, worker));
+      if (controller.signal.aborted) return;
+      const analysis = analyzeRouteChange(trip, currentRoutes, nextRoutes, nextPrefs);
+      setRoutePreview((current) => (
+        current?.baseSignature === baseSignature
+          ? { ...current, status: 'ready', done: days.length, routes: nextRoutes, analysis }
+          : current
+      ));
+    })().catch((error) => {
+      if (error?.name === 'AbortError') return;
+      setRoutePreview((current) => (
+        current?.baseSignature === baseSignature
+          ? { ...current, status: 'error', error: error?.message || 'Route comparison failed.' }
+          : current
+      ));
+    });
+  };
+
+  const applyRoutePreview = () => {
+    if (routePreview?.status !== 'ready') return;
+    // A collaborator may have edited the trip behind the comparison sheet.
+    // Recalculate against the new facts rather than applying a stale draft.
+    if (routePreview.baseSignature !== routeSignature) {
+      beginRoutePreview(routePreview.prefs);
+      return;
+    }
+    setRoutes(routePreview.routes);
+    dispatch({ type: 'apply_ops', ops: [{ op: 'set_meta', patch: { routePrefs: routePreview.prefs } }] });
+    closeRoutePreview();
+  };
+
+  const researchRouteAlternatives = (styleLabel) => {
+    if (routePreview?.status !== 'ready') return;
+    dispatch({ type: 'ask_optimizer', text: routeReconciliationPrompt(state.trip, routePreview, styleLabel) });
+    closeRoutePreview();
+  };
+
+  useEffect(() => () => routePreviewControllerRef.current?.abort(), []);
+  useEffect(() => {
+    closeRoutePreview();
+  }, [state.lib.activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const controller = new AbortController();
     const days = state.trip.days;
@@ -173,7 +254,10 @@ export default function App() {
   const selectedDay = state.trip.days.find((d) => d.id === state.selectedDayId) ?? null;
 
   const showPanel = () => setPanelOpen(true);
-  const ui = { isMobile, panelOpen, setPanelOpen, showPanel, routeLoad };
+  const ui = {
+    isMobile, panelOpen, setPanelOpen, showPanel, routeLoad,
+    routePreview, beginRoutePreview, closeRoutePreview, applyRoutePreview, researchRouteAlternatives,
+  };
 
   // A new day is a new page: without this the panel keeps the previous day's
   // scroll depth and opens somewhere in the middle of the next one.
@@ -495,7 +579,7 @@ export default function App() {
     </>
   );
 
-  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab };
+  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab, placePreferences };
 
   // The join sheet rides over either screen — a link can arrive cold.
   const joinSheet = joinReq && (

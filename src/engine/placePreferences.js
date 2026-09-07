@@ -21,7 +21,7 @@ const preferenceTags = (place) => [...new Set((place.preferenceTags ?? [])
   .filter(Boolean))]
   .slice(0, 3);
 
-export function rowsForPlaceEvent(accountId, action, places, { optionId = null } = {}) {
+export function rowsForPlaceEvent(accountId, action, places, { optionId = null, source = 'ai_construction' } = {}) {
   if (!accountId || !ACTION_WEIGHT[action]) return [];
   const seen = new Set();
   return (places ?? []).filter((place) => {
@@ -33,10 +33,42 @@ export function rowsForPlaceEvent(accountId, action, places, { optionId = null }
     place_id: place.placeId,
     kind: place.kind,
     action,
-    source: 'ai_construction',
+    source,
     option_id: optionId,
     traits: { tags: preferenceTags(place) },
   }));
+}
+
+// A route reconciliation is the only Copilot proposal whose acceptance should
+// teach route-shaped place taste here. Ordinary itinerary edits must not be
+// mislabeled as preference evidence. Attractions can be inserted or replaced;
+// resolve update_waypoint against the pre-apply trip so its existing role is
+// still available when the patch only carries the changed place facts.
+export function placesFromRouteReconciliation(trip, ops = []) {
+  const isReconciliation = ops.some((op) => (
+    op.op === 'set_meta' && op.patch?.routePrefs
+  ));
+  if (!isReconciliation) return [];
+
+  return ops.flatMap((op) => {
+    if (op.op === 'update_meal' && op.patch?.placeId) {
+      return [{ ...op.patch, kind: 'food', name: op.patch.name }];
+    }
+    if (op.op === 'update_lodging' && op.patch?.placeId) {
+      return [{ ...op.patch, kind: 'lodging', name: op.patch.name }];
+    }
+    if (op.op === 'add_waypoint' && op.waypoint?.placeId && op.waypoint?.kind === 'photo') {
+      return [{ ...op.waypoint, kind: 'attraction' }];
+    }
+    if (op.op === 'update_waypoint' && op.patch?.placeId) {
+      const day = (trip?.days ?? []).find((candidate) => candidate.id === op.dayId);
+      const waypoint = (day?.waypoints ?? []).find((candidate) => candidate.id === op.waypointId);
+      if ((op.patch.kind ?? waypoint?.kind) === 'photo') {
+        return [{ ...waypoint, ...op.patch, kind: 'attraction' }];
+      }
+    }
+    return [];
+  });
 }
 
 export function summarizePlacePreferences(events = []) {

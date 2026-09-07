@@ -4,6 +4,7 @@ import {
   summarizePlacePreferences,
   recordPlaceEvent,
   fetchPlaceEvents,
+  placesFromRouteReconciliation,
 } from '../src/engine/placePreferences.js';
 
 const accountId = '00000000-0000-0000-0000-000000000001';
@@ -31,6 +32,7 @@ assert.equal('facts' in rows[0], false);
 assert.equal(rows[0].option_id, 'route-a');
 assert.equal(rowsForPlaceEvent(null, 'confirmed', [italian]).length, 0);
 assert.equal(rowsForPlaceEvent(accountId, 'viewed', [italian]).length, 0);
+assert.equal(rowsForPlaceEvent(accountId, 'confirmed', [italian], { source: 'route_reconciliation' })[0].source, 'route_reconciliation');
 console.log('PASS preference events are account-only, meaningful, deduplicated place choices');
 
 const profile = summarizePlacePreferences([
@@ -44,6 +46,21 @@ assert.ok(profile.positivePlaceIds.includes('italian-1'));
 assert.ok(profile.negativePlaceIds.includes('diner-1'));
 assert.equal(profile.evidenceCount, 3);
 console.log('PASS preference profile weights confirmations above selections and learns from replacements');
+
+const preferenceTrip = { days: [{ id: 'day-1', waypoints: [{ id: 'view-1', kind: 'photo', name: 'Old overlook' }] }] };
+assert.deepEqual(placesFromRouteReconciliation(preferenceTrip, [
+  { op: 'update_meal', dayId: 'day-1', meal: 'lunch', patch: { name: 'Unrelated edit', placeId: 'food-2' } },
+]), []);
+const reconciled = placesFromRouteReconciliation(preferenceTrip, [
+  { op: 'set_meta', patch: { routePrefs: { style: 'backroads' } } },
+  { op: 'update_meal', dayId: 'day-1', meal: 'lunch', patch: { name: 'Route Cafe', placeId: 'food-2', preferenceTags: ['breakfast diner'] } },
+  { op: 'update_waypoint', dayId: 'day-1', waypointId: 'view-1', patch: { name: 'New overlook', placeId: 'view-2', preferenceTags: ['scenic overlook'] } },
+]);
+assert.equal(reconciled.length, 2);
+assert.equal(reconciled[0].kind, 'food');
+assert.equal(reconciled[1].kind, 'attraction');
+assert.equal(reconciled[1].placeId, 'view-2');
+console.log('PASS only accepted route reconciliations teach meal, lodging, and inserted or replaced attraction taste');
 
 const calls = [];
 const client = {

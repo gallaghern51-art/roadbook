@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { evaluateRouteOptions, preserveAdditiveRefinement } from '../netlify/lib/route-opportunities.mjs';
-import { runExplore } from '../netlify/lib/planner-core.mjs';
+import { routeReconciliationViolations, runChat, runExplore } from '../netlify/lib/planner-core.mjs';
+import { searchPlacesGoogle } from '../netlify/lib/places-core.mjs';
 
 const enc6 = (points) => {
   let out = '', prevLat = 0, prevLon = 0;
@@ -71,8 +72,142 @@ assert.equal(result.options[0].metrics.overAbsolute, false);
 assert.equal(result.baselineId, 'b');
 assert.ok(result.options[0].metrics.deltaMiles > 0);
 assert.ok(result.options[0].metrics.deltaMinutes > 0);
+assert.ok(typeof result.options[0].searchPolyline === 'string' && result.options[0].searchPolyline.length > 10);
 
-console.log('PASS route opportunities use motorcycle costing, preserve stops, and expose measured tradeoffs');
+console.log('PASS route opportunities use motorcycle costing, preserve stops, expose measured tradeoffs, and return a Google-compatible discovery corridor');
+
+let corridorRequest;
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (_url, options) => {
+  corridorRequest = { body: JSON.parse(options.body), fields: options.headers['X-Goog-FieldMask'] };
+  return {
+    ok: true,
+    json: async () => ({
+      places: [{
+        id: 'corridor-food', displayName: { text: 'Route Cafe' }, formattedAddress: '1 Main St',
+        location: { latitude: 44.2, longitude: -107.8 },
+      }],
+      routingSummaries: [{ legs: [{ duration: '300s', distanceMeters: 4200 }, { duration: '360s', distanceMeters: 5100 }] }],
+    }),
+  };
+};
+try {
+  const corridorPlaces = await searchPlacesGoogle('test-key', 'breakfast', null, { encodedPolyline: result.options[0].searchPolyline });
+  assert.equal(corridorRequest.body.searchAlongRouteParameters.polyline.encodedPolyline, result.options[0].searchPolyline);
+  assert.ok(corridorRequest.fields.includes('routingSummaries'));
+  assert.equal(corridorPlaces[0].routeDistanceMeters, 9300);
+  assert.equal(corridorPlaces[0].routeDurationSeconds, 660);
+} finally {
+  globalThis.fetch = realFetch;
+}
+console.log('PASS Google Places searches along the Valhalla corridor and returns comparable route totals');
+
+let carriedCorridor = null;
+const reconciliationEval = {
+  routePrefs: { style: 'backroads', avoidTolls: false },
+  concepts: [
+    { id: 'keep', title: 'Keep anchors', locations: [
+      { name: 'Start', lat: 44, lng: -108, kind: 'start' },
+      { name: 'End', lat: 44.4, lng: -107.6, kind: 'end' },
+    ] },
+    { id: 'alternate', title: 'Alternate anchors', locations: [
+      { name: 'Start', lat: 44, lng: -108, kind: 'start' },
+      { name: 'Road', lat: 44.2, lng: -107.8, kind: 'road' },
+      { name: 'End', lat: 44.4, lng: -107.6, kind: 'end' },
+    ] },
+  ],
+};
+const reconcileResponses = [
+  { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'route-first', name: 'evaluate_route_options', input: reconciliationEval }] },
+  { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'search-corridor', name: 'search_places', input: {
+    query: 'breakfast', routeOptionId: 'keep',
+  } }] },
+  { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'route-final', name: 'evaluate_route_options', input: reconciliationEval }] },
+  { stop_reason: 'end_turn', content: [{ type: 'text', text: 'I found a corridor-matched breakfast choice.' }] },
+];
+const reconcileClient = { messages: { stream: () => {
+  const response = reconcileResponses.shift();
+  return { on() { return this; }, abort() {}, finalMessage: async () => response };
+} } };
+const reconcileEvents = [];
+await runChat({
+  client: reconcileClient,
+  body: {
+    messages: [{ role: 'user', content: 'Find breakfast. <route_reconciliation_request>{"routePrefs":{"style":"backroads","avoidTolls":false}}</route_reconciliation_request>' }],
+    tripJson: { meta: {}, days: [] },
+  },
+  emit: (event) => reconcileEvents.push(event),
+  routeOpts: { fetchImpl: mockFetch, baseUrl: 'https://valhalla.test' },
+  verifyOpts: {
+    key: 'test-key',
+    searchImpl: async (_key, _query, _near, options) => {
+      carriedCorridor = options.encodedPolyline;
+      return [{ id: 'breakfast-1', name: 'Route Cafe', detail: 'On route', lat: 44.2, lng: -107.8 }];
+    },
+  },
+});
+assert.ok(typeof carriedCorridor === 'string' && carriedCorridor.length > 10);
+assert.equal(reconcileEvents.find((event) => event.type === 'done')?.text, 'I found a corridor-matched breakfast choice.');
+const reconciliationProof = reconcileEvents.find((event) => event.type === 'done')?.reconciliationProof;
+assert.equal(reconciliationProof.routePrefs.style, 'backroads');
+console.log('PASS Copilot carries a Valhalla option id into Google Search Along Route and issues proof only after the final re-route');
+
+const proposal = {
+  summary: 'Use the checked Back roads plan.',
+  ops: [{ op: 'set_meta', patch: { routePrefs: { style: 'backroads', avoidTolls: false } } }],
+};
+const acceptedEvents = [];
+await runChat({
+  client: { messages: { stream: () => ({
+    on() { return this; }, abort() {},
+    finalMessage: async () => ({ stop_reason: 'end_turn', content: [{ type: 'tool_use', id: 'proposal-ok', name: 'propose_trip_changes', input: proposal }] }),
+  }) } },
+  body: { messages: [{ role: 'user', content: 'Use that choice.' }], tripJson: { meta: {}, days: [] }, reconciliationProof },
+  emit: (event) => acceptedEvents.push(event),
+});
+assert.deepEqual(acceptedEvents.find((event) => event.type === 'done')?.proposal, proposal);
+
+const refusedResponses = [
+  { stop_reason: 'end_turn', content: [{ type: 'tool_use', id: 'proposal-early', name: 'propose_trip_changes', input: proposal }] },
+  { stop_reason: 'end_turn', content: [{ type: 'text', text: 'I need to complete the corridor checks first.' }] },
+];
+const refusedEvents = [];
+await runChat({
+  client: { messages: { stream: () => {
+    const response = refusedResponses.shift();
+    return { on() { return this; }, abort() {}, finalMessage: async () => response };
+  } } },
+  body: { messages: [{ role: 'user', content: 'Switch to Back roads now.' }], tripJson: { meta: {}, days: [] } },
+  emit: (event) => refusedEvents.push(event),
+});
+assert.equal(refusedEvents.find((event) => event.type === 'done')?.proposal, null);
+console.log('PASS route-character proposals are rejected without matching route/place/re-route proof and accepted with it');
+
+const fixedTrip = {
+  days: [{
+    id: 'day-fixed', anchor: true, lodging: { status: 'booked', name: 'Fixed Hotel' },
+    gates: [{ waypointId: 'gate-stop', label: 'Timed entry' }],
+    waypoints: [
+      { id: 'trip-start', name: 'Start' },
+      { id: 'gate-stop', name: 'Timed entry' },
+      { id: 'night-end', name: 'Fixed Hotel' },
+    ],
+  }],
+  reserveNow: [{ id: 'ticket-1', name: 'Tour tickets', done: true }],
+};
+assert.deepEqual(routeReconciliationViolations(fixedTrip, { ops: [
+  { op: 'update_lodging', dayId: 'day-fixed', patch: { name: 'Different Hotel' } },
+  { op: 'update_waypoint', dayId: 'day-fixed', waypointId: 'gate-stop', patch: { lat: 45 } },
+  { op: 'remove_reservation', reservationId: 'ticket-1' },
+] }), ['booked lodging', 'a trip endpoint or timed stop', 'a completed reservation']);
+assert.deepEqual(routeReconciliationViolations(fixedTrip, { ops: [
+  { op: 'reorder_days', dayIds: ['day-fixed'] },
+  { op: 'reorder_waypoints', dayId: 'day-fixed', waypointIds: ['trip-start', 'night-end', 'gate-stop'] },
+] }), ['the trip’s protected day boundaries', 'an overnight or trip endpoint', 'a timed-stop order']);
+assert.deepEqual(routeReconciliationViolations(fixedTrip, { ops: [
+  { op: 'update_meal', dayId: 'day-fixed', meal: 'lunch', patch: { name: 'New Cafe', placeId: 'food-3' } },
+] }), []);
+console.log('PASS route reconciliation permits flexible place replacements but rejects booked, endpoint, gate, and reservation mutations');
 
 const multiDay = await evaluateRouteOptions({
   depart: '08:00',

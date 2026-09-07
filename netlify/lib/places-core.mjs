@@ -25,12 +25,15 @@ export async function searchPlacesGoogle(key, query, near, {
   type = null,
   classify = false,
   radiusM = 50000,
+  encodedPolyline = null,
 } = {}) {
   const body = {
     textQuery: query,
     pageSize: Math.min(10, limit),
     ...(type ? { includedType: type, strictTypeFiltering: true } : {}),
-    ...(near && Number.isFinite(near.lat) && Number.isFinite(near.lng)
+    ...(encodedPolyline
+      ? { searchAlongRouteParameters: { polyline: { encodedPolyline } } }
+      : near && Number.isFinite(near.lat) && Number.isFinite(near.lng)
       ? { locationBias: { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: radiusM } } }
       : {}),
   };
@@ -41,6 +44,7 @@ export async function searchPlacesGoogle(key, query, near, {
     fields.add('places.businessStatus');
   }
   if (hours) fields.add('places.regularOpeningHours.weekdayDescriptions');
+  if (encodedPolyline) fields.add('routingSummaries');
   if (enrich) {
     fields.add('places.rating');
     fields.add('places.userRatingCount');
@@ -65,7 +69,7 @@ export async function searchPlacesGoogle(key, query, near, {
     throw err;
   }
   const json = await res.json();
-  return (json.places ?? []).map((p) => ({
+  return (json.places ?? []).map((p, index) => ({
     id: p.id,
     name: p.displayName?.text ?? '',
     detail: p.formattedAddress ?? '',
@@ -80,6 +84,13 @@ export async function searchPlacesGoogle(key, query, near, {
       googleMapsUri: p.googleMapsUri ?? null,
       websiteUri: p.websiteUri ?? null,
       phone: p.nationalPhoneNumber ?? null,
+    } : {}),
+    ...(encodedPolyline ? {
+      routeDistanceMeters: (json.routingSummaries?.[index]?.legs ?? []).reduce((sum, leg) => sum + (Number(leg.distanceMeters) || 0), 0) || null,
+      routeDurationSeconds: (json.routingSummaries?.[index]?.legs ?? []).reduce((sum, leg) => {
+        const seconds = Number(String(leg.duration ?? '').replace(/s$/, ''));
+        return sum + (Number.isFinite(seconds) ? seconds : 0);
+      }, 0) || null,
     } : {}),
   })).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 }
