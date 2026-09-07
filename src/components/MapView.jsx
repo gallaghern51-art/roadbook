@@ -2,13 +2,17 @@ import React, { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
-import { haversineMiles, bestInsertIndex } from '../engine/tripEngine.js';
+import {
+  haversineMiles, bestInsertIndex, insertIndexOnRoute, insertIndexAtAlong,
+  alongOnRoute, chainCumMiles,
+} from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
 import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
+import { InputSheet } from './Sheets.jsx';
 
 // Basemap roster: Google tiles headline when a session exists, free styles otherwise.
 function buildBasemapList() {
@@ -64,6 +68,15 @@ export default function MapView() {
   const hoverPopupRef = useRef(null);
   const routedRef = useRef(routedLegsByDay);
   routedRef.current = routedLegsByDay;
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
+  // A live route-line drag: {dayId, index, from, to, at}. Held in a ref because
+  // it is driven by map events, not renders — a setState per mousemove would
+  // re-run every effect in this component sixty times a second.
+  const dragRef = useRef(null);
+  const [dragging, setDragging] = React.useState(false); // for the cursor + hint only
+  const [addAt, setAddAt] = React.useState(null); // {dayId, pt, index} awaiting a name
+  const beginDragRef = useRef(() => {});
   const [maps, setMaps] = React.useState(buildBasemapList);
   const [basemap, setBasemap] = React.useState(() => (cachedGoogleStyle('hybrid') ? 'gsat' : 'sat'));
   const basemapRef = useRef(basemap);
@@ -75,6 +88,8 @@ export default function MapView() {
   const terrainRef = useRef(false);
   terrainRef.current = terrain3d;
   const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const tt = useTT();
   const u = useUnits();
   const scaleRef = useRef(null);
@@ -154,20 +169,87 @@ export default function MapView() {
       const { selectedDayId: dayId } = stateRef.current;
       if (!dayId) return;
       if (e.originalEvent._wpHandled) return;
+      if (dragRef.current) return; // the click that ends a drag is not an add
       // clicking a route line opens the leg modal, not the add-stop prompt
       const lineIds = stateRef.current.trip.days
         .map((d) => `route-${d.id}-line`)
         .filter((id) => map.getLayer(id));
       if (map.queryRenderedFeatures(e.point, { layers: lineIds }).length) return;
-      const name = window.prompt(t('Add a stop here — name it:'));
-      if (!name) return;
       const day = stateRef.current.trip.days.find((d) => d.id === dayId);
       const pt = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+      // Where it lands in the DAY'S ORDER is read off the routed line, not off
+      // straight lines between stops: the road is what the rider is looking at.
+      setAddAt({ dayId, pt, index: routeAwareIndex(day, pt) });
+    });
+
+    // ---- drag the route line to pull it onto the road you wanted ----
+    // Google's grammar: grab the line, drop it somewhere, and the route is
+    // re-planned through that point. Here the drop becomes a real `via`
+    // waypoint (Valhalla routes intermediate stops as break_through, so the
+    // line actually goes there) inserted at the slot the GRAB identifies.
+    const moveDrag = (e) => {
+      const d = dragRef.current;
+      if (!d) return;
+      d.at = [e.lngLat.lng, e.lngLat.lat];
+      paintDrag();
+    };
+    const endDrag = (e) => {
+      const d = dragRef.current;
+      if (!d) return;
+      map.dragPan.enable();
+      map.getCanvas().style.cursor = '';
+      map.off('mousemove', moveDrag);
+      const at = e?.lngLat ? [e.lngLat.lng, e.lngLat.lat] : d.at;
+      // A drag that never left the line is a click — the rider was reading the
+      // leg, not moving it. Let the layer's click handler have it.
+      const moved = at && Math.hypot(
+        (at[0] - d.from[0]) * Math.cos((d.from[1] * Math.PI) / 180), at[1] - d.from[1],
+      ) > 0.0008;
+      dragRef.current = null;
+      setDragging(false);
+      paintDrag();
+      if (!moved || !at) return;
+      if (e?.originalEvent) e.originalEvent._wpHandled = true;
+      const day = stateRef.current.trip.days.find((x) => x.id === d.dayId);
+      if (!day) return;
+      const vias = day.waypoints.filter((w) => w.kind === 'via').length;
       dispatch({
         type: 'apply_ops',
-        ops: [{ op: 'add_waypoint', dayId, index: bestInsertIndex(day.waypoints, pt), waypoint: { name, ...pt, kind: 'via' } }],
+        ops: [{
+          op: 'add_waypoint',
+          dayId: d.dayId,
+          index: d.index,
+          waypoint: { name: `${tRef.current('Via')} ${vias + 1}`, lat: at[1], lng: at[0], kind: 'via' },
+        }],
       });
-    });
+    };
+    beginDragRef.current = (dayId, e) => {
+      if (dragRef.current) return; // the glow and the line both match one press
+      const day = stateRef.current.trip.days.find((x) => x.id === dayId);
+      if (!day || day.waypoints.length < 2) return;
+      const grab = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+      const index = routeAwareIndex(day, grab, { grabbedOnLine: true });
+      if (index == null) return;
+      e.preventDefault?.();
+      map.dragPan.disable();
+      map.getCanvas().style.cursor = 'grabbing';
+      hoverPopupRef.current?.remove();
+      dragRef.current = {
+        dayId,
+        index,
+        from: [grab.lng, grab.lat],
+        at: [grab.lng, grab.lat],
+        // The stops either side of the grab — the rubber band runs between
+        // them so the rider sees which stretch they are moving.
+        a: day.waypoints[index - 1],
+        b: day.waypoints[index],
+      };
+      setDragging(true);
+      paintDrag();
+      map.on('mousemove', moveDrag);
+      map.once('mouseup', endDrag);
+    };
+    map.on('mouseout', () => { if (dragRef.current) endDrag(null); });
     // The map is a hidden tab on mobile; maplibre only watches the window, so
     // watch the container and re-measure whenever it comes back on screen.
     const ro = new ResizeObserver(([entry]) => {
@@ -418,6 +500,34 @@ export default function MapView() {
         layout: round,
       });
     }
+    // The drag proposal rides above everything: dashed turquoise, the colour
+    // this app reserves for route intelligence and live state. It is not the
+    // route until the rider lets go.
+    if (!map.getSource('route-drag')) {
+      const empty = { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
+      map.addSource('route-drag', { type: 'geojson', data: empty });
+      map.addSource('route-drag-pt', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'route-drag-line', type: 'line', source: 'route-drag',
+        paint: {
+          'line-color': '#3fd0c9', 'line-width': lineWidth(3),
+          'line-dasharray': [2, 1.6], 'line-opacity': 0.95,
+        },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+      });
+      map.addLayer({
+        id: 'route-drag-halo', type: 'circle', source: 'route-drag-pt',
+        paint: { 'circle-radius': 12, 'circle-color': '#3fd0c9', 'circle-opacity': 0.22 },
+      });
+      map.addLayer({
+        id: 'route-drag-dot', type: 'circle', source: 'route-drag-pt',
+        paint: {
+          'circle-radius': 6, 'circle-color': '#3fd0c9',
+          'circle-stroke-color': '#0b0d10', 'circle-stroke-width': 2,
+        },
+      });
+    }
+    paintDrag(); // a style swap mid-drag rebuilt the sources empty
     // prune sources for deleted days
     drawMarkers();
     // Source updates can land in the same commit as the comparison sheet.
@@ -425,6 +535,21 @@ export default function MapView() {
     // one React render behind until another DOM/theme change wakes it.
     map.triggerRepaint();
   }
+
+  // Escape abandons a drag: the route snaps back and nothing is added. A
+  // half-made edit the rider cannot back out of is worse than no edit.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || !dragRef.current) return;
+      const map = mapRef.current;
+      dragRef.current = null;
+      setDragging(false);
+      paintDrag();
+      if (map) { map.dragPan.enable(); map.getCanvas().style.cursor = ''; }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hovered leg → the slice of routed geometry between its two waypoints.
   const legZoomAtRef = useRef(0);
@@ -469,6 +594,49 @@ export default function MapView() {
     }
   }, [state.focusLeg, routes]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The day's routed line as {lat,lng} — the shape every insertion decision is
+  // read off. Null when routing has not answered yet; callers fall back to the
+  // straight-line splice, which is exactly right for a straight-line route.
+  function dayChain(dayId) {
+    const geom = routesRef.current?.[dayId]?.geometry;
+    if (!geom || geom.length < 2) return null;
+    return geom.map(([lng, lat]) => ({ lat, lng }));
+  }
+
+  // Where a new point belongs in the day's ORDER. A point grabbed off the line
+  // has an exact along-position, so its leg is known; a point clicked in open
+  // space is projected onto the line first, and is only route-ordered if it
+  // lands within a few miles of the road.
+  function routeAwareIndex(day, pt, { grabbedOnLine = false } = {}) {
+    const chain = dayChain(day.id);
+    if (chain) {
+      if (grabbedOnLine) {
+        const hit = alongOnRoute(chain, pt);
+        const idx = hit ? insertIndexAtAlong(day.waypoints, chain, hit.along) : null;
+        if (idx != null) return idx;
+      } else {
+        const idx = insertIndexOnRoute(day.waypoints, chain, pt);
+        if (idx != null) return idx;
+      }
+    }
+    return bestInsertIndex(day.waypoints, pt);
+  }
+
+  // The rubber band while a drag is live: from the stop before the grab,
+  // through the cursor, to the stop after it — so the rider can see which
+  // stretch of the day they are moving, and that only that stretch moves.
+  function paintDrag() {
+    const map = mapRef.current;
+    if (!map || !map.getSource('route-drag')) return;
+    const d = dragRef.current;
+    const coords = d?.a && d?.b ? [[d.a.lng, d.a.lat], d.at, [d.b.lng, d.b.lat]] : [];
+    map.getSource('route-drag').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
+    map.getSource('route-drag-pt').setData({
+      type: 'FeatureCollection',
+      features: d ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: d.at } }] : [],
+    });
+  }
+
   // Which leg of a day is nearest to a clicked/hovered point.
   function nearestLegIndex(day, pt) {
     let best = 0;
@@ -486,8 +654,23 @@ export default function MapView() {
   function wireLegEvents(map, dayId, layerId) {
     if (wiredLayers.current.has(layerId)) return;
     wiredLayers.current.add(layerId);
+    // Grab the line of the day you are editing and pull it where you want the
+    // route to go. Touch is deliberately excluded: the same gesture pans the
+    // map, and a phone rider gets the same result by tapping where they want
+    // the route — that add is route-ordered too.
+    const press = (e) => {
+      if (stateRef.current.selectedDayId !== dayId) return;
+      if (isTouch() || e.originalEvent?.button !== 0) return;
+      beginDragRef.current(dayId, e);
+    };
+    map.on('mousedown', layerId, press);
+    // The 3px line is a hard thing to catch; the glow band around it is the
+    // target the rider is actually aiming at.
+    map.on('mousedown', layerId.replace(/-line$/, '-glow'), press);
     map.on('mousemove', layerId, (e) => {
-      map.getCanvas().style.cursor = 'pointer';
+      if (dragRef.current) return;
+      map.getCanvas().style.cursor = stateRef.current.selectedDayId === dayId && !isTouch()
+        ? 'grab' : 'pointer';
       const day = stateRef.current.trip.days.find((d) => d.id === dayId);
       if (!day) return;
       const pt = { lat: e.lngLat.lat, lng: e.lngLat.lng };
@@ -505,6 +688,7 @@ export default function MapView() {
         .addTo(map);
     });
     map.on('mouseleave', layerId, () => {
+      if (dragRef.current) return;
       map.getCanvas().style.cursor = '';
       hoverPopupRef.current?.remove();
     });
@@ -542,12 +726,14 @@ export default function MapView() {
 
   function drawMarkers() {
     const map = mapRef.current;
-    const { trip: t, selectedDayId: sel } = stateRef.current;
+    // NOT `trip: t` — that shadows the i18n t() this function's hover tooltip
+    // calls, and the tooltip threw "t is not a function" on every stop hover.
+    const { trip: tr, selectedDayId: sel } = stateRef.current;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
     labelsRef.current = [];
 
-    const days = sel ? t.days.filter((d) => d.id === sel) : t.days;
+    const days = sel ? tr.days.filter((d) => d.id === sel) : tr.days;
     for (const day of days) {
       const color = phaseColor(day.phase);
       const showAll = sel === day.id;
@@ -624,15 +810,37 @@ export default function MapView() {
 
   const selectedDay = trip.days.find((d) => d.id === selectedDayId);
   return (
-    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}${ui?.routeLoad ? ' route-pending' : ''}`}>
+    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}${ui?.routeLoad ? ' route-pending' : ''}${dragging ? ' route-dragging' : ''}`}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
       <div className="map-hint">
         {selectedDay
-          ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {t('— click map to add a stop · drag markers · click stops & legs for details')}</span></>
+          ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {isTouch()
+              ? t('— tap the map to add a stop · drag markers · tap stops & legs for details')
+              : t('— drag the route to reshape it · click the map to add a stop · drag markers')}</span></>
           : <>{t('Whole-trip view')}<span className="hint-more"> {t('— hover a route for leg info, click for details, pick a day to edit')}</span></>}
       </div>
+      {/* Naming a tapped stop — the app's sheet, not window.prompt (which is
+          unstyled, unlocalised, and on iOS can be suppressed outright). */}
+      {addAt && (
+        <InputSheet
+          title={t('Add a stop')}
+          label={t('What is here?')}
+          placeholder={t('e.g. Palisades Parkway')}
+          submitLabel={t('Add stop')}
+          onClose={() => setAddAt(null)}
+          onSubmit={(name) => dispatch({
+            type: 'apply_ops',
+            ops: [{
+              op: 'add_waypoint',
+              dayId: addAt.dayId,
+              index: addAt.index,
+              waypoint: { name, ...addAt.pt, kind: 'via' },
+            }],
+          })}
+        />
+      )}
       {/* Keep the previous complete route visible while the latest choice is
           calculated, but name that work so it never reads as a missed click. */}
       {ui?.routeLoad && (

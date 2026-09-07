@@ -322,24 +322,53 @@ export function lineProgressAt({ mcum, mtotal } = {}, i, f = 0) {
 // to the straight-line splice.
 export function insertIndexOnRoute(waypoints, chain, pt, cumIn = null) {
   if (!chain || chain.length < 2 || !waypoints || waypoints.length < 2 || !pt) return null;
-  let cum = cumIn;
-  if (!cum) {
-    cum = [0];
-    for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
-  }
+  const cum = cumIn ?? chainCumMiles(chain);
   const p = projectOnChainDirected(chain, pt, { cum, afterMi: 0 });
   if (!p || p.off > 5) return null;
+  return insertIndexAtAlong(waypoints, chain, p.along, cum);
+}
+
+// Running ground miles along a chain — the measure every insertion decision
+// is made in.
+export function chainCumMiles(chain) {
+  const cum = [0];
+  for (let i = 1; i < chain.length; i++) cum.push(cum[i - 1] + haversineMiles(chain[i - 1], chain[i]));
+  return cum;
+}
+
+// Which day-order slot a point belongs in, given how far along the routed line
+// it sits. This is the half of route-aware insertion that is a FACT rather
+// than a guess: a rider who grabs the route line hands us a point that is on
+// the line by construction, so the leg it lies in is known — no "which stop is
+// this nearest to" heuristic, which is what put a stop in the wrong half of a
+// loop day. The stop-order walk is the same one insertIndexOnRoute uses:
+// waypoints project monotonically (each at-or-after the previous), and the new
+// point goes before the first stop the route reaches after it.
+export function insertIndexAtAlong(waypoints, chain, along, cumIn = null) {
+  if (!chain || chain.length < 2 || !waypoints || waypoints.length < 2) return null;
+  if (!Number.isFinite(along)) return null;
+  const cum = cumIn ?? chainCumMiles(chain);
   let prev = 0;
   for (let i = 1; i < waypoints.length; i++) {
     const w = waypoints[i];
     if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
     const wp = projectOnChainDirected(chain, w, { cum, afterMi: prev });
     if (!wp) continue;
-    if (wp.along >= p.along) return i;
+    if (wp.along >= along) return i;
     prev = wp.along;
   }
   // never past the day's destination — the route ends there
   return waypoints.length - 1;
+}
+
+// Where on the routed line a point sits: {along, off} in ground miles, or null.
+// `off` is the raw distance from the line, so a caller can tell a grab ON the
+// route from a click in a field beside it.
+export function alongOnRoute(chain, pt, cumIn = null) {
+  if (!chain || chain.length < 2 || !pt) return null;
+  const cum = cumIn ?? chainCumMiles(chain);
+  const p = projectOnChainDirected(chain, pt, { cum, afterMi: 0 });
+  return p ? { along: p.along, off: p.off } : null;
 }
 
 // Cheapest place to splice a new point into an existing waypoint sequence.
