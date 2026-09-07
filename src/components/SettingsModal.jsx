@@ -37,6 +37,29 @@ const SECTIONS = [
   ['about', 'About'],
 ];
 
+// Everything the shell layout depends on, read at the moment it is asked for.
+function readShell() {
+  const cs = getComputedStyle(document.documentElement);
+  const app = document.querySelector('.app')?.getBoundingClientRect();
+  const px = (v) => Math.round(parseFloat(cs.getPropertyValue(v)) || 0);
+  return {
+    mode: document.documentElement.dataset.appDisplay ?? 'unset',
+    apple: navigator.standalone === true,
+    top: px('--viewport-safe-top'),
+    bottom: px('--viewport-safe-bottom'),
+    guardTop: px('--ios-status-guard'),
+    guardBottom: px('--ios-home-guard'),
+    innerW: window.innerWidth,
+    innerH: window.innerHeight,
+    screenW: window.screen?.width ?? 0,
+    screenH: window.screen?.height ?? 0,
+    appTop: app ? Math.round(app.top) : null,
+    appBottom: app ? Math.round(app.bottom) : null,
+    // The number that answers "why does the bottom bar sit high".
+    gapBelow: app ? Math.round(window.innerHeight - app.bottom) : null,
+  };
+}
+
 function Seg({ label, value, options, onPick, note }) {
   return (
     <>
@@ -60,6 +83,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
   const { state } = useTrip();
   const [tab, setTab] = useState('account');
   const [cache, setCache] = useState(null);
+  const [shell, setShell] = useState(null);
   const coverage = translationCoverage(state.trip, lang === 'en' ? 'es' : lang);
 
   const backupNote = (() => {
@@ -236,6 +260,27 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 </span>
               </div>
               <p className="set-note">{t('Trip text translates itself when you pick a language, and is stored on the trip so it travels with export and import. Retry is only needed if a run was interrupted.')}</p>
+              {/* Shell diagnostics. Three rounds of PWA layout reports were
+                  debugged from photographs, which is guessing. These are the
+                  numbers that decide the layout: what the app thinks it is,
+                  what iOS says the insets are, and — the one that actually
+                  answers "why is the bar high" — how far the shell's bottom
+                  edge falls short of the screen. */}
+              <div className="set-row">
+                <span className="set-label">{t('Shell')}</span>
+                <button className="btn" type="button" onClick={() => setShell(readShell())}>{t('Measure')}</button>
+              </div>
+              {shell && (
+                <div className="set-build">
+                  <code>
+                    {`mode ${shell.mode}${shell.apple ? ' (apple)' : ''}\n`}
+                    {`inset top ${shell.top} · bottom ${shell.bottom}\n`}
+                    {`guard top ${shell.guardTop} · bottom ${shell.guardBottom}\n`}
+                    {`viewport ${shell.innerW}x${shell.innerH} · screen ${shell.screenW}x${shell.screenH}\n`}
+                    {`shell ${shell.appTop}→${shell.appBottom} · gap below ${shell.gapBelow}px`}
+                  </code>
+                </div>
+              )}
               <div className="set-build">
                 <span className="set-label">{t('Build')}</span>
                 <code>
