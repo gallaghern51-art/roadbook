@@ -5,12 +5,28 @@ import { fmtDayDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 
 const KEY = 'moto.budget.v1';
+// Trip-shaped extras stay here; the per-rider running costs and economy are
+// the RIDER's, and come from their profile (Settings → Riding) so a new device
+// does not start the estimate from a stranger's assumptions.
 const DEFAULTS = { gas: 3.6, mpg: 45, riders: 7, lodging: 95, food: 75, tickets: 150, misc: 200 };
+
+// The rider's own figures, where they have them, under the trip's own.
+export function budgetBase(trip, profile) {
+  const costs = profile?.costs ?? {};
+  return {
+    ...DEFAULTS,
+    gas: Number(costs.gas) > 0 ? Number(costs.gas) : DEFAULTS.gas,
+    lodging: Number(costs.lodging) >= 0 ? Number(costs.lodging) : DEFAULTS.lodging,
+    food: Number(costs.food) >= 0 ? Number(costs.food) : DEFAULTS.food,
+    riders: trip?.meta?.riders ?? DEFAULTS.riders,
+    mpg: trip?.meta?.range?.mpg ?? DEFAULTS.mpg,
+  };
+}
 
 // The per-rider estimate for surfaces that show the number without the sheet
 // (the Prep board card). Same assumptions store, same math as the panel.
-export function budgetEstimate(trip, routedLegsByDay) {
-  const base = { ...DEFAULTS, riders: trip.meta.riders ?? DEFAULTS.riders, mpg: trip.meta.range?.mpg ?? DEFAULTS.mpg };
+export function budgetEstimate(trip, routedLegsByDay, profile = null) {
+  const base = budgetBase(trip, profile);
   let b;
   try { b = { ...base, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { b = base; }
   const summary = tripSummary(trip, routedLegsByDay);
@@ -20,10 +36,10 @@ export function budgetEstimate(trip, routedLegsByDay) {
 }
 
 export default function BudgetPanel() {
-  const { state, routedLegsByDay } = useTrip();
+  const { state, routedLegsByDay, profile } = useTrip();
   const { trip } = state;
   const [b, setB] = useState(() => {
-    const base = { ...DEFAULTS, riders: trip.meta.riders ?? DEFAULTS.riders, mpg: trip.meta.range?.mpg ?? DEFAULTS.mpg };
+    const base = budgetBase(trip, profile?.profile);
     try { return { ...base, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return base; }
   });
   useEffect(() => {

@@ -81,7 +81,7 @@ function BookingsList() {
 }
 
 function FileView({ onExportJson, onImportJson, onReset }) {
-  const { state, routes, routedLegsByDay } = useTrip();
+  const { state, routes, routedLegsByDay, profile } = useTrip();
   const { trip } = state;
   const t = useT();
   return (
@@ -209,7 +209,7 @@ export default function PrepBoard({ focus, setFocus, onAskAI, onSaveScenario, on
           />
           <Card
             label={t('Budget & fuel')}
-            meta={`≈ $${budgetEstimate(trip, routedLegsByDay).toLocaleString()} / ${t('rider')}`}
+            meta={`≈ $${budgetEstimate(trip, routedLegsByDay, profile?.profile).toLocaleString()} / ${t('rider')}`}
             note={t('Fuel from routed miles · everything else adjustable')}
             onClick={() => setFocus('budget')}
           />

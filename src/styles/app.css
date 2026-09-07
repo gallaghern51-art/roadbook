@@ -27,6 +27,10 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body, #root { height: 100%; }
+/* The canvas behind the shell. Without this, any overscroll or a shell that
+   comes up short exposes the browser's default white — under a dark app, on a
+   phone, at night. */
+html { background: var(--asphalt-0); }
 
 html { -webkit-text-size-adjust: 100%; }
 
@@ -67,6 +71,17 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    shells size off that truth. Fallback is plain dvh for the moment before
    the first measurement lands. */
 @media all and (display-mode: standalone) {
+  /* Nothing here may scroll the DOCUMENT. --app-h is a measurement floored at
+     screen.height on purpose (see main.jsx), so it is allowed to over-estimate
+     by a few pixels — and an over-estimate makes the shell taller than the real
+     viewport, which iOS then happily scrolls. The rider sees the whole app drag
+     upward: the masthead slides off the top, white shows under the mode bar,
+     and the map's own furniture — positioned against the map rather than the
+     document — stays put while the chrome moves past it, which is why the
+     "Editing …" chip and the layers pill ended up above the masthead and under
+     the status bar. Pinning the document turns a few pixels of over-estimate
+     into a few pixels of clipping, which nobody can see. */
+  html, body, #root { overflow: hidden; overscroll-behavior: none; }
   .app, .home, .landing { height: 100vh; height: var(--app-h, 100dvh); }
   /* the ride overlay is fixed inset:0 — its bottom edge pins to the same
      stale viewport, so swap the bottom anchor for the measured height */
@@ -287,7 +302,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
   font-family: var(--mono); font-size: 11px; color: #fff; pointer-events: none;
   white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 6px rgba(0, 0, 0, 0.75);
 }
-/* Always below the marker: the route line passes through the marker centre, so
+/* Always below the marker: the route line passes through the marker center, so
    a label underneath it never overlaps the line. cullLabels() in MapView hides
    any label that would collide with a higher-priority one. */
 .wp-label { top: calc(100% + 5px); transform: translateX(-50%); }
@@ -645,19 +660,9 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .builder-basics-grid input { min-height: 40px; }
 .builder-basics-grid select { min-height: 40px; }
 .builder-basics-grid .roads { grid-column: span 2; }
-/* A checkbox is not a labelled field — it needs its own row shape so the
+/* A checkbox is not a labeled field — it needs its own row shape so the
    caption sits beside the box rather than under a phantom label. */
-.builder-basics-grid .check {
-  display: flex; align-items: flex-start; gap: 9px; min-height: 40px; padding-top: 2px;
-  grid-column: span 2;
-}
-.builder-basics-grid .check input { width: 18px; min-height: 18px; height: 18px; margin: 2px 0 0; flex: none; }
-.builder-basics-grid .check span { display: block; font-size: 13px; color: var(--ink); text-transform: none; letter-spacing: 0; }
-.builder-basics-grid .check small {
-  display: block; margin-top: 1px; color: var(--ink-faint);
-  font-family: var(--body); font-size: 11.5px; line-height: 1.35;
-  text-transform: none; letter-spacing: 0;
-}
+.builder-basics-grid .check { grid-column: span 2; }
 .builder-basics-grid .basics-done { min-height: 40px; justify-content: center; }
 .builder-context {
   flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 24px;
@@ -706,6 +711,79 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .construction-thread .msg.partial { border-style: dashed; }
 @keyframes builder-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* ---- settings: sections, saved places, rider profile -------------------- */
+.set-tabs {
+  display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain;
+  padding: 0 14px 10px; border-bottom: 1px solid var(--line); scrollbar-width: none;
+}
+.set-tabs::-webkit-scrollbar { display: none; }
+.set-tabs button {
+  flex: none; min-height: 36px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--asphalt-1); color: var(--ink-dim);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; white-space: nowrap;
+}
+.set-tabs button.active { color: var(--ink); border-color: var(--rally); background: var(--asphalt-2); }
+.set-section { display: flex; flex-direction: column; gap: 10px; }
+.set-section > .set-label { margin-top: 8px; }
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.set-grid .fld { margin: 0; }
+.set-note.warn { color: var(--warn, #d8a22a); }
+
+.saved-places { display: flex; flex-direction: column; gap: 6px; }
+.saved-place {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1);
+}
+.saved-place .sp-main { flex: 1; min-width: 0; }
+.saved-place .sp-main b { display: block; font-size: 13.5px; }
+.saved-place .sp-main small { display: block; color: var(--ink-faint); font-size: 11.5px; }
+.saved-place .sp-role { flex: none; width: auto; min-height: 36px; margin: 0; font-size: 12px; }
+.sp-add { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.sp-roles { align-self: flex-start; }
+.sp-results { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.sp-results button {
+  display: block; width: 100%; text-align: left; padding: 8px 10px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1); color: var(--ink);
+}
+.sp-results button:hover { border-color: var(--rally); }
+.sp-results b { display: block; font-size: 13px; }
+.sp-results small { display: block; color: var(--ink-faint); font-size: 11.5px; }
+
+.bike-picked {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1);
+}
+.bike-picked > div { flex: 1; min-width: 0; }
+.bike-picked b { display: block; font-size: 14px; }
+.bike-picked small { display: block; color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; }
+.bike-search { display: flex; flex-direction: column; gap: 8px; }
+
+.tagfield { display: flex; flex-direction: column; gap: 6px; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-list li {
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--asphalt-2);
+  font-size: 12.5px;
+}
+.tag-list button {
+  width: 22px; height: 22px; border: 0; border-radius: 50%; cursor: pointer;
+  background: transparent; color: var(--ink-faint); font-size: 12px; line-height: 1;
+}
+.tag-list button:hover { color: var(--danger); background: var(--asphalt-3); }
+.tag-add { display: flex; gap: 6px; }
+.tag-add input { flex: 1; min-width: 0; }
+
+@media (max-width: 640px) {
+  .set-grid { grid-template-columns: 1fr; }
+  .saved-place { flex-wrap: wrap; }
+  .saved-place .sp-main { flex-basis: 100%; }
+  .set-tabs button { min-height: 44px; }
+  .tag-list button { width: 28px; height: 28px; }
+}
+
+
 
 /* ---- route wheel: the touch way to reshape a leg -------------------------
    Anchored to the point the rider tapped. The grip is the marker itself (so
@@ -859,6 +937,26 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    Riders column on a phone (field screenshot). */
 .fld { display: block; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
 .fld input, .fld textarea, .fld select { display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: 4px; font-family: var(--body); font-size: 13.5px; text-transform: none; letter-spacing: 0; }
+/* A checkbox is not a labeled field: `.fld` makes its label a mono uppercase
+   caption above a full-width control, which for a checkbox ran the label and
+   its help text together in one uppercase stripe with a giant square floating
+   over it. This shape puts the box beside sentence-cased text, and it applies
+   wherever `.fld.check` is used rather than only inside one grid. */
+.fld.check {
+  display: flex; align-items: flex-start; gap: 9px; min-height: 44px;
+  font-family: var(--body); font-size: 13px; letter-spacing: 0; text-transform: none;
+  color: var(--ink); cursor: pointer;
+}
+.fld.check input[type='checkbox'] {
+  display: block; flex: none; width: 20px; height: 20px; min-height: 20px;
+  max-width: 20px; margin: 2px 0 0; accent-color: var(--rally);
+}
+.fld.check > span { display: block; min-width: 0; }
+.fld.check small {
+  display: block; margin-top: 2px; color: var(--ink-faint);
+  font-family: var(--body); font-size: 11.5px; line-height: 1.35;
+  letter-spacing: 0; text-transform: none;
+}
 /* native pickers match the asphalt theme instead of flashing white */
 input[type='date'], input[type='time'] { color-scheme: dark; }
 :root[data-theme='light'] input[type='date'], :root[data-theme='light'] input[type='time'] { color-scheme: light; }
@@ -1588,8 +1686,8 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .builder-basics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .builder-basics-grid .wide { grid-column: 1 / -1; }
   /* The whole label is the target, and on a phone it owes the rider 44pt. */
-  .builder-basics-grid .check { min-height: 44px; align-items: center; }
-  .builder-basics-grid .check input { width: 22px; height: 22px; min-height: 22px; margin-top: 0; }
+  .fld.check { align-items: center; }
+  .fld.check input[type='checkbox'] { width: 22px; height: 22px; min-height: 22px; max-width: 22px; margin-top: 0; }
   .builder-basics-grid .basics-done { grid-column: 1 / -1; }
   .builder-context { padding: 8px 14px; }
   .builder-context span { font-size: 9.5px; }
@@ -1771,7 +1869,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    obstruction rather than a design choice. */
 /* The card sits above the home-indicator inset and keeps its own shape. Running
    it flush to the screen edge instead put the whole 34px inset INSIDE the card
-   as empty background — the gap did not go away, it just turned grey and took
+   as empty background — the gap did not go away, it just turned gray and took
    the card's bottom corners with it. Below the card is map, which is the point. */
 /* In a standalone PWA the home-indicator inset is the gap. In Safari it is 0 —
    the browser's own toolbar owns that band — and the card ended up flush to the
@@ -1882,7 +1980,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    (you choose the lane before you read the road name), then distance with the
    exit number pushed to the far side, then the shield inline with the road it
    belongs to, then the following maneuver on its own lighter strip. Neutral
-   dark panel rather than a red-bordered box — the colour cue is the route line
+   dark panel rather than a red-bordered box — the color cue is the route line
    on the map; the banner's job is to be legible, not loud. */
 .turn-card {
   background: rgba(24, 24, 26, 0.93);
@@ -1930,7 +2028,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 
 /* ---------- lane guidance ----------
    Arrows on the panel itself, no bar and no boxes: the lanes are the drawing.
-   Lit lanes are white — the colour road paint is, and the highest contrast
+   Lit lanes are white — the color road paint is, and the highest contrast
    available through a visor — and unlit lanes stay visible but recede, because
    the count is half the information. */
 .lane-strip {
@@ -1965,7 +2063,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
    them, which left the ETA tile half empty on a phone. */
 /* The card is sized by its type, not padded out to a shape: the big figure and
    the rows below it each sit on their own line box with no leading to spare, so
-   the panel is a rectangle of text rather than text floating in a grey box. */
+   the panel is a rectangle of text rather than text floating in a gray box. */
 .rb-delta {
   border-radius: 11px; border: 1px solid var(--line);
   /* the last row is often the scrolling stop name — 3px left its descenders
@@ -2007,7 +2105,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .rb-delta.on-time { border-color: var(--rally); } .rb-delta.on-time .n { color: var(--rally); }
 
 .ride-mode .rp-meta { text-shadow: 0 1px 3px #000; }
-/* Gate projections are card rows, not a floating pill under it. Colour is the
+/* Gate projections are card rows, not a floating pill under it. Color is the
    verdict; there is no glyph to render wrong. */
 .rb-gates { display: flex; flex-wrap: wrap; gap: 1px 12px; margin-top: 1px; }
 .rb-gate { font-family: var(--mono); font-size: 12.5px; line-height: 1.3; }
@@ -2145,7 +2243,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .shield-img { height: 19px; width: auto; flex: none; }
 .shield-img.inherited { opacity: 0.45; }
 /* No drawn shield. When Commons has nothing for a route the number is set as
-   plain type — a lozenge in roughly the right colours reads as signage while
+   plain type — a lozenge in roughly the right colors reads as signage while
    being wrong, which is worse than no signage at all. */
 .shield-text {
   font-family: var(--mono); font-style: normal; font-size: 10px; font-weight: 500;
@@ -2287,7 +2385,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 }
 
 /* icon-only buttons: the glyph is the label, so no text padding and the icon
-   inherits the button's colour rather than carrying its own. */
+   inherits the button's color rather than carrying its own. */
 .btn.icon-btn { padding: 6px 9px; display: inline-flex; align-items: center; justify-content: center; }
 .spk-icon { width: 18px; height: 18px; display: block; }
 .btn.icon-btn.off { color: var(--ink-faint); }
@@ -2380,7 +2478,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 /* the stop the scrub card is describing — the card is anchored over this dot,
    so the dot has to say which one it is */
 
-/* the letter is the key — colour-matched to its mark so the pairing is obvious */
+/* the letter is the key — color-matched to its mark so the pairing is obvious */
 
 
 /* ---------- scrolling stop name ----------
@@ -2463,7 +2561,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .ride-menu .rm-switch .spk-icon { width: 21px; height: 21px; color: var(--ink-dim); }
 .ride-menu .rm-toggle { flex: none; }
 /* orange, not red: it belongs to the map segments above it, and red is the
-   colour End Navigation owns in this menu */
+   color End Navigation owns in this menu */
 .ride-menu .rm-toggle.on { background: rgba(244, 131, 34, 0.28); border-color: var(--outbound); }
 .ride-menu .rm-toggle.on::after { background: var(--outbound); }
 .ride-menu .rm-switch:has(.rm-toggle.on) .spk-icon { color: var(--outbound); }
@@ -3414,7 +3512,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
 }
 /* the placeholder is longer than the value will ever be, so let it shrink
-   rather than clip — a field labelled "JOIN CODI" reads as a bug */
+   rather than clip — a field labeled "JOIN CODI" reads as a bug */
 .sync-row .code-in::placeholder { font-size: 0.85em; letter-spacing: 0.06em; }
 .sync-status { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; margin-top: 6px; }
 .sync-status.live { color: var(--ok); }

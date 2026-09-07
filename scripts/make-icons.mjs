@@ -4,7 +4,7 @@
 // iOS silently IGNORES an SVG apple-touch-icon — it falls back to a generated
 // letter tile, which is why the installed PWA showed a plain "R" instead of
 // the route mark (field-reported Aug 12, 2026). Android's maskable icons need
-// the artwork inside the centre safe zone or the launcher crops it.
+// the artwork inside the center safe zone or the launcher crops it.
 //
 // Chromium (already present for the GPS sims) does the rasterising, so there
 // is no new image dependency.

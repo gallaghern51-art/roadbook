@@ -120,7 +120,7 @@ console.log('\nClearing the flag');
   const rewritten = run(edited, [{ op: 'set_day_field', dayId: 'd1', field: 'summary', value: 'Straight up US-89 to Great Falls — the pass day is gone, and with it the only reason to leave at 8:30.' }]);
   check('rewriting clears it', !summaryIsStale(day(rewritten, 'd1')));
 
-  // "Still accurate": same text, new stamp — the rider's judgement is the input
+  // "Still accurate": same text, new stamp — the rider's judgment is the input
   const kept = run(edited, [{ op: 'set_day_field', dayId: 'd1', field: 'summary', value: day(edited, 'd1').summary }]);
   check('"still accurate" clears it without changing the words', !summaryIsStale(day(kept, 'd1')) && kept.days[0].summary === edited.days[0].summary);
 

@@ -79,7 +79,7 @@ function LaneArrow({ ind, className = 'lane-arrow' }) {
 // shafts, same solid heads — so the banner reads as one drawing rather than a
 // road marking sitting beside a rotated clip-art arrow. Roundabout and arrive
 // are drawn too: they used to be the characters U+27F3 and U+2691, which render
-// as whatever the platform feels like, up to and including colour emoji.
+// as whatever the platform feels like, up to and including color emoji.
 function TurnArrow({ step }) {
   if (!step) return null;
   if (step.type === 'arrive') {
@@ -979,7 +979,7 @@ export default function RideMode({ onClose }) {
 
   // Weather for a point up the road rather than underfoot — what matters on a
   // bike is what you are about to ride into. Keyed to a coarse grid in
-  // conditions.js so travelling along a road reuses one cache entry.
+  // conditions.js so traveling along a road reuses one cache entry.
   const aheadPt = useMemo(() => {
     const chain = geomInfo?.chain;
     if (!chain?.length || !geoProj) return null;
@@ -1548,7 +1548,7 @@ export default function RideMode({ onClose }) {
       return any;
     };
 
-    // A label is centred on its stop, so a stop near the edge of the screen
+    // A label is centered on its stop, so a stop near the edge of the screen
     // hangs half its name off it — the first and last stop of a day, every
     // time. Slide those back inside instead of letting them get cut.
     //

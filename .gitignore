@@ -8,3 +8,6 @@ dist
 # Supabase local dev
 supabase/.branches
 supabase/.temp
+
+# Screenshot scratch from review tooling
+.impeccable/

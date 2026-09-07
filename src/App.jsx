@@ -24,6 +24,7 @@ import { useAuth } from './engine/auth.js';
 import { useLibraryBackup } from './engine/cloudLibrary.js';
 import { useAutoTranslate } from './engine/autoTranslate.js';
 import { usePlacePreferences } from './engine/placePreferences.js';
+import { useProfile } from './engine/profile.js';
 import { collabFor, saveCollab, clearCollab, collabApi, parseJoinParam, tripIdForShare } from './engine/collab.js';
 import { useT, useUnits } from './engine/settings.jsx';
 
@@ -69,6 +70,8 @@ export default function App() {
   const auth = useAuth();
   const placePreferences = usePlacePreferences(auth.account);
   const backup = useLibraryBackup(state, dispatch, auth.account);
+  // The rider's own facts — saved places, how they ride, what they stop for.
+  const profile = useProfile(auth.account);
   const [guest, setGuest] = useState(() => {
     try { return localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; }
   });
@@ -483,16 +486,44 @@ export default function App() {
   // On the phone's map the header and ribbon float over it, so the map has to
   // know how tall they are — its own overlays sit below them. Measured rather
   // than guessed: the masthead grows a line when a trip title wraps.
+  //
+  // Measured more than once on purpose. iOS standalone lays the app out against
+  // a stale viewport at launch (the same fault main.jsx mirrors innerHeight into
+  // --app-h for), and a ResizeObserver that fires while the chrome is still 0px
+  // high leaves the map's furniture pinned to the top of the screen — under the
+  // status bar, which is what a PWA rider actually sees. So: measure on mount,
+  // measure again after paint, and re-measure on every event that can follow a
+  // stale layout. A zero is never written; the last good height stands until a
+  // real one replaces it.
   const appRef = useRef(null);
   const chromeRef = useRef(null);
   useEffect(() => {
-    const app = appRef.current, chrome = chromeRef.current;
-    if (!app || !chrome || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => {
-      app.style.setProperty('--chrome-h', `${Math.round(chrome.getBoundingClientRect().height)}px`);
-    });
-    ro.observe(chrome);
-    return () => ro.disconnect();
+    const app = appRef.current;
+    if (!app) return undefined;
+    const measure = () => {
+      const chrome = chromeRef.current;
+      if (!chrome) return;
+      const h = Math.round(chrome.getBoundingClientRect().height);
+      if (h > 0) app.style.setProperty('--chrome-h', `${h}px`);
+    };
+    measure();
+    // Delayed ticks catch the launch layout settling; the events catch rotation,
+    // the keyboard, and coming back from the background.
+    const timers = [0, 60, 250, 800].map((ms) => setTimeout(measure, ms));
+    const events = ['resize', 'orientationchange', 'pageshow', 'visibilitychange'];
+    for (const e of events) window.addEventListener(e, measure);
+    window.visualViewport?.addEventListener('resize', measure);
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && chromeRef.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(chromeRef.current);
+    }
+    return () => {
+      timers.forEach(clearTimeout);
+      for (const e of events) window.removeEventListener(e, measure);
+      window.visualViewport?.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
   }, [screen]);
 
   const mapFull = isMobile && !panelOpen && mode === 'plan';
@@ -537,6 +568,7 @@ export default function App() {
               sync={sync}
               auth={auth}
               backup={backup}
+              profile={profile}
               onCreateAccount={() => {
                 try { localStorage.removeItem(GUEST_KEY); } catch { /* non-fatal */ }
                 setGuest(false);
@@ -579,7 +611,7 @@ export default function App() {
     </>
   );
 
-  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab, placePreferences };
+  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab, placePreferences, profile };
 
   // The join sheet rides over either screen — a link can arrive cold.
   const joinSheet = joinReq && (
@@ -629,6 +661,7 @@ export default function App() {
           <NewTripModal
             initial={newTrip}
             account={auth.account}
+            profile={profile.profile}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setScreen('trip'); setMode('plan'); setPanelOpen(true); }}
           />
@@ -743,6 +776,7 @@ export default function App() {
           <NewTripModal
             initial={newTrip}
             account={auth.account}
+            profile={profile.profile}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setMode('plan'); setPanelOpen(true); }}
           />
