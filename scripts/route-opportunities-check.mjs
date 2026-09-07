@@ -328,6 +328,93 @@ assert.equal(done.concepts[0].locations[2].googleMapsUri, 'https://maps.google.c
 assert.ok(Number.isFinite(done.concepts[0].metrics.miles));
 console.log('PASS AI construction researches, evaluates, and returns inspectable route options before generation');
 
+// The rider's route preferences must reach Valhalla even when the model omits
+// them from its tool call. Field report (Sep 7, 2026): a Weehawken -> Nyack
+// leg — both on the west bank of the Hudson — was routed through the Lincoln
+// Tunnel into Manhattan and back over the George Washington Bridge. Measured
+// against the live router that day: tolls allowed took the crossing at 29.0 mi
+// / has_toll true, while use_tolls 0 stayed on CR 505 / Palisades Pkwy / US 9W
+// at 24.6 mi. Nothing in the AI chose that; it was the costing options, and
+// the builder was sending none.
+const omittedPrefsResponses = [
+  { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'r1', name: 'evaluate_route_options', input: {
+    concepts: [
+      { id: 'a', title: 'A', locations: [
+        { name: 'Weehawken', lat: 40.768, lng: -74.0175, kind: 'start' },
+        { name: 'Nyack', lat: 41.0912, lng: -73.9182, kind: 'end' },
+      ] },
+      { id: 'b', title: 'B', locations: [
+        { name: 'Weehawken', lat: 40.768, lng: -74.0175, kind: 'start' },
+        { name: 'Palisades Pkwy', lat: 40.95, lng: -73.95, kind: 'road' },
+        { name: 'Nyack', lat: 41.0912, lng: -73.9182, kind: 'end' },
+      ] },
+    ],
+  } }] },
+  { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Measured.' }] },
+];
+const prefsRequestsBefore = requests.length;
+await runExplore({
+  client: { messages: { stream: () => {
+    const response = omittedPrefsResponses.shift();
+    return { on() { return this; }, abort() {}, finalMessage: async () => response };
+  } } },
+  body: {
+    basics: { riders: 1, numDays: 1, routePrefs: { style: 'backroads', avoidTolls: true } },
+    messages: [{ role: 'user', content: 'Scenic day ride upstate.' }],
+  },
+  emit: () => {},
+  routeOpts: { fetchImpl: mockFetch, baseUrl: 'https://valhalla.test' },
+});
+const prefsRouteBodies = requests.slice(prefsRequestsBefore).filter((r) => r.url.endsWith('/route')).map((r) => r.body);
+assert.ok(prefsRouteBodies.length >= 1);
+for (const body of prefsRouteBodies) {
+  assert.equal(body.costing_options.motorcycle.use_tolls, 0, 'a rider who set avoidTolls must be measured with tolls off');
+  assert.equal(body.costing_options.motorcycle.use_highways, 0.05, 'the rider\'s road style must reach the router');
+}
+
+// An explicit choice by the model still wins — the default only fills a gap.
+const explicitPrefsResponses = [
+  { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'r2', name: 'evaluate_route_options', input: {
+    routePrefs: { style: 'quick', avoidTolls: false },
+    concepts: [
+      { id: 'a', title: 'A', locations: [
+        { name: 'Start', lat: 44, lng: -108, kind: 'start' },
+        { name: 'End', lat: 44.4, lng: -107.6, kind: 'end' },
+      ] },
+      { id: 'b', title: 'B', locations: [
+        { name: 'Start', lat: 44, lng: -108, kind: 'start' },
+        { name: 'Road', lat: 44.2, lng: -107.8, kind: 'road' },
+        { name: 'End', lat: 44.4, lng: -107.6, kind: 'end' },
+      ] },
+    ],
+  } }] },
+  { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Measured.' }] },
+];
+const explicitBefore = requests.length;
+await runExplore({
+  client: { messages: { stream: () => {
+    const response = explicitPrefsResponses.shift();
+    return { on() { return this; }, abort() {}, finalMessage: async () => response };
+  } } },
+  body: {
+    basics: { riders: 1, numDays: 1, routePrefs: { style: 'backroads', avoidTolls: true } },
+    messages: [{ role: 'user', content: 'Compare a quick version too.' }],
+  },
+  emit: () => {},
+  routeOpts: { fetchImpl: mockFetch, baseUrl: 'https://valhalla.test' },
+});
+const explicitBody = requests.slice(explicitBefore).find((r) => r.url.endsWith('/route')).body;
+assert.equal(explicitBody.costing_options.motorcycle.use_highways, 1);
+assert.equal(explicitBody.costing_options.motorcycle.use_tolls, 0.5);
+
+// The prompt has to name the setting, or the model has no reason to carry it.
+const { EXPLORE_SYSTEM } = await import('../netlify/lib/planner-core.mjs');
+assert.ok(/routePrefs/.test(EXPLORE_SYSTEM), 'the builder prompt must name routePrefs');
+assert.ok(/avoidTolls/.test(EXPLORE_SYSTEM), 'the builder prompt must name avoidTolls');
+assert.ok(/toll/i.test(EXPLORE_SYSTEM) && /same side|SAME side/.test(EXPLORE_SYSTEM),
+  'the builder prompt must warn about crossing to reach the same side');
+console.log('PASS the rider\'s road style and toll choice reach Valhalla, survive an omitted tool argument, and are named in the builder prompt');
+
 const priorSecondOption = structuredClone(priorWholeTrip[0]);
 priorSecondOption.id = 'other-route';
 priorSecondOption.title = 'Other whole trip';
