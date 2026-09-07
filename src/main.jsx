@@ -53,32 +53,9 @@ const syncShellMode = () => {
   root.style.setProperty('--ios-status-guard', `${topGuard}px`);
   root.style.setProperty('--ios-home-guard', `${bottomGuard}px`);
 
-  // How TALL the shell may be.
-  //
-  // Measured on a real install: viewport 402x812 on a 402x874 screen, with the
-  // shell filling its box exactly (gap below 0). 874 - 812 is precisely the
-  // status-bar inset. That is what iOS does for a black-translucent standalone
-  // app: the initial containing block is the screen MINUS the status bar, but
-  // anchored at y=0 — so the status bar overlays the top of the content (which
-  // is the point of black-translucent) and an equal strip at the BOTTOM belongs
-  // to nobody. Every control anchored to the shell's bottom therefore floats
-  // that far above the glass, and no amount of padding can reach it.
-  //
-  // So the shell is sized to the SCREEN, not to the reported viewport. Guarded
-  // narrowly: iOS Home Screen apps only, only when the width already matches
-  // the screen (which rules out Split View and pinch-zoom, where the width axis
-  // would disagree), and only when the shortfall is status-bar-shaped rather
-  // than some larger discrepancy we do not understand.
-  let shellHeight = 0;
-  if (appleStandalone) {
-    const screenH = Math.round(screen.height || 0);
-    const screenW = Math.round(screen.width || 0);
-    const shortfall = screenH - window.innerHeight;
-    const widthMatches = Math.abs(document.documentElement.clientWidth - screenW) <= 1;
-    if (widthMatches && shortfall > 0 && shortfall <= 80) shellHeight = screenH;
-  }
-  if (shellHeight) root.style.setProperty('--shell-h', `${shellHeight}px`);
-  else root.style.removeProperty('--shell-h');
+  // NOTE: a --shell-h experiment lived here and was reverted — see app.css.
+  // iOS CLIPS a black-translucent standalone app to its reported viewport, so
+  // sizing the shell to screen.height hid the mode bar entirely.
 };
 
 syncShellMode();
