@@ -54,7 +54,7 @@ function arrowImage(size = 26) {
 const lineWidth = (base) => ['interpolate', ['linear'], ['zoom'], 5, base * 0.75, 9, base, 13, base * 1.9];
 
 export default function MapView() {
-  const { state, dispatch, routes, routedLegsByDay } = useTrip();
+  const { state, dispatch, routes, routedLegsByDay, ui } = useTrip();
   const { trip, selectedDayId } = state;
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -569,7 +569,7 @@ export default function MapView() {
 
   const selectedDay = trip.days.find((d) => d.id === selectedDayId);
   return (
-    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}`}>
+    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}${ui?.routeLoad ? ' route-pending' : ''}`}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
@@ -578,13 +578,12 @@ export default function MapView() {
           ? <>{t('Editing')} <b>{selectedDay.dow} {selectedDay.date.slice(5)}</b><span className="hint-more"> {t('— click map to add a stop · drag markers · click stops & legs for details')}</span></>
           : <>{t('Whole-trip view')}<span className="hint-more"> {t('— hover a route for leg info, click for details, pick a day to edit')}</span></>}
       </div>
-      {/* The first minute of a cold load is OSRM routing eleven days one by
-          one — without narration it reads as a broken map. Say what the
-          engine is doing until every day has road geometry. */}
-      {Object.keys(routes).length < trip.days.length && (
-        <div className="routing-chip">
+      {/* Keep the previous complete route visible while the latest choice is
+          calculated, but name that work so it never reads as a missed click. */}
+      {ui?.routeLoad && (
+        <div className="routing-chip" role="status" aria-live="polite">
           <span className="routing-dot" />
-          {t('Routing')} {Math.min(Object.keys(routes).length + 1, trip.days.length)}/{trip.days.length}…
+          {t('Routing')} {ui.routeLoad.done}/{ui.routeLoad.total}…
         </div>
       )}
       {/* Collapsed by default: one layers pill naming the current basemap.

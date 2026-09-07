@@ -81,6 +81,7 @@ export default function App() {
     setGuest(false);
   }, [auth.account]);
   const [routes, setRoutes] = useState({}); // dayId -> {legs, geometry}
+  const [routeLoad, setRouteLoad] = useState(null); // latest-only whole-trip route calculation
   const [screen, setScreen] = useState(() => {
     try { return localStorage.getItem(SCREEN_KEY) || 'home'; } catch { return 'home'; }
   });
@@ -120,15 +121,35 @@ export default function App() {
     .map((d) => d.id + ':' + d.waypoints.map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';'))
     .join('|');
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const days = state.trip.days;
+    const nextRoutes = {};
+    let cursor = 0;
+    setRouteLoad({ signature: routeSignature, style: routePrefs.style, done: 0, total: days.length });
     (async () => {
-      for (const day of state.trip.days) {
-        const r = await routeDay(day, routePrefs);
-        if (cancelled) return;
-        setRoutes((prev) => ({ ...prev, [day.id]: r }));
-      }
-    })();
-    return () => { cancelled = true; };
+      // A small worker pool is materially faster than routing a long trip one
+      // day at a time without stampeding the public Valhalla service.
+      const worker = async () => {
+        while (!controller.signal.aborted) {
+          const index = cursor++;
+          if (index >= days.length) return;
+          const day = days[index];
+          nextRoutes[day.id] = await routeDay(day, routePrefs, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          const done = Object.keys(nextRoutes).length;
+          setRouteLoad((current) => (current?.signature === routeSignature ? { ...current, done } : current));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, days.length) }, worker));
+      if (controller.signal.aborted) return;
+      // Swap the route set atomically. The map can now never show a mixture of
+      // old and new route characters or apply a superseded click late.
+      setRoutes(nextRoutes);
+      setRouteLoad((current) => (current?.signature === routeSignature ? null : current));
+    })().catch((e) => {
+      if (e?.name !== 'AbortError') console.warn('route calculation failed', e);
+    });
+    return () => controller.abort();
   }, [routeSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cached legs are unpaced; the trip's group-pace multiplier is applied here,
@@ -152,7 +173,7 @@ export default function App() {
   const selectedDay = state.trip.days.find((d) => d.id === state.selectedDayId) ?? null;
 
   const showPanel = () => setPanelOpen(true);
-  const ui = { isMobile, panelOpen, setPanelOpen, showPanel };
+  const ui = { isMobile, panelOpen, setPanelOpen, showPanel, routeLoad };
 
   // A new day is a new page: without this the panel keeps the previous day's
   // scroll depth and opens somewhere in the middle of the next one.
@@ -621,7 +642,7 @@ export default function App() {
         {isMobile && <ModeBar />}
 
         {/* The AI's one door. The dot means a proposal is waiting. */}
-        {!dockOpen && !rideOpen && (
+        {!dockOpen && !rideOpen && (!isMobile || !panelOpen) && (
           <button
             className={`dock-fab${state.pendingProposal ? ' has-proposal' : ''}`}
             onClick={() => setDockOpen(true)}

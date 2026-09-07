@@ -81,7 +81,7 @@ export default function OverviewPanel() {
         <button className="btn" style={{ marginTop: 8 }} onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'add_day' }] })}>＋ {t('Add day')}</button>
       </div>
 
-      <TripSettings trip={trip} dispatch={dispatch} />
+      <TripSettings trip={trip} dispatch={dispatch} ui={ui} />
 
       {trip.fieldNotes && <div className="section fieldnotes">
         <h3>{t('Field notes')}</h3>
@@ -143,33 +143,42 @@ function RiderRoster({ trip, dispatch }) {
   );
 }
 
-function TripSettings({ trip, dispatch }) {
+function TripSettings({ trip, dispatch, ui }) {
   const t = useT();
   const set = (patch) => dispatch({ type: 'apply_ops', ops: [{ op: 'set_meta', patch }] });
   const range = { comfort: 180, absolute: 200, mpg: 45, ...(trip.meta.range ?? {}) };
   const routePrefs = tripRoutePrefs(trip);
   const activeRoute = ROUTE_STYLE_UI.find((x) => x.id === routePrefs.style) ?? ROUTE_STYLE_UI[1];
   const setRange = (k, v) => set({ range: { ...range, [k]: Number(v) || 0 } });
-  const setRoutePrefs = (patch) => set({ routePrefs: { ...routePrefs, ...patch } });
+  const setRoutePrefs = (patch) => {
+    if (Object.entries(patch).every(([key, value]) => routePrefs[key] === value)) return;
+    // Send only the changed field. set_meta merges this patch against the
+    // reducer's latest trip, so two fast controls cannot overwrite one another
+    // with values captured by an older render.
+    set({ routePrefs: patch });
+  };
+  const routeLoad = ui?.routeLoad;
   return (
     <div className="section">
       <h3>{t('Trip settings')}</h3>
-      <div className="budget-grid">
-        <label className="fld" style={{ gridColumn: 'span 2' }}>{t('Trip name')}
+      <div className="budget-grid trip-settings-grid">
+        <label className="fld settings-wide">{t('Trip name')}
           <input defaultValue={trip.meta.title} key={trip.meta.title}
             onBlur={(e) => { if (e.target.value.trim() && e.target.value !== trip.meta.title) set({ title: e.target.value.trim() }); }} />
         </label>
-        <label className="fld" style={{ gridColumn: '1 / -1' }}>{t('Trip summary')}
+        <label className="fld settings-wide">{t('Trip summary')}
           <textarea rows={3} defaultValue={trip.meta.summary ?? ''} key={trip.meta.summary}
             onBlur={(e) => { if (e.target.value !== (trip.meta.summary ?? '')) set({ summary: e.target.value }); }} />
         </label>
-        <div className="route-pref">
+        <div className="route-pref" aria-busy={Boolean(routeLoad)}>
           <div className="route-pref-head">
             <div>
               <div className="route-pref-label">{t('Route character')}</div>
               <div className="route-pref-scope">{t('One choice for every day and every reroute')}</div>
             </div>
-            <span className="route-engine"><i /> {t('Valhalla motorcycle')}</span>
+            <span className={`route-engine${routeLoad ? ' working' : ''}`} role="status" aria-live="polite">
+              <i /> {routeLoad ? <>{t('Routing')} {routeLoad.done}/{routeLoad.total}</> : t('Valhalla motorcycle')}
+            </span>
           </div>
           <div className="route-style-grid" role="radiogroup" aria-label={t('Route character')}>
             {ROUTE_STYLE_UI.map((style) => (
@@ -177,7 +186,7 @@ function TripSettings({ trip, dispatch }) {
                 type="button"
                 role="radio"
                 aria-checked={routePrefs.style === style.id}
-                className={routePrefs.style === style.id ? 'active' : ''}
+                className={`${routePrefs.style === style.id ? 'active' : ''}${routeLoad && routePrefs.style === style.id ? ' is-routing' : ''}`.trim()}
                 key={style.id}
                 onClick={() => setRoutePrefs({ style: style.id })}
               >
@@ -198,41 +207,41 @@ function TripSettings({ trip, dispatch }) {
             </label>
           </div>
         </div>
-        <label className="fld">{t('Start date')}
+        <label className="fld settings-third settings-start">{t('Start date')}
           <input type="date" value={trip.meta.startDate}
             onChange={(e) => { if (e.target.value) set({ startDate: e.target.value }); }} />
         </label>
-        <label className="fld">{t('Riders')}
+        <label className="fld settings-third">{t('Riders')}
           <input type="number" min="1" value={trip.meta.riders}
             onChange={(e) => set({ riders: Math.max(1, Number(e.target.value) || 1) })} />
         </label>
-        <label className="fld">{t('Range: comfort mi')}
+        <label className="fld settings-third">{t('Group pace buffer %')}
+          <input type="number" min="0" max="50" step="1"
+            value={Math.round((tripPace(trip) - 1) * 100)}
+            onChange={(e) => set({ pace: 1 + Math.max(0, Math.min(50, Number(e.target.value) || 0)) / 100 })} />
+        </label>
+        <label className="fld settings-third">{t('Range: comfort mi')}
           <input type="number" min="40" value={range.comfort} onChange={(e) => setRange('comfort', e.target.value)} />
         </label>
-        <label className="fld">{t('Range: absolute mi')}
+        <label className="fld settings-third">{t('Range: absolute mi')}
           <input type="number" min="50" value={range.absolute} onChange={(e) => setRange('absolute', e.target.value)} />
         </label>
-        <label className="fld">MPG
+        <label className="fld settings-third">MPG
           <input type="number" min="10" value={range.mpg} onChange={(e) => setRange('mpg', e.target.value)} />
         </label>
-        <label className="fld">{t('Dusk (after-dark warnings)')}
+        <label className="fld settings-half settings-dusk">{t('Dusk (after-dark warnings)')}
           <input type="time" defaultValue={to24h(trip.meta.dusk ?? '8:30 PM')} key={trip.meta.dusk}
             onBlur={(e) => {
               const v = from24h(e.target.value);
               if (v && v !== (trip.meta.dusk ?? '8:30 PM')) set({ dusk: v });
             }} />
         </label>
-        <label className="fld">{t('Group pace buffer %')}
-          <input type="number" min="0" max="50" step="1"
-            value={Math.round((tripPace(trip) - 1) * 100)}
-            onChange={(e) => set({ pace: 1 + Math.max(0, Math.min(50, Number(e.target.value) || 0)) / 100 })} />
-        </label>
-        <label className="fld">{t('UTC offset (calendar export)')}
+        <label className="fld settings-half">{t('UTC offset (calendar export)')}
           <input type="number" min="-12" max="14" step="0.5" value={Number.isFinite(trip.meta.utcOffset) ? trip.meta.utcOffset : -6}
             onChange={(e) => set({ utcOffset: Number(e.target.value) })} />
         </label>
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 4 }}>
+      <p className="trip-settings-note">
         {t('Changing the start date re-pins every day to the new calendar. Fuel warnings and feasibility use the bike range set here.')}{' '}
         {t('Dusk drives the after-dark warnings; the UTC offset places .ics calendar times in the trip’s zone.')}{' '}
         {t('The pace buffer slows every planned leg for group riding — set 0 for a solo trip, 15+ for a big group.')}

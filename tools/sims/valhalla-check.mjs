@@ -35,6 +35,7 @@ const enc6 = (pts) => {
 
 let valhallaCalls = 0, valhallaCosting = null, valhallaLocationTypes = [], valhallaOptions = [];
 let googleRouteCalls = 0, osrmPlanningCalls = 0, osrmStepsCalls = 0;
+let delayRouteChoices = false;
 
 function buildValhalla(reqBody) {
   valhallaCalls++;
@@ -78,7 +79,14 @@ await page.route('**/*', (r) => {
   }
   if (u.includes('localhost:5199')) return r.continue();
   if (u.includes('valhalla1.openstreetmap.de/route')) {
-    return r.fulfill({ json: buildValhalla(r.request().postDataJSON()) });
+    const body = r.request().postDataJSON();
+    if (delayRouteChoices) {
+      const useHighways = body.costing_options?.motorcycle?.use_highways;
+      const delay = useHighways === 1 ? 700 : useHighways === 0.05 ? 450 : 180;
+      return new Promise((resolve) => setTimeout(resolve, delay))
+        .then(() => r.fulfill({ json: buildValhalla(body) }).catch(() => {}));
+    }
+    return r.fulfill({ json: buildValhalla(body) });
   }
   if (u.includes('router.project-osrm.org')) {
     // attachRoadDetail legitimately asks OSRM for lane data (annotations=false);
@@ -141,10 +149,40 @@ check(osrmPlanningCalls === 0, `OSRM planning fallback never engaged (${osrmPlan
 
 // The overview control is an op-backed trip preference, not ornamental UI.
 // Its selection must invalidate planning and change Valhalla's request body.
+if (await page.locator('.main').getAttribute('data-panel') === 'closed') {
+  await page.locator('.modebar button', { hasText: 'Plan' }).evaluate((el) => el.click());
+  await page.waitForFunction(() => document.querySelector('.main')?.dataset.panel === 'open');
+}
+await page.locator('.side-inner').evaluate((el) => {
+  const pref = el.querySelector('.route-pref');
+  el.scrollTop = Math.max(0, (pref?.offsetTop ?? 0) - 20);
+});
+const routeBox = await page.locator('.route-style-grid').boundingBox();
+check(Boolean(routeBox && routeBox.x >= 0 && routeBox.x + routeBox.width <= 375 && routeBox.y >= 0 && routeBox.y < 750),
+  'route character is reachable inside the open phone panel');
 check(await page.locator('.route-engine', { hasText: /Valhalla motorcycle/i }).isVisible(),
   'Trip settings names the motorcycle routing engine');
 check(await page.locator('.route-style-grid [role="radio"][aria-checked="true"]', { hasText: 'Touring' }).isVisible(),
   'legacy trips open on the neutral Touring route character');
+
+// Rapid changes used to look one click behind: every choice launched a whole
+// sequential reroute while the map kept accepting piecemeal results. Exercise
+// the exact interaction under deliberately out-of-order response timing.
+delayRouteChoices = true;
+for (const label of ['Quick', 'Back roads', 'Touring', 'Quick']) {
+  const choice = page.locator('.route-style-grid [role="radio"]', { hasText: label });
+  await choice.click();
+  await page.waitForFunction((name) => document.querySelector('.route-style-grid [aria-checked="true"]')?.textContent?.includes(name), label);
+  check(await choice.getAttribute('aria-checked') === 'true', `rapid route choice selects ${label} immediately`);
+}
+await page.waitForFunction(() => document.querySelector('.route-pref')?.getAttribute('aria-busy') === 'true');
+check(await page.locator('.route-engine.working').isVisible() && await page.locator('.routing-chip').isVisible(),
+  'route recalculation is visibly pending in both the control and map');
+await page.waitForFunction(() => document.querySelector('.route-pref')?.getAttribute('aria-busy') === 'false', { timeout: 10000 });
+check(await page.locator('.route-engine').getAttribute('class') === 'route-engine',
+  'only the latest route calculation can settle the map');
+delayRouteChoices = false;
+
 const beforePreference = valhallaCalls;
 const preferenceRequest = page.waitForRequest((req) => {
   if (!req.url().includes('valhalla1.openstreetmap.de/route')) return false;
@@ -153,7 +191,9 @@ const preferenceRequest = page.waitForRequest((req) => {
     return options?.use_highways === 0.05 && options?.use_tolls === 0;
   } catch { return false; }
 });
-await page.locator('.route-style-grid [role="radio"]', { hasText: 'Back roads' }).click();
+const backRoads = page.locator('.route-style-grid [role="radio"]', { hasText: 'Back roads' });
+await backRoads.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+await backRoads.click();
 await page.locator('.route-tolls input').check();
 await preferenceRequest;
 await page.waitForTimeout(800);
@@ -174,6 +214,10 @@ await page.waitForTimeout(400);
 const desktopFit = await page.locator('.route-pref').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
 check(desktopFit, 'route control fits the desktop panel without horizontal clipping');
 await page.screenshot({ path: SHOT('valhalla-route-character-desktop') });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+await page.waitForTimeout(250);
+await page.screenshot({ path: SHOT('valhalla-route-character-desktop-light') });
+await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
 await page.setViewportSize({ width: 375, height: 750 });
 await page.waitForTimeout(400);
 

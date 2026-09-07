@@ -897,6 +897,16 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 .road-links a { color: var(--ink-dim); font-size: 12.5px; text-decoration: none; border-bottom: 1px dotted var(--ink-faint); }
 .road-links a:hover { color: var(--rally); border-color: var(--rally); }
 .budget-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.trip-settings-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.trip-settings-grid > .fld { margin-bottom: 0; }
+.trip-settings-grid .settings-wide { grid-column: 1 / -1; }
+.trip-settings-grid .settings-third { grid-column: span 2; }
+.trip-settings-grid .settings-half { grid-column: span 3; }
+.trip-settings-note { margin-top: 14px; font-size: 11.5px; line-height: 1.55; color: var(--ink-faint); }
 
 /* Trip-wide route intent. This reads as one instrument, not three unrelated
    setting cards: the selected road character is the single source for Plan
@@ -922,27 +932,38 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 16%, transparent);
 }
+.route-engine.working { color: var(--ink-dim); }
+.route-engine.working i { background: var(--rally); animation: route-pulse 900ms ease-in-out infinite alternate; }
+@keyframes route-pulse { to { opacity: 0.35; transform: scale(0.72); } }
 .route-style-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0;
   margin-top: 10px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
 }
 .route-style-grid button {
-  min-width: 0; min-height: 62px; padding: 9px 10px; text-align: left;
+  position: relative; display: grid; grid-template-rows: auto 1fr;
+  min-width: 0; min-height: 78px; padding: 11px 12px; text-align: left;
   background: var(--asphalt-2); border-right: 1px solid var(--line);
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 .route-style-grid button:last-child { border-right: 0; }
 .route-style-grid button:hover { background: var(--asphalt-3); }
-.route-style-grid button.active { background: var(--rally); color: #000; }
+.route-style-grid button.active {
+  background: var(--wash-rally); color: var(--ink);
+  box-shadow: inset 0 -3px var(--rally);
+}
 .route-style-grid button span {
-  display: block; font-family: var(--display); font-size: 15px; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  display: block; font-family: var(--body); font-size: 14px; font-weight: 700;
+  letter-spacing: -0.01em; text-transform: none;
 }
 .route-style-grid button small {
-  display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.28;
+  display: block; align-self: end; margin-top: 5px; font-size: 10.5px; line-height: 1.3;
   color: var(--ink-faint);
 }
-.route-style-grid button.active small { color: rgba(0, 0, 0, 0.7); }
+.route-style-grid button.active small { color: var(--ink-dim); }
+.route-style-grid button.is-routing::after {
+  content: ''; position: absolute; right: 10px; top: 12px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--rally); animation: route-pulse 900ms ease-in-out infinite alternate;
+}
 .route-pref-foot { margin-top: 9px; align-items: flex-start; }
 .route-pref-foot p { flex: 1; font-size: 11.5px; line-height: 1.4; color: var(--ink-faint); }
 .route-pref-foot p b { color: var(--ink-dim); font-weight: 600; }
@@ -3657,6 +3678,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 @media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
   .landing-mast, .home-mast { min-height: 62px; padding-inline: 14px; }
   .landing-mast .brand, .home-mast .brand { font-size: 25px; }
   .roadbook-mark { width: 27px; height: 27px; }
@@ -3685,6 +3707,13 @@ input:focus, textarea:focus, select:focus {
   .side { background: var(--asphalt-1); box-shadow: -12px 0 34px rgba(0,0,0,0.3); }
   :root[data-theme='light'] .side { box-shadow: -12px 0 34px rgba(27,38,35,0.16); }
   .side-inner { padding: 20px 18px 74px; }
+  .trip-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .trip-settings-grid .settings-wide { grid-column: 1 / -1; }
+  .trip-settings-grid .settings-third, .trip-settings-grid .settings-half { grid-column: span 1; }
+  .trip-settings-grid .settings-start, .trip-settings-grid .settings-dusk { grid-column: 1 / -1; }
+  .route-style-grid button { min-height: 56px; padding: 10px 8px; text-align: center; }
+  .route-style-grid button span { align-self: center; font-size: 13px; }
+  .route-style-grid button.is-routing::after { right: 7px; top: 8px; }
   .prep-inner { padding: 26px 14px 100px; }
   .prep-hero { gap: 14px; padding: 16px; }
   .prep-hero .ph-grade { min-width: 64px; min-height: 64px; }

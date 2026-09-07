@@ -162,7 +162,7 @@ function valhallaMotorcycleOptions(value) {
   };
 }
 
-async function valhallaRoute(origin, wps, routePrefs) {
+async function valhallaRoute(origin, wps, routePrefs, signal) {
   if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
   const body = {
     locations: [
@@ -192,8 +192,12 @@ async function valhallaRoute(origin, wps, routePrefs) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
   } catch (e) {
+    // A newer route-character choice superseded this request. That is normal
+    // UI cancellation, not an engine outage, so it must not trigger backoff.
+    if (signal?.aborted || e?.name === 'AbortError') throw (signal?.reason ?? e);
     vSkipUntil = Date.now() + 10 * 60_000;
     throw e;
   }
@@ -322,7 +326,8 @@ function saveCache() {
 // estimates) but unpaced. `snaps` records how far each pin sat from the routed
 // road — a big number is a mis-placed pin that forces an out-and-back spur;
 // the day panel warns on those so the pin gets fixed at the source.
-export async function routeDay(day, routePrefs) {
+export async function routeDay(day, routePrefs, options = {}) {
+  const { signal } = options;
   const wps = day.waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (wps.length < 2) return { legs: {}, geometry: null };
 
@@ -349,7 +354,7 @@ export async function routeDay(day, routePrefs) {
   };
 
   try {
-    const trip = await valhallaRoute(wps[0], wps.slice(1), routePrefs);
+    const trip = await valhallaRoute(wps[0], wps.slice(1), routePrefs, signal);
     if (trip.legs.length !== wps.length - 1) throw new Error('valhalla leg mismatch');
     const legs = {};
     trip.legs.forEach((leg, i) => {
@@ -373,12 +378,15 @@ export async function routeDay(day, routePrefs) {
     c[dayKey] = result;
     saveCache();
     return result;
-  } catch { /* fall through to OSRM */ }
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') throw (signal?.reason ?? e);
+    /* fall through to OSRM */
+  }
 
   const coords = wps.map((w) => `${w.lng},${w.lat}`).join(';');
   const url = `${OSRM}/${coords}?overview=full&geometries=geojson&steps=false&annotations=distance,duration`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (!res.ok) throw new Error(`OSRM ${res.status}`);
     const json = await res.json();
     const route = json.routes?.[0];
@@ -400,7 +408,8 @@ export async function routeDay(day, routePrefs) {
     c[dayKey] = result;
     saveCache();
     return result;
-  } catch {
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') throw (signal?.reason ?? e);
     // Last-resort straight lines keep the itinerary usable without any router.
     return { legs: {}, geometry: wps.map((w) => [w.lng, w.lat]), fallback: true };
   }
