@@ -9,24 +9,25 @@
 //    island buffer"                          — a layout change landing the
 //       content under the Dynamic Island
 //
-// One cause. `--app-h` is a MEASURED height deliberately floored at
-// screen.height (main.jsx explains why), so it is allowed to over-estimate the
-// real viewport by a few pixels. An over-estimate makes the shell taller than
-// the viewport, and iOS scrolls the document. Once the document scrolls, the
-// masthead moves with it while the map's own furniture — positioned against the
-// map, not the document — does not, so they slide past each other; a panel
-// close changes the layout and the page keeps whatever scroll it had.
+// The first repair removed the measured-height shell and put the right rules
+// behind `(display-mode: standalone)`. The physical install still showed all
+// three failures because its Apple standalone state did not enter that media
+// block. It therefore kept the ordinary 100dvh shell, no document pin, and no
+// legacy safe-area fallback. The late visual-system `.masthead` rule also
+// overwrote the normal Safari inset whenever the panel was open.
 //
-// `display-mode: standalone` is emulated through CDP, which is the only way to
-// exercise that media block outside a real install. The over-estimate is forced
-// rather than waited for, because on a desktop viewport it never happens by
-// itself — the point is that when it DOES, nothing moves.
+// The original regression test widened the display-mode media query in Chrome.
+// That proved its CSS worked when the query matched, but the field failure was
+// the opposite: legacy iOS Home Screen installs can identify themselves only
+// through navigator.standalone. Emulate that Apple API and leave the shipped
+// stylesheet completely untouched.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM
   ?? (process.platform === 'darwin'
     ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     : '/opt/pw-browsers/chromium');
+const baseUrl = process.env.SIM_BASE_URL ?? 'http://127.0.0.1:5199/';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
 const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); ok ? pass++ : fail++; };
@@ -35,32 +36,25 @@ const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '
 const ctx = await browser.newContext({
   viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3,
 });
+await ctx.addInitScript(() => {
+  Object.defineProperty(Navigator.prototype, 'standalone', { configurable: true, get: () => true });
+});
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message.slice(0, 160)));
-
-// Chromium will not emulate `display-mode` through CDP here, so the standalone
-// block is forced the honest way instead: the real stylesheet is served with
-// that one media query widened to `all`. Every rule under test is the shipped
-// rule, in the shipped cascade — only the gate that would normally require an
-// actual home-screen install is removed.
-await page.route('**/*', async (r) => {
-  const url = r.request().url();
-  if (!url.includes('5199')) return r.abort();
-  if (!url.includes('app.css')) return r.continue();
-  const res = await r.fetch();
-  const body = (await res.text())
-    .replace(/@media all and \(display-mode: standalone\)/g, '@media all')
-    .replace(/@media all and \(display-mode:standalone\)/g, '@media all');
-  return r.fulfill({ response: res, body });
-});
-await page.goto('http://127.0.0.1:5199/', { waitUntil: 'domcontentloaded' });
+await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(400);
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();
 await page.waitForSelector('.trip-card', { timeout: 20000 });
 
-const forced = await page.evaluate(() => getComputedStyle(document.documentElement).overflow);
-check(forced === 'hidden', `the standalone block is in force (html overflow ${forced})`);
+const shellMode = await page.evaluate(() => ({
+  mode: document.documentElement.dataset.appDisplay,
+  apple: document.documentElement.hasAttribute('data-apple-standalone'),
+  overflow: getComputedStyle(document.documentElement).overflow,
+}));
+check(shellMode.mode === 'standalone' && shellMode.apple,
+  `navigator.standalone activates the installed shell (${shellMode.mode}, Apple ${shellMode.apple})`);
+check(shellMode.overflow === 'hidden', `the standalone shell is pinned (html overflow ${shellMode.overflow})`);
 
 // The over-estimate the real device produces: --app-h a little taller than the
 // viewport. Anything the shell does with that must not become a scroll.
@@ -134,10 +128,59 @@ check(closed.basemap === null || closed.basemap.top >= closed.masthead.bottom - 
 console.log(`   panel open: masthead ${opened.masthead.top}, hint ${opened.hint?.top ?? '—'}`);
 await page.screenshot({ path: SHOT('pwa-shell') });
 
+// ---- idle map stability / flashing regression ----------------------------
+// The flashing report was a redraw feedback loop: drawAll wrote GeoJSON,
+// sourcedata/styledata called drawAll again, and every pass destroyed and
+// recreated the waypoint markers. Observe the user-visible consequence and
+// the app-owned sources after the route and camera have settled.
+const stableMap = await page.evaluate(async () => {
+  const map = window.__map;
+  const container = map?.getContainer() ?? document.querySelector('.map-wrap');
+  if (!container) return null;
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  const before = [...document.querySelectorAll('.wp-marker')];
+  let appSourceEvents = 0;
+  let styleEvents = 0;
+  let markerChurn = 0;
+  const onSource = (e) => {
+    if (/^(route-|leg-hi|route-drag)/.test(e.sourceId ?? '')) appSourceEvents++;
+  };
+  const onStyle = () => { styleEvents++; };
+  map?.on('sourcedata', onSource);
+  map?.on('styledata', onStyle);
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of [...record.addedNodes, ...record.removedNodes]) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        if (node.matches?.('.wp-marker') || node.querySelector?.('.wp-marker')) markerChurn++;
+      }
+    }
+  });
+  observer.observe(container, { childList: true, subtree: true });
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  observer.disconnect();
+  map?.off('sourcedata', onSource);
+  map?.off('styledata', onStyle);
+  const after = [...document.querySelectorAll('.wp-marker')];
+  return {
+    appSourceEvents: map ? appSourceEvents : null,
+    styleEvents: map ? styleEvents : null,
+    markerChurn,
+    before: before.length, after: after.length,
+    sameMarkers: before.length === after.length && before.every((node, i) => node === after[i] && node.isConnected),
+  };
+});
+check(stableMap && stableMap.sameMarkers,
+  `idle waypoint markers keep their identity (${stableMap?.before} → ${stableMap?.after})`);
+check(stableMap && stableMap.markerChurn === 0,
+  `idle map has no marker rebuilds (${stableMap?.markerChurn})`);
+check(stableMap && (stableMap.appSourceEvents == null
+  ? stableMap.markerChurn === 0 && stableMap.sameMarkers
+  : stableMap.appSourceEvents === 0 && stableMap.styleEvents === 0),
+  `idle map has no redraw feedback (${stableMap?.appSourceEvents ?? 'production DOM probe'} app-source, ${stableMap?.styleEvents ?? 0} style events)`);
+
 // ---- the shell fills the viewport exactly: no scroll AND no dead space -----
-// Clamping the document only converted "the app drags up" into "there is a
-// black band under the mode bar" — the shell was still the wrong size. It is a
-// fixed box now, so both directions of a wrong --app-h are irrelevant.
+// Old builds wrote --app-h. A cached inline value must be harmless now.
 for (const delta of [+80, -80]) {
   await page.evaluate((d) => {
     document.documentElement.style.setProperty('--app-h', `${window.innerHeight + d}px`);
@@ -178,23 +221,35 @@ const chromeIn = async () => page.evaluate(() => {
   };
 });
 const chrome = await chromeIn();
-check(chrome.reserved >= 44,
+check(chrome.reserved >= 59,
   `map-full reserves the status bar even with env() at 0 (${chrome.reserved}px)`);
-check(!chrome.back || chrome.back.top >= 44,
+check(!chrome.back || chrome.back.top >= 59,
   `map-full: the back button sits below the status bar (top ${chrome.back?.top})`);
 
 // Re-open the panel (the day is already selected, so the tab is the way back).
 await page.locator('.panel-tab').click({ timeout: 5000 }).catch(() => {});
 await page.waitForTimeout(900);
 const withPanel = await chromeIn();
-check(withPanel.reserved >= 44,
+check(withPanel.reserved >= 59,
   `panel open reserves it too (${withPanel.reserved}px)`);
-check(!withPanel.back || withPanel.back.top >= 44,
+check(!withPanel.back || withPanel.back.top >= 59,
   `panel open: the back button sits below the status bar (top ${withPanel.back?.top})`);
 check(!chrome.back || (chrome.back.h >= 44 && chrome.back.w >= 44),
   `the back button is a 44pt target (${chrome.back?.w}x${chrome.back?.h})`);
 check(!chrome.gear || (chrome.gear.h >= 44 && chrome.gear.w >= 44),
   `the settings button is a 44pt target (${chrome.gear?.w}x${chrome.gear?.h})`);
+
+const bottom = await page.evaluate(() => {
+  const bar = document.querySelector('.modebar');
+  const box = bar.getBoundingClientRect();
+  return {
+    bottom: Math.round(box.bottom),
+    viewport: window.innerHeight,
+    padding: Math.round(parseFloat(getComputedStyle(bar).paddingBottom)),
+  };
+});
+check(bottom.bottom === bottom.viewport && bottom.padding >= 12 && bottom.padding <= 16,
+  `the mode bar reaches the edge with compact gesture clearance (bottom ${bottom.bottom}, inset ${bottom.padding}px)`);
 
 // A measurement that is SHORT must not tear the layout either.
 await page.evaluate(() => {
@@ -204,6 +259,56 @@ await page.waitForTimeout(400);
 const short = await geom();
 check(short.scroll === 0 && short.masthead.top >= 0,
   'a short measurement leaves the shell pinned as well');
+
+// ---- ordinary Safari ------------------------------------------------------
+// Browser mode does not get the standalone guard. Its real env() value still
+// has to survive the late premium masthead rules in both panel states. Chromium
+// has no phone safe-area env, so override the custom property with the 59pt
+// inset from the field device and exercise the shipped cascade.
+const safariCtx = await browser.newContext({
+  viewport: { width: 393, height: 730 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3,
+});
+const safari = await safariCtx.newPage();
+await safari.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+await safari.waitForTimeout(400);
+const safariGuest = safari.locator('.land-skip');
+if (await safariGuest.isVisible().catch(() => false)) await safariGuest.click();
+await safari.waitForSelector('.trip-card', { timeout: 20000 });
+await safari.click('.trip-card');
+await safari.waitForSelector('.modebar', { timeout: 20000 });
+await safari.evaluate(() => {
+  document.documentElement.style.setProperty('--viewport-safe-top', '59px');
+  document.documentElement.style.setProperty('--viewport-safe-bottom', '34px');
+});
+await safari.waitForTimeout(350);
+const browserPanel = await safari.evaluate(() => {
+  const back = document.querySelector('.mast-back').getBoundingClientRect();
+  const app = document.querySelector('.app').getBoundingClientRect();
+  return {
+    mode: document.documentElement.dataset.appDisplay,
+    backTop: Math.round(back.top), appBottom: Math.round(app.bottom),
+    viewport: window.innerHeight,
+  };
+});
+check(browserPanel.mode === 'browser', `ordinary Safari keeps browser shell semantics (${browserPanel.mode})`);
+check(browserPanel.backTop >= 67,
+  `Safari panel chrome respects its safe-area inset (back top ${browserPanel.backTop})`);
+check(Math.abs(browserPanel.appBottom - browserPanel.viewport) <= 1,
+  `Safari shell ends at its dynamic viewport (${browserPanel.appBottom}/${browserPanel.viewport})`);
+await safari.locator('.panel-scrim').click({ force: true });
+await safari.waitForTimeout(500);
+const browserMap = await safari.evaluate(() => {
+  const back = document.querySelector('.mast-back').getBoundingClientRect();
+  const hint = document.querySelector('.map-hint')?.getBoundingClientRect();
+  const chrome = document.querySelector('.topchrome').getBoundingClientRect();
+  return { backTop: Math.round(back.top), hintTop: hint && Math.round(hint.top), chromeBottom: Math.round(chrome.bottom) };
+});
+check(browserMap.backTop >= 67,
+  `Safari map chrome respects the same safe-area inset (back top ${browserMap.backTop})`);
+check(browserMap.hintTop == null || browserMap.hintTop >= browserMap.chromeBottom,
+  `Safari map furniture remains below the floating chrome (${browserMap.hintTop}/${browserMap.chromeBottom})`);
+await safari.screenshot({ path: SHOT('safari-shell') });
+await safariCtx.close();
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await browser.close();
