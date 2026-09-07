@@ -615,21 +615,57 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .modal-foot { display: flex; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--line); align-items: center; }
 
 /* ---------- AI-native trip construction ---------- */
-.modal.trip-builder { width: min(920px, 100%); }
-.trip-builder .modal-body { padding-bottom: 0; }
-.construction-chat { margin: 4px -18px 0; border-top: 1px solid var(--line); }
+.new-trip-backdrop.ai-builder { padding: 0; background: var(--asphalt-0); }
+.modal.trip-builder {
+  width: 100%; max-width: none; height: 100dvh; max-height: none; overflow: hidden;
+  display: flex; flex-direction: column; border: 0; border-radius: 0; box-shadow: none;
+}
+.trip-builder .modal-head { flex: none; padding: 14px 24px 12px; background: var(--asphalt-0); }
+.trip-builder .modal-head h3 { font-size: 24px; }
+.trip-builder .modal-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+.trip-builder .tabbar { flex: none; width: min(520px, calc(100% - 48px)); margin: 12px 24px 0; }
+.trip-builder .tabbar button:disabled { cursor: wait; opacity: 0.55; }
+.builder-basics {
+  flex: none; width: min(1040px, calc(100% - 48px)); margin: clamp(20px, 5vh, 48px) auto 24px;
+  display: grid; grid-template-columns: minmax(220px, 0.65fr) minmax(480px, 1.35fr); gap: 52px; align-items: start;
+}
+.builder-basics-copy { padding-top: 4px; }
+.builder-basics-copy h4 { font-family: var(--display); font-size: 26px; font-weight: 650; letter-spacing: 0.02em; }
+.builder-basics-copy p { max-width: 42ch; margin-top: 5px; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
+.builder-basics-grid { display: grid; grid-template-columns: 1.2fr 0.8fr 0.65fr 0.65fr; gap: 12px; align-items: end; }
+.builder-basics-grid .fld { margin: 0; }
+.builder-basics-grid input { min-height: 40px; }
+.builder-basics-grid .basics-done { min-height: 40px; justify-content: center; }
+.builder-context {
+  flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 24px;
+  border-bottom: 1px solid var(--line); color: var(--ink-faint); background: var(--asphalt-1);
+}
+.builder-context > div { flex: 1; display: flex; gap: 0; min-width: 0; }
+.builder-context span { font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+.builder-context span + span::before { content: '·'; margin: 0 10px; color: var(--line); }
+.builder-context button { flex: none; color: var(--rally); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.builder-context button:hover { color: var(--ink); }
+.ai-workspace { flex: 1; min-height: 0; display: flex; }
+.ai-workspace[hidden] { display: none; }
+.construction-chat {
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  border-top: 1px solid var(--line); background: var(--asphalt-0);
+}
+.construction-chat:not(.started) { width: min(1040px, 100%); margin: 0 auto; justify-content: center; border-top: 0; background: transparent; }
 .construction-thread {
-  min-height: 128px; max-height: 240px; overflow-y: auto;
+  flex: none; min-height: 112px; max-height: min(230px, 30vh); overflow-y: auto;
   display: flex; flex-direction: column; gap: 9px; padding: 14px 18px;
   overscroll-behavior: contain;
 }
+.construction-chat:not(.started) .construction-thread { min-height: auto; max-height: none; padding: 12px 24px; overflow: visible; }
+.construction-chat.started:not(:has(.concept-workbench)) .construction-thread { flex: 1; max-height: none; }
 .construction-thread .msg { max-width: min(78%, 620px); }
 .builder-intro { display: flex; gap: 12px; max-width: 62ch; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
 .builder-intro b { color: var(--ink); font-family: var(--display); font-size: 17px; letter-spacing: 0.04em; text-transform: uppercase; }
 .builder-intro p { margin-top: 2px; }
 .builder-mark { color: var(--rally); font-size: 22px; line-height: 1; }
 
-.concept-workbench { border-top: 1px solid var(--line); background: var(--asphalt-0); }
+.concept-workbench { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); background: var(--asphalt-0); overscroll-behavior: contain; }
 .concept-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 18px 8px; }
 .concept-head > span { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--rally); }
 .concept-head small { color: var(--ink-faint); font-size: 11.5px; }
@@ -679,6 +715,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .concept-stops button:hover, .concept-refine button:hover { border-color: var(--rally); color: var(--rally); }
 .concept-refine { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .construction-composer { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--asphalt-1); }
+.construction-chat:not(.started) .construction-composer { width: calc(100% - 48px); margin: 0 24px 12vh; border: 1px solid var(--line); border-radius: 8px; }
 .construction-composer textarea { flex: 1; min-height: 66px; resize: vertical; font-size: 14px; line-height: 1.4; }
 .construction-composer .btn { align-self: flex-end; }
 .construction-confirm { display: flex; align-items: center; gap: 14px; padding: 11px 18px; border-top: 1px solid var(--line); background: rgba(245, 63, 31, 0.055); }
@@ -686,6 +723,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .construction-confirm b, .construction-confirm span { display: block; }
 .construction-confirm b { font-size: 12px; color: var(--ink); }
 .construction-confirm span { margin-top: 1px; font-size: 11px; color: var(--ink-faint); }
+.template-create p { font-size: 12.5px; color: var(--ink-dim); }
 
 .time-strip { display: flex; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
 .time-strip .ts-cell .n { font-family: var(--display); font-size: 19px; font-weight: 700; color: var(--rally); }
@@ -1250,9 +1288,29 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .modal.settings { overflow-y: auto; overscroll-behavior: contain; }
   .foot-note { flex: 1 0 100%; margin-bottom: 4px; }
 
-  .trip-builder .modal-body { padding-bottom: 0; }
-  .construction-chat { margin-inline: -14px; }
-  .construction-thread { min-height: 116px; max-height: 210px; padding: 12px 14px; }
+  .new-trip-backdrop.ai-builder { align-items: stretch; }
+  .modal.trip-builder { height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; }
+  .modal.trip-builder::before { display: none; }
+  .trip-builder .modal-head { padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px; }
+  .trip-builder .modal-head h3 { font-size: 21px; }
+  .trip-builder .modal-body { padding: 0; overflow: hidden; }
+  .trip-builder .tabbar { width: calc(100% - 28px); margin: 10px 14px 0; }
+  .builder-basics {
+    width: calc(100% - 28px); margin: 22px 14px 18px;
+    grid-template-columns: 1fr; gap: 14px; overflow-y: auto;
+  }
+  .builder-basics-copy h4 { font-size: 23px; }
+  .builder-basics-copy p { font-size: 12.5px; }
+  .builder-basics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .builder-basics-grid .wide { grid-column: 1 / -1; }
+  .builder-basics-grid .basics-done { grid-column: 1 / -1; }
+  .builder-context { padding: 8px 14px; }
+  .builder-context span { font-size: 9.5px; }
+  .builder-context span + span::before { margin-inline: 7px; }
+  .construction-chat:not(.started) { justify-content: flex-start; }
+  .construction-chat:not(.started) .construction-thread { padding: 20px 14px 10px; }
+  .construction-chat:not(.started) .construction-composer { width: calc(100% - 28px); margin: 0 14px 16px; }
+  .construction-thread { min-height: 96px; max-height: min(180px, 25vh); padding: 12px 14px; }
   .construction-thread .msg { max-width: 88%; }
   .concept-head { display: block; padding: 10px 14px 7px; }
   .concept-head small { display: block; margin-top: 2px; }
@@ -1265,7 +1323,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .construction-composer { flex-wrap: wrap; padding: 10px 14px; }
   .construction-composer textarea { flex: 1 0 100%; min-height: 72px; font-size: 16px; }
   .construction-composer .btn { width: 100%; justify-content: center; }
-  .construction-confirm { padding: 10px 14px; }
+  .construction-confirm { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
   .construction-confirm span { display: none; }
 
   .chat-panel { position: static; height: auto; z-index: auto; }

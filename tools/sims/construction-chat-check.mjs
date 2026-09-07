@@ -106,7 +106,14 @@ await page.fill('.home-intake textarea', 'Four riders, six days in the San Juans
 await page.locator('.home-intake .btn', { hasText: 'Plan with AI' }).click();
 await page.waitForSelector('.trip-builder');
 check(await page.locator('.construction-chat').isVisible(), 'AI opens as a construction conversation');
+const fullScreen = await page.locator('.trip-builder').evaluate((el) => {
+  const box = el.getBoundingClientRect();
+  return box.top === 0 && box.left === 0 && Math.abs(box.width - innerWidth) <= 1 && Math.abs(box.height - innerHeight) <= 1;
+});
+check(fullScreen, 'AI builder owns the full screen instead of compressing into a modal');
+check(await page.locator('.builder-basics').isVisible(), 'fixed trip inputs have a distinct intake stage');
 check((await page.locator('.construction-composer textarea').inputValue()).includes('Four riders'), 'home prompt carries into the conversation');
+await page.screenshot({ path: SHOT('construction-intake-phone'), fullPage: true });
 await page.locator('.construction-composer .btn', { hasText: 'Explore the trip' }).click();
 await page.waitForSelector('.concept-tabs button');
 check(await page.locator('.concept-tabs button').count() === 3, 'planner presents three selectable route options');
@@ -114,6 +121,21 @@ check((await page.locator('.concept-facts').innerText()).includes('max fuel gap'
 check(await page.locator('.concept-stops li').count() >= 5, 'selected option exposes its ordered road and stop pieces');
 check(await page.locator('.concept-stops .stop-verified').count() >= 2, 'verified opportunity stops are visibly distinguished');
 check(await page.locator('.construction-confirm').getByText('Nothing is created yet.').isVisible(), 'trip stays uncommitted while the rider refines it');
+check(!await page.locator('.builder-basics').isVisible() && await page.locator('.builder-context').isVisible(), 'trip inputs collapse to a compact summary once construction starts');
+await page.getByText('Edit trip details', { exact: true }).click();
+check(await page.locator('.builder-basics').isVisible() && await page.getByText('Done', { exact: true }).isVisible(), 'collapsed trip details remain editable on demand');
+await page.getByText('Done', { exact: true }).click();
+const messageCount = await page.locator('.construction-thread .msg').count();
+const selectedBeforeTabs = await page.locator('.concept-tabs button.active').innerText();
+await page.fill('.construction-composer textarea', 'Keep the lunch, but reconsider the hotel.');
+await page.locator('.tabbar button', { hasText: 'Blank' }).click();
+await page.locator('.tabbar button', { hasText: 'AI builder' }).click();
+const tabsPreserved = await page.locator('.concept-tabs button').count() === 3
+  && await page.locator('.construction-thread .msg').count() === messageCount
+  && (await page.locator('.concept-tabs button.active').innerText()) === selectedBeforeTabs
+  && (await page.locator('.construction-composer textarea').inputValue()).includes('reconsider the hotel');
+check(tabsPreserved, 'tab switches preserve the conversation, options, selection, and unsent draft');
+await page.fill('.construction-composer textarea', '');
 const phoneFits = await page.locator('.trip-builder').evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
 check(phoneFits, 'construction workbench fits a phone without horizontal clipping');
 await page.screenshot({ path: SHOT('construction-chat-phone'), fullPage: true });

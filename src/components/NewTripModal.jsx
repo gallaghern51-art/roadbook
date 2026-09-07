@@ -18,6 +18,8 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
   const [startPlace, setStartPlace] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [aiStarted, setAiStarted] = useState(false);
+  const [editBasics, setEditBasics] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false); // two-tap close while a build runs
   // Home hands off here after trip creation so the app can land in the workspace.
   const created = () => (onCreated ? onCreated() : onClose());
@@ -125,65 +127,109 @@ export default function NewTripModal({ onClose, onCreated, initial }) {
     }
   };
 
+  const basics = {
+    name: name.trim(),
+    startDate,
+    numDays: Number(numDays),
+    riders: Number(riders),
+    pace: Number(riders) > 4 ? 1.15 : Number(riders) > 1 ? 1.08 : 1,
+    range: { comfort: 180, absolute: 200 },
+    routePrefs: { style: 'touring', avoidTolls: false },
+  };
+
+  const basicsFields = (
+    <section className="builder-basics">
+      <div className="builder-basics-copy">
+        <h4>{aiStarted ? 'Trip details' : 'Set the frame'}</h4>
+        <p>{aiStarted
+          ? 'Changes here apply to the next planning turn and the final trip.'
+          : 'Give Roadbook the fixed facts first. The conversation handles the route, stops, and tradeoffs next.'}</p>
+      </div>
+      <div className="builder-basics-grid">
+        <label className="fld wide">Trip name<input value={name} placeholder="e.g. Blue Ridge Blast" onChange={(e) => setName(e.target.value)} /></label>
+        <label className="fld">Start date<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+        <label className="fld">Days<input type="number" min="1" max="30" value={numDays} onChange={(e) => setNumDays(e.target.value)} /></label>
+        <label className="fld">Riders<input type="number" min="1" max="30" value={riders} onChange={(e) => setRiders(e.target.value)} /></label>
+        {aiStarted && <button className="btn basics-done" type="button" onClick={() => setEditBasics(false)}>Done</button>}
+      </div>
+    </section>
+  );
+
   return (
-    <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
-      <div className={`modal${tab === 'ai' ? ' trip-builder' : ''}`} onClick={(e) => e.stopPropagation()}>
+    <div className={`modal-backdrop new-trip-backdrop${tab === 'ai' ? ' ai-builder' : ''}`} onClick={busy ? undefined : onClose}>
+      <div className={`modal new-trip-modal${tab === 'ai' ? ' trip-builder' : ''}${aiStarted ? ' construction-active' : ''}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="eyebrow">Trip library</div>
-            <h3>New trip</h3>
+            <div className="eyebrow">{tab === 'ai' && aiStarted ? 'AI trip construction' : 'Trip library'}</div>
+            <h3>{tab === 'ai' && aiStarted ? (name.trim() || 'Shape your ride') : 'New trip'}</h3>
           </div>
           <button className={`btn${confirmCancel ? ' danger-ghost' : ''}`} onClick={requestClose}>{confirmCancel ? 'Sure?' : '✕'}</button>
         </div>
         <div className="modal-body">
           <div className="tabbar">
-            <button className={tab === 'ai' ? 'active' : ''} onClick={() => setTab('ai')}>AI builder</button>
-            <button className={tab === 'blank' ? 'active' : ''} onClick={() => setTab('blank')}>Blank</button>
-            <button className={tab === 'template' ? 'active' : ''} onClick={() => setTab('template')}>Sturgis template</button>
+            <button disabled={busy} className={tab === 'ai' ? 'active' : ''} onClick={() => setTab('ai')}>AI builder</button>
+            <button disabled={busy} className={tab === 'blank' ? 'active' : ''} onClick={() => setTab('blank')}>Blank</button>
+            <button disabled={busy} className={tab === 'template' ? 'active' : ''} onClick={() => setTab('template')}>Sturgis template</button>
           </div>
 
-          <div className="fld-row">
-            <label className="fld">Trip name<input value={name} placeholder={tab === 'template' ? 'STURGIS 2026 (copy)' : 'e.g. Blue Ridge Blast'} onChange={(e) => setName(e.target.value)} /></label>
-            {tab !== 'template' && <label className="fld">Start date<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>}
-          </div>
-          {tab !== 'template' && (
-            <div className="fld-row">
-              <label className="fld">Days<input type="number" min="1" max="30" value={numDays} onChange={(e) => setNumDays(e.target.value)} /></label>
-              <label className="fld">Riders<input type="number" min="1" max="30" value={riders} onChange={(e) => setRiders(e.target.value)} /></label>
+          {tab === 'ai' && (!aiStarted || editBasics) && basicsFields}
+
+          {tab === 'ai' && aiStarted && !editBasics && (
+            <div className="builder-context" aria-label="Trip details">
+              <div>
+                <span>{startDate}</span>
+                <span>{numDays} {Number(numDays) === 1 ? 'day' : 'days'}</span>
+                <span>{riders} {Number(riders) === 1 ? 'rider' : 'riders'}</span>
+              </div>
+              <button type="button" onClick={() => setEditBasics(true)}>Edit trip details</button>
             </div>
           )}
 
           {tab === 'blank' && (
+            <>
+            <div className="fld-row">
+              <label className="fld">Trip name<input value={name} placeholder="e.g. Blue Ridge Blast" onChange={(e) => setName(e.target.value)} /></label>
+              <label className="fld">Start date<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+            </div>
+            <div className="fld-row">
+              <label className="fld">Days<input type="number" min="1" max="30" value={numDays} onChange={(e) => setNumDays(e.target.value)} /></label>
+              <label className="fld">Riders<input type="number" min="1" max="30" value={riders} onChange={(e) => setRiders(e.target.value)} /></label>
+            </div>
             <label className="fld">Starting point (optional)
               <input value={startPlace} placeholder="e.g. Asheville, NC — geocoded automatically" onChange={(e) => setStartPlace(e.target.value)} />
             </label>
+            </>
           )}
 
-          {tab === 'ai' && (
+          <div className="ai-workspace" hidden={tab !== 'ai'}>
             <TripConstructionChat
               initialPrompt={initial?.prompt ?? ''}
-              basics={{ name: name.trim(), startDate, numDays: Number(numDays), riders: Number(riders) }}
+              basics={basics}
               onTrip={acceptAiTrip}
               onBusyChange={setBusy}
+              onStageChange={setAiStarted}
             />
-          )}
+          </div>
           {tab === 'template' && (
-            <p style={{ fontSize: 12.5, color: 'var(--ink-dim)' }}>
+            <div className="template-create">
+              <label className="fld">Trip name<input value={name} placeholder="STURGIS 2026 (copy)" onChange={(e) => setName(e.target.value)} /></label>
+              <p>
               A full copy of the Sturgis 2026 field-guide trip — 11 days, every stop, gate, booking, and
               module — as a separate trip you can tear apart freely.
-            </p>
+              </p>
+            </div>
           )}
 
           {err && <div className="warning danger">⚠ {err}</div>}
         </div>
-        <div className="modal-foot">
+        {tab !== 'ai' && <div className="modal-foot">
           <span className="foot-note">
             {tab === 'ai' ? 'Research, compare, refine, then confirm.' : ''}
           </span>
           <button className={`btn${confirmCancel ? ' danger-ghost' : ''}`} onClick={requestClose}>{confirmCancel ? 'Sure?' : 'Cancel'}</button>
           {tab === 'blank' && <button className="btn gold" disabled={busy} onClick={createBlank}>{busy ? 'Creating…' : 'Create trip'}</button>}
           {tab === 'template' && <button className="btn gold" onClick={createFromTemplate}>Create from template</button>}
-        </div>
+        </div>}
       </div>
     </div>
   );

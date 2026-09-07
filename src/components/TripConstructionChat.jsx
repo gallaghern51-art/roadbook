@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { runPlanner } from '../engine/planner.js';
 
 const mins = (value) => {
@@ -68,7 +68,7 @@ function ConceptDetail({ concept, onRefine }) {
   );
 }
 
-export default function TripConstructionChat({ initialPrompt = '', basics, onTrip, onBusyChange }) {
+export default function TripConstructionChat({ initialPrompt = '', basics, onTrip, onBusyChange, onStageChange }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState(initialPrompt);
   const [concepts, setConcepts] = useState([]);
@@ -78,6 +78,9 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
   const [error, setError] = useState('');
   const inputRef = useRef(null);
   const selected = useMemo(() => concepts.find((c) => c.id === selectedId) ?? null, [concepts, selectedId]);
+  const started = messages.length > 0 || concepts.length > 0;
+
+  useEffect(() => onStageChange?.(started), [started, onStageChange]);
 
   const busy = !!busyMode;
   const setBusy = (mode) => {
@@ -174,7 +177,7 @@ export default function TripConstructionChat({ initialPrompt = '', basics, onTri
   })();
 
   return (
-    <div className="construction-chat">
+    <div className={`construction-chat${started ? ' started' : ''}`}>
       <div className="construction-thread" aria-live="polite">
         {messages.length === 0 && (
           <div className="builder-intro">
