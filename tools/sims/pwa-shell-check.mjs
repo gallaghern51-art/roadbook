@@ -248,7 +248,7 @@ const bottom = await page.evaluate(() => {
     padding: Math.round(parseFloat(getComputedStyle(bar).paddingBottom)),
   };
 });
-check(bottom.bottom === bottom.viewport && bottom.padding >= 12 && bottom.padding <= 16,
+check(bottom.bottom === bottom.viewport && bottom.padding === 4,
   `the mode bar reaches the edge with compact gesture clearance (bottom ${bottom.bottom}, inset ${bottom.padding}px)`);
 
 // A measurement that is SHORT must not tear the layout either.

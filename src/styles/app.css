@@ -4107,6 +4107,10 @@ input:focus, textarea:focus, select:focus {
   }
   html[data-app-display='standalone'] .app.map-full .masthead { padding-top: 8px; }
   html[data-app-display='standalone'] .tabnav {
-    padding-bottom: max(4px, calc(max(var(--viewport-safe-bottom), var(--ios-home-guard, 0px)) - 20px));
+    /* A Home Screen app already owns the full physical viewport. Some iOS 26
+       installs report a bottom env() far taller than the gesture itself; using
+       it lifted this entire control row by ~70pt in the field. Keep the bar at
+       the glass and reserve only a small visual gutter. */
+    padding-bottom: 4px;
   }
 }
