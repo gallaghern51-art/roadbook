@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles/app.css';
 import App from './App.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { SettingsProvider } from './engine/settings.jsx';
 
 // Establish the shell mode before React creates any UI.
@@ -66,8 +67,12 @@ window.addEventListener('orientationchange', () => {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <SettingsProvider>
-      <App />
-    </SettingsProvider>
+    {/* Outside SettingsProvider on purpose: if the settings store itself is what
+        threw, the boundary still has to render. */}
+    <ErrorBoundary>
+      <SettingsProvider>
+        <App />
+      </SettingsProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

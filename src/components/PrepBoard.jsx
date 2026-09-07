@@ -81,7 +81,7 @@ function BookingsList() {
 }
 
 function FileView({ onExportJson, onImportJson, onReset }) {
-  const { state, routes, routedLegsByDay, profile } = useTrip();
+  const { state, routes, routedLegsByDay } = useTrip();
   const { trip } = state;
   const t = useT();
   return (
@@ -102,7 +102,7 @@ function FileView({ onExportJson, onImportJson, onReset }) {
 }
 
 export default function PrepBoard({ focus, setFocus, onAskAI, onSaveScenario, onExportJson, onImportJson, onReset }) {
-  const { state, routedLegsByDay, collab } = useTrip();
+  const { state, routedLegsByDay, collab, profile } = useTrip();
   const { trip, scenarios } = state;
   const t = useT();
   const tt = useTT();
