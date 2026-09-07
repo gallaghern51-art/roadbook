@@ -13,6 +13,7 @@
     "preferences:check": "node scripts/place-preferences-check.mjs",
     "builder-progress:check": "node scripts/builder-progress-check.mjs",
     "route-drag:check": "node scripts/route-drag-check.mjs",
+    "profile:check": "node scripts/profile-check.mjs",
     "route-preview:check": "node scripts/route-preview-check.mjs"
   },
   "dependencies": {

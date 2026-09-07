@@ -439,6 +439,32 @@ try {
   }
 } catch { /* storage unavailable — nothing to purge */ }
 
+// What the route caches are costing this device, and the means to drop them.
+// Settings needs a real number here rather than a warning about "cached data":
+// these are the two stores that grow without bound on a long trip, and the only
+// cost of clearing them is one re-route the next time a day is opened.
+export function cacheReport() {
+  const size = (key) => {
+    try { return (localStorage.getItem(key) ?? '').length; } catch { return 0; }
+  };
+  const count = (key) => {
+    try { return Object.keys(JSON.parse(localStorage.getItem(key) || '{}')).length; } catch { return 0; }
+  };
+  const bytes = size(CACHE_KEY) + size(STEP_CACHE) + size(ROAD_CACHE);
+  return {
+    routes: count(CACHE_KEY),
+    steps: count(STEP_CACHE),
+    // UTF-16 in the store, so a character is the honest unit to price it in.
+    kb: Math.max(1, Math.round((bytes * 2) / 1024)),
+  };
+}
+
+export function clearRouteCaches() {
+  for (const key of [CACHE_KEY, STEP_CACHE, ROAD_CACHE]) {
+    try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+  }
+}
+
 function loadStepCache() {
   try { return JSON.parse(localStorage.getItem(STEP_CACHE) || '{}'); } catch { return {}; }
 }

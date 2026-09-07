@@ -647,17 +647,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 .builder-basics-grid .roads { grid-column: span 2; }
 /* A checkbox is not a labelled field — it needs its own row shape so the
    caption sits beside the box rather than under a phantom label. */
-.builder-basics-grid .check {
-  display: flex; align-items: flex-start; gap: 9px; min-height: 40px; padding-top: 2px;
-  grid-column: span 2;
-}
-.builder-basics-grid .check input { width: 18px; min-height: 18px; height: 18px; margin: 2px 0 0; flex: none; }
-.builder-basics-grid .check span { display: block; font-size: 13px; color: var(--ink); text-transform: none; letter-spacing: 0; }
-.builder-basics-grid .check small {
-  display: block; margin-top: 1px; color: var(--ink-faint);
-  font-family: var(--body); font-size: 11.5px; line-height: 1.35;
-  text-transform: none; letter-spacing: 0;
-}
+.builder-basics-grid .check { grid-column: span 2; }
 .builder-basics-grid .basics-done { min-height: 40px; justify-content: center; }
 .builder-context {
   flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 24px;
@@ -706,6 +696,79 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 }
 .construction-thread .msg.partial { border-style: dashed; }
 @keyframes builder-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* ---- settings: sections, saved places, rider profile -------------------- */
+.set-tabs {
+  display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain;
+  padding: 0 14px 10px; border-bottom: 1px solid var(--line); scrollbar-width: none;
+}
+.set-tabs::-webkit-scrollbar { display: none; }
+.set-tabs button {
+  flex: none; min-height: 36px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--asphalt-1); color: var(--ink-dim);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; white-space: nowrap;
+}
+.set-tabs button.active { color: var(--ink); border-color: var(--rally); background: var(--asphalt-2); }
+.set-section { display: flex; flex-direction: column; gap: 10px; }
+.set-section > .set-label { margin-top: 8px; }
+.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.set-grid .fld { margin: 0; }
+.set-note.warn { color: var(--warn, #d8a22a); }
+
+.saved-places { display: flex; flex-direction: column; gap: 6px; }
+.saved-place {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1);
+}
+.saved-place .sp-main { flex: 1; min-width: 0; }
+.saved-place .sp-main b { display: block; font-size: 13.5px; }
+.saved-place .sp-main small { display: block; color: var(--ink-faint); font-size: 11.5px; }
+.saved-place .sp-role { flex: none; width: auto; min-height: 36px; margin: 0; font-size: 12px; }
+.sp-add { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.sp-roles { align-self: flex-start; }
+.sp-results { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.sp-results button {
+  display: block; width: 100%; text-align: left; padding: 8px 10px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1); color: var(--ink);
+}
+.sp-results button:hover { border-color: var(--rally); }
+.sp-results b { display: block; font-size: 13px; }
+.sp-results small { display: block; color: var(--ink-faint); font-size: 11.5px; }
+
+.bike-picked {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1);
+}
+.bike-picked > div { flex: 1; min-width: 0; }
+.bike-picked b { display: block; font-size: 14px; }
+.bike-picked small { display: block; color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; }
+.bike-search { display: flex; flex-direction: column; gap: 8px; }
+
+.tagfield { display: flex; flex-direction: column; gap: 6px; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-list li {
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--asphalt-2);
+  font-size: 12.5px;
+}
+.tag-list button {
+  width: 22px; height: 22px; border: 0; border-radius: 50%; cursor: pointer;
+  background: transparent; color: var(--ink-faint); font-size: 12px; line-height: 1;
+}
+.tag-list button:hover { color: var(--danger); background: var(--asphalt-3); }
+.tag-add { display: flex; gap: 6px; }
+.tag-add input { flex: 1; min-width: 0; }
+
+@media (max-width: 640px) {
+  .set-grid { grid-template-columns: 1fr; }
+  .saved-place { flex-wrap: wrap; }
+  .saved-place .sp-main { flex-basis: 100%; }
+  .set-tabs button { min-height: 44px; }
+  .tag-list button { width: 28px; height: 28px; }
+}
+
+
 
 /* ---- route wheel: the touch way to reshape a leg -------------------------
    Anchored to the point the rider tapped. The grip is the marker itself (so
@@ -859,6 +922,26 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    Riders column on a phone (field screenshot). */
 .fld { display: block; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
 .fld input, .fld textarea, .fld select { display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: 4px; font-family: var(--body); font-size: 13.5px; text-transform: none; letter-spacing: 0; }
+/* A checkbox is not a labelled field: `.fld` makes its label a mono uppercase
+   caption above a full-width control, which for a checkbox ran the label and
+   its help text together in one uppercase stripe with a giant square floating
+   over it. This shape puts the box beside sentence-cased text, and it applies
+   wherever `.fld.check` is used rather than only inside one grid. */
+.fld.check {
+  display: flex; align-items: flex-start; gap: 9px; min-height: 44px;
+  font-family: var(--body); font-size: 13px; letter-spacing: 0; text-transform: none;
+  color: var(--ink); cursor: pointer;
+}
+.fld.check input[type='checkbox'] {
+  display: block; flex: none; width: 20px; height: 20px; min-height: 20px;
+  max-width: 20px; margin: 2px 0 0; accent-color: var(--rally);
+}
+.fld.check > span { display: block; min-width: 0; }
+.fld.check small {
+  display: block; margin-top: 2px; color: var(--ink-faint);
+  font-family: var(--body); font-size: 11.5px; line-height: 1.35;
+  letter-spacing: 0; text-transform: none;
+}
 /* native pickers match the asphalt theme instead of flashing white */
 input[type='date'], input[type='time'] { color-scheme: dark; }
 :root[data-theme='light'] input[type='date'], :root[data-theme='light'] input[type='time'] { color-scheme: light; }
@@ -1588,8 +1671,8 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .builder-basics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .builder-basics-grid .wide { grid-column: 1 / -1; }
   /* The whole label is the target, and on a phone it owes the rider 44pt. */
-  .builder-basics-grid .check { min-height: 44px; align-items: center; }
-  .builder-basics-grid .check input { width: 22px; height: 22px; min-height: 22px; margin-top: 0; }
+  .fld.check { align-items: center; }
+  .fld.check input[type='checkbox'] { width: 22px; height: 22px; min-height: 22px; max-width: 22px; margin-top: 0; }
   .builder-basics-grid .basics-done { grid-column: 1 / -1; }
   .builder-context { padding: 8px 14px; }
   .builder-context span { font-size: 9.5px; }

@@ -5,23 +5,28 @@ import { cascadeDates } from '../engine/dates.js';
 import { geocode } from '../engine/geocode.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
 import { usePlacePreferences } from '../engine/placePreferences.js';
+import { tripDefaults, placesForPlanner, tasteForPlanner, homePlace } from '../engine/profile.js';
 import TripConstructionChat from './TripConstructionChat.jsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function NewTripModal({ onClose, onCreated, initial, account }) {
+export default function NewTripModal({ onClose, onCreated, initial, account, profile }) {
+  // The rider's own frame, not the app's. Riders, road style, tolls and bike
+  // range all start from Settings, so the first planning turn is already
+  // shaped like this rider instead of like a default they have to correct.
+  const defaults = tripDefaults(profile);
   const { dispatch } = useTrip();
   const [tab, setTab] = useState(initial?.tab ?? 'ai'); // ai | blank | template
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState(today());
   const [numDays, setNumDays] = useState(5);
-  const [riders, setRiders] = useState(2);
+  const [riders, setRiders] = useState(defaults.riders);
   // Route character is a rider decision that has to exist BEFORE the first
   // evaluation: the options are measured with it, and the created trip is
   // planned and ridden with it. Left implicit, a tolled crossing can be
   // priced into a concept the rider would never have picked.
-  const [routeStyle, setRouteStyle] = useState('touring');
-  const [avoidTolls, setAvoidTolls] = useState(false);
+  const [routeStyle, setRouteStyle] = useState(defaults.routePrefs.style);
+  const [avoidTolls, setAvoidTolls] = useState(defaults.routePrefs.avoidTolls);
   const [startPlace, setStartPlace] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -52,7 +57,8 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
     riders: Number(riders) || 1,
     nights: Math.max(0, Number(numDays) - 1),
     fuelRule: 'Fill at half tank on any stretch over 100 miles.',
-    range: { comfort: 180, absolute: 200, mpg: 45 },
+    range: { ...defaults.range, mpg: defaults.mpg ?? 45 },
+    pace: defaults.pace,
     // Same object the builder evaluated with — otherwise the trip is created
     // under the engine's defaults and re-routes onto roads the rider was
     // never shown.
@@ -145,8 +151,13 @@ export default function NewTripModal({ onClose, onCreated, initial, account }) {
     numDays: Number(numDays),
     riders: Number(riders),
     pace: Number(riders) > 4 ? 1.15 : Number(riders) > 1 ? 1.08 : 1,
-    range: { comfort: 180, absolute: 200 },
+    range: defaults.range,
     routePrefs: { style: routeStyle, avoidTolls },
+    dailyMaxHours: defaults.dailyMaxHours ?? undefined,
+    // The rider's own places and stated taste. "Start at home" is only
+    // answerable if the planner is told where home is.
+    savedPlaces: placesForPlanner(profile),
+    riderTaste: tasteForPlanner(profile),
   };
 
   const basicsFields = (

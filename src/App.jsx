@@ -24,6 +24,7 @@ import { useAuth } from './engine/auth.js';
 import { useLibraryBackup } from './engine/cloudLibrary.js';
 import { useAutoTranslate } from './engine/autoTranslate.js';
 import { usePlacePreferences } from './engine/placePreferences.js';
+import { useProfile } from './engine/profile.js';
 import { collabFor, saveCollab, clearCollab, collabApi, parseJoinParam, tripIdForShare } from './engine/collab.js';
 import { useT, useUnits } from './engine/settings.jsx';
 
@@ -69,6 +70,8 @@ export default function App() {
   const auth = useAuth();
   const placePreferences = usePlacePreferences(auth.account);
   const backup = useLibraryBackup(state, dispatch, auth.account);
+  // The rider's own facts — saved places, how they ride, what they stop for.
+  const profile = useProfile(auth.account);
   const [guest, setGuest] = useState(() => {
     try { return localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; }
   });
@@ -537,6 +540,7 @@ export default function App() {
               sync={sync}
               auth={auth}
               backup={backup}
+              profile={profile}
               onCreateAccount={() => {
                 try { localStorage.removeItem(GUEST_KEY); } catch { /* non-fatal */ }
                 setGuest(false);
@@ -579,7 +583,7 @@ export default function App() {
     </>
   );
 
-  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab, placePreferences };
+  const ctx = { state, dispatch, routes, routedLegsByDay, summary, feas, ui, collab, placePreferences, profile };
 
   // The join sheet rides over either screen — a link can arrive cold.
   const joinSheet = joinReq && (
@@ -629,6 +633,7 @@ export default function App() {
           <NewTripModal
             initial={newTrip}
             account={auth.account}
+            profile={profile.profile}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setScreen('trip'); setMode('plan'); setPanelOpen(true); }}
           />
@@ -743,6 +748,7 @@ export default function App() {
           <NewTripModal
             initial={newTrip}
             account={auth.account}
+            profile={profile.profile}
             onClose={() => setNewTrip(null)}
             onCreated={() => { setNewTrip(null); setMode('plan'); setPanelOpen(true); }}
           />
