@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/i18n-check.mjs && vite build",
+    "build": "node scripts/i18n-check.mjs && node scripts/server-syntax-check.mjs && vite build",
     "preview": "vite preview",
     "i18n:check": "node scripts/i18n-check.mjs",
     "account:check": "node scripts/account-check.mjs",
@@ -14,6 +14,7 @@
     "builder-progress:check": "node scripts/builder-progress-check.mjs",
     "route-drag:check": "node scripts/route-drag-check.mjs",
     "profile:check": "node scripts/profile-check.mjs",
+    "server:check": "node scripts/server-syntax-check.mjs",
     "route-preview:check": "node scripts/route-preview-check.mjs"
   },
   "dependencies": {

@@ -1,5 +1,5 @@
 // Rider profile: saved places, riding facts, stated taste, and the bike
-// catalogue that turns "what do you ride" into the three numbers the
+// catalog that turns "what do you ride" into the three numbers the
 // feasibility engine grades every fuel gap against.
 
 import assert from 'node:assert/strict';
@@ -34,7 +34,7 @@ const ok = (label) => { pass++; console.log(`  ok  ${label}`); };
   // Favourites are allowed to be many.
   p = upsertPlace(p, { role: 'favorite', label: 'The diner', lat: 41.1, lng: -74.1 });
   assert.equal(p.places.filter((x) => x.role === 'favorite').length, 2);
-  ok('favourites are not exclusive');
+  ok('favorites are not exclusive');
 
   // Editing keeps identity.
   const id = homePlace(p).id;
@@ -101,18 +101,18 @@ const ok = (label) => { pass++; console.log(`  ok  ${label}`); };
   ok('a missing profile still yields a usable frame');
 }
 
-// --------------------------------------------------------- bike catalogue
+// --------------------------------------------------------- bike catalog
 {
-  assert.ok(BIKES.length > 60, `catalogue has ${BIKES.length} models`);
+  assert.ok(BIKES.length > 60, `catalog has ${BIKES.length} models`);
   for (const b of BIKES) {
     assert.ok(b.make && b.model, 'every row is named');
     assert.ok(b.electric || (b.tank > 0 && b.mpg > 0), `${bikeLabel(b)} has a tank and economy`);
     assert.ok(!b.electric || b.rangeMi > 0, `${bikeLabel(b)} states a range`);
     assert.ok(b.weight > 100 && b.weight < 1500, `${bikeLabel(b)} has a believable weight (${b.weight})`);
   }
-  ok('every catalogue row carries what the arithmetic needs');
+  ok('every catalog row carries what the arithmetic needs');
 
-  // Riders do not type catalogue names.
+  // Riders do not type catalog names.
   assert.ok(searchBikes('road glide').some((b) => b.model === 'Road Glide'));
   assert.ok(searchBikes('glide road').some((b) => b.model === 'Road Glide'));
   assert.ok(searchBikes('gs 1250').some((b) => b.model === 'R 1250 GS'));
@@ -123,7 +123,7 @@ const ok = (label) => { pass++; console.log(`  ok  ${label}`); };
   assert.deepEqual(searchBikes('a'), [], 'one letter is not a search');
   assert.deepEqual(searchBikes(''), []);
   assert.deepEqual(searchBikes(null), []);
-  ok('an empty query returns nothing rather than the whole catalogue');
+  ok('an empty query returns nothing rather than the whole catalog');
 
   // 6.0 gal x 38 mpg = 228 absolute; a 20% reserve is 182 comfort.
   const rg = BIKES.find((b) => b.model === 'Road Glide');

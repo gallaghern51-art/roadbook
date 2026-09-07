@@ -191,13 +191,13 @@ await page.screenshot({ path: SHOT('route-drag-live') });
 
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
-const cancelled = await page.evaluate(() => ({
+const canceled = await page.evaluate(() => ({
   band: window.__map.getSource('route-drag')?._data?.geometry?.coordinates?.length ?? 0,
   panEnabled: window.__map.dragPan.isEnabled(),
 }));
-check(cancelled.band === 0, 'Escape clears the proposal');
-check(cancelled.panEnabled, 'Escape gives the map back its pan');
-check((await stops()).length === 2, 'a cancelled drag adds nothing');
+check(canceled.band === 0, 'Escape clears the proposal');
+check(canceled.panEnabled, 'Escape gives the map back its pan');
+check((await stops()).length === 2, 'a canceled drag adds nothing');
 await page.mouse.up();
 await page.waitForTimeout(200);
 

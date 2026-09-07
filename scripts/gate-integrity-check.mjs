@@ -51,7 +51,7 @@ console.log('move_waypoint (cross-day):');
   const { trip: t, errors } = applyOps(mkTrip(), [{ op: 'move_waypoint', fromDayId: 'd1', toDayId: 'd2', waypointId: 'b', index: 1 }]);
   check('op applied clean', errors.length === 0, errors.join('; '));
   check('the stop moved days', t.days[1].waypoints.some((w) => w.id === 'b'));
-  check('its gate travelled with it', t.days[1].gates.some((g) => g.waypointId === 'b'),
+  check('its gate traveled with it', t.days[1].gates.some((g) => g.waypointId === 'b'),
     JSON.stringify(t.days[1].gates));
   check('the source day no longer holds it', !t.days[0].gates.some((g) => g.waypointId === 'b'));
   check('unrelated gates stay put', t.days[0].gates.some((g) => g.waypointId === 'c'));

@@ -1,4 +1,4 @@
-// A bike catalogue, kept for exactly one reason: the feasibility engine grades
+// A bike catalog, kept for exactly one reason: the feasibility engine grades
 // every day against `trip.meta.range` — comfort miles, absolute miles, mpg —
 // and asking a rider to know those three numbers is asking the wrong question.
 // They know what they ride. Tank capacity times real-world economy answers it.
@@ -15,7 +15,7 @@
 //   * `years` says when the spec holds. A rider on an older bike than the range
 //     given should check their own tank.
 //
-// The catalogue is a convenience, never an authority: everything it fills in is
+// The catalog is a convenience, never an authority: everything it fills in is
 // editable, and a rider's own observed mpg beats any published figure. Anything
 // not in here is entered by hand — that path is first-class, not a fallback.
 //
@@ -130,7 +130,7 @@ export const bikeLabel = (b) => `${b.make} ${b.model}`;
 
 // Tokenised contains-match, so "road glide", "glide road" and "rd glide" all
 // find the same bike, and "gs 1250" finds the R 1250 GS. Riders do not type
-// catalogue names.
+// catalog names.
 export function searchBikes(query, limit = 8) {
   const q = String(query ?? '').toLowerCase().trim();
   if (q.length < 2) return [];

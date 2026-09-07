@@ -30,7 +30,7 @@
 
 import { projectOnChainDirected } from './tripEngine.js';
 
-// A maneuver point should sit within metres of the geometry — both come out of
+// A maneuver point should sit within meters of the geometry — both come out of
 // the same routing call. The gate is loose enough for an `arrive` step, which
 // sits at the STOP and can be a parking lot off the road, and tight enough
 // that a stale step list can't quietly pin itself to the wrong road.

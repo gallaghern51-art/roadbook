@@ -15,7 +15,7 @@ import React, { useEffect, useState } from 'react';
 //      Idaho's silhouette, Montana's square.
 //
 // If both miss, the route number is set as plain type. It is deliberately NOT
-// drawn into a shield shape — a hand-made lozenge in roughly the right colours
+// drawn into a shield shape — a hand-made lozenge in roughly the right colors
 // reads as signage while being wrong, which is worse than honest text.
 const SOURCES = (label) => [
   `/shields/${label}.svg`,

@@ -38,25 +38,25 @@ export function useAutoTranslate() {
     if (!missing.length) return undefined;
 
     busy.current = true;
-    let cancelled = false;
+    let canceled = false;
 
     (async () => {
       try {
         const { translations, done } = await translateTrip(trip, lang, (p) => {
-          if (!cancelled) setProgress(p);
+          if (!canceled) setProgress(p);
         });
-        if (cancelled) return;
+        if (canceled) return;
         if (done > 0) dispatch({ type: 'save_translations', lang, translations });
         else deadLangs.add(lang); // nothing came back — stop rather than spin
       } finally {
-        if (!cancelled) {
+        if (!canceled) {
           busy.current = false;
           setProgress(null);
         }
       }
     })();
 
-    return () => { cancelled = true; busy.current = false; };
+    return () => { canceled = true; busy.current = false; };
   }, [lang, trip, dispatch]);
 
   return { progress, unavailable: deadLangs.has(lang) };

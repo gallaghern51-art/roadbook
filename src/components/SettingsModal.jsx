@@ -14,7 +14,7 @@ import { cacheReport, clearRouteCaches } from '../engine/routing.js';
 // It used to be one flat list of three device switches, which was honest when
 // three switches was all there was — but every graded output in this app is
 // supposed to have an input, and by now a lot of them had grown one somewhere
-// else or nowhere at all. So the sections are organised by WHOSE fact it is,
+// else or nowhere at all. So the sections are organized by WHOSE fact it is,
 // not by which screen it happens to affect:
 //
 //   Account / Places / Riding  — the RIDER's, and they follow the account.

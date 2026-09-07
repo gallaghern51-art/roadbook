@@ -202,7 +202,7 @@ export default function DayPanel({ day }) {
 
 // The day's description — prose about a route, and therefore the one output
 // in this panel with no input until now: change the stops and the paragraph
-// kept describing the ride you cancelled (field-caught Aug 15, 2026, on the
+// kept describing the ride you canceled (field-caught Aug 15, 2026, on the
 // Beartooth day). Three doors, in the order a rider wants them: ask Copilot to
 // rewrite it from the stops that are actually there, write it yourself, or say
 // it still reads true — which re-stamps it against the current route and

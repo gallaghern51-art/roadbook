@@ -2,7 +2,7 @@
 //
 // Covers the buildout end to end: the sections exist and switch, a home address
 // is SEARCHED (not typed) so it carries real coordinates, a bike is resolved
-// from the catalogue and sets the range the feasibility engine grades against,
+// from the catalog and sets the range the feasibility engine grades against,
 // stated taste is captured, all of it survives a reload, and — the point of the
 // whole thing — a new trip's planner payload carries the home coordinates so
 // "start at home" is answerable.
@@ -97,7 +97,7 @@ check(Math.abs(home.lat - 40.77) < 0.2 && Math.abs(home.lng + 74.02) < 0.2,
 check(await page.locator('.set-note.warn').count() === 0, 'the "no home yet" warning clears');
 await page.screenshot({ path: SHOT('settings-places') });
 
-// ---- the bike catalogue sets the range -------------------------------------
+// ---- the bike catalog sets the range -------------------------------------
 await tab('Riding');
 await page.locator('.bike-search input').fill('road glide');
 await page.waitForTimeout(400);
@@ -120,10 +120,10 @@ const shownRange = await page.evaluate(() => {
 check(shownRange.comfort === '182' && shownRange.absolute === '228',
   `the derived range lands in the editable fields (${shownRange.comfort}/${shownRange.absolute})`);
 
-// It must be an override, not a lock — an aux tank is in no catalogue.
+// It must be an override, not a lock — an aux tank is in no catalog.
 await page.locator('.set-grid .fld', { hasText: 'Absolute range' }).locator('input').fill('300');
 await page.waitForTimeout(600);
-check((await profile())?.riding?.rangeAbsolute === 300, 'the rider can override the catalogue figure');
+check((await profile())?.riding?.rangeAbsolute === 300, 'the rider can override the catalog figure');
 await page.locator('.set-grid .fld', { hasText: 'Absolute range' }).locator('input').fill('228');
 await page.waitForTimeout(400);
 

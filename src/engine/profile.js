@@ -23,7 +23,7 @@ import { supabase, SYNC_ENABLED } from './supabase.js';
 const KEY = 'moto.profile.v1';
 const TABLE = 'user_profile';
 
-// A place the rider named. `id` is stable so a favourite can be edited without
+// A place the rider named. `id` is stable so a favorite can be edited without
 // becoming a new one; `role` marks the ones the app resolves by meaning rather
 // than by name — "home" is the one the AI needs when a prompt says "from home".
 export const PLACE_ROLES = ['home', 'work', 'favorite'];

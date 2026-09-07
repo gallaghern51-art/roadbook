@@ -58,11 +58,11 @@ function TagField({ label, hint, values, placeholder, onChange }) {
   );
 }
 
-// Type what you ride; the catalogue answers with tank and economy, and those
+// Type what you ride; the catalog answers with tank and economy, and those
 // two produce the range the feasibility engine grades every fuel gap against.
 // Nothing here is locked — the derived numbers land in the fields below and can
 // be overwritten, because a rider's own observed economy beats any published
-// figure and a bike with an auxiliary tank is not in any catalogue.
+// figure and a bike with an auxiliary tank is not in any catalog.
 function BikeField({ bike, onPick, onClear }) {
   const t = useT();
   const [q, setQ] = useState('');
@@ -105,7 +105,7 @@ function BikeField({ bike, onPick, onClear }) {
       )}
       {q.trim().length >= 2 && hits.length === 0 && (
         <p className="set-note">
-          {t('Not in the catalogue — set your tank size and economy below and the range follows from those.')}
+          {t('Not in the catalog — set your tank size and economy below and the range follows from those.')}
         </p>
       )}
     </div>

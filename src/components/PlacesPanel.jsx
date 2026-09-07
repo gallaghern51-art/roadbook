@@ -15,7 +15,7 @@ import { PLACE_ROLES } from '../engine/profile.js';
 const ROLE_LABEL = {
   home: 'Home',
   work: 'Work',
-  favorite: 'Favourite',
+  favorite: 'Favorite',
 };
 
 function PlaceRow({ place, onRole, onRemove, t }) {

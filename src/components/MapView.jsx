@@ -507,7 +507,7 @@ export default function MapView() {
         layout: round,
       });
     }
-    // The drag proposal rides above everything: dashed turquoise, the colour
+    // The drag proposal rides above everything: dashed turquoise, the color
     // this app reserves for route intelligence and live state. It is not the
     // route until the rider lets go.
     if (!map.getSource('route-drag')) {
@@ -817,7 +817,7 @@ export default function MapView() {
         }
         // Name labels while editing a day — the whole-trip view stays clean.
         // Always below the marker, like Apple Maps: the route line runs through
-        // the marker's centre, so a label underneath never sits on the line.
+        // the marker's center, so a label underneath never sits on the line.
         // Label-on-label overlap is resolved by cullLabels().
         if (showAll) {
           const lab = document.createElement('span');

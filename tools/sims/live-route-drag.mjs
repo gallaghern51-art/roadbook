@@ -13,7 +13,7 @@
 // Credentials come from the environment and are never written down here. The
 // run creates a trip in that real library and DELETES it again at the end.
 // Needs `npm run dev` on :5199 and working internet; it is not deterministic
-// and does not belong in a pre-push loop — run it when the routing behaviour
+// and does not belong in a pre-push loop — run it when the routing behavior
 // itself is what you need to be sure about.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 

@@ -507,7 +507,7 @@ export function tripDigest(trip, routedLegsByDay) {
     const rh = dayRideHours(d, routedLegsByDay?.[d.id]);
     const sh = estimatedStopHours(d);
     lines.push('');
-    // Leg name first, id last and labelled — the model quotes what it reads,
+    // Leg name first, id last and labeled — the model quotes what it reads,
     // and riders do not think in ids.
     lines.push(`## ${dayLabel(d)} [phase:${d.phase}]${d.anchor ? ' [ANCHOR DAY]' : ''} (id for ops only: ${d.id})`);
     lines.push(`~${m} mi, ~${rh.toFixed(1)}h riding + ~${sh.toFixed(1)}h stopped. Depart ${d.depart}.`);

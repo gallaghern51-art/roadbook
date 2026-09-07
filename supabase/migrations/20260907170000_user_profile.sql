@@ -1,4 +1,4 @@
--- The rider's own profile: the places they keep (home, work, favourites) and
+-- The rider's own profile: the places they keep (home, work, favorites) and
 -- how they like to ride. One row per account.
 --
 -- Separate from user_place_preference_history, which is passive evidence the
