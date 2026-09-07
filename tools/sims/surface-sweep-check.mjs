@@ -29,8 +29,14 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(`${e.message} — ${String(e.stack ?? '').split('\n')[1]?.trim() ?? ''}`));
 
-await page.route('**/*', (r) => (r.request().url().includes('5199') ? r.continue() : r.abort()));
-await page.goto('http://127.0.0.1:5199/', { waitUntil: 'domcontentloaded' });
+// Defaults to the dev server; point it at a deploy with BASE_URL to check what
+// riders are actually running.
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:5199';
+if (!process.env.BASE_URL) {
+  await page.route('**/*', (r) => (r.request().url().includes('5199') ? r.continue() : r.abort()));
+}
+await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(2500);
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();
 await page.waitForSelector('.trip-card', { timeout: 20000 });
