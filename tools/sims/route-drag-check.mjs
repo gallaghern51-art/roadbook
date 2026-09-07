@@ -86,8 +86,11 @@ await page.route('**/*', (r) => {
   const u = r.request().url();
   if (u.includes('localhost:5199') || u.includes('127.0.0.1:5199')) return r.continue();
   if (u.includes('valhalla1.openstreetmap.de/route')) {
+    globalThis.__vh = (globalThis.__vh || 0) + 1;
     return r.fulfill({ json: buildValhalla(r.request().postDataJSON()) });
   }
+  globalThis.__aborted = globalThis.__aborted || [];
+  globalThis.__aborted.push(u);
   return r.abort();
 });
 
@@ -99,9 +102,6 @@ await page.goto('http://127.0.0.1:5199/');
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
-await page.click('.trip-card');
-await page.waitForSelector('.modebar', { timeout: 15000 });
-await page.waitForTimeout(500);
 
 const START = [-74.0175, 40.768];   // 1500 Harbor Blvd, Weehawken
 const END = [-73.9182, 41.0912];    // Nyack
@@ -114,7 +114,7 @@ await page.evaluate(([start, end]) => {
     trip: {
       meta: { title: 'DRAG TEST', subtitle: '', summary: '', riders: 1, startDate: '2026-09-07', fuelRule: '', range: 200, roster: [], routePrefs: { style: 'touring', avoidTolls: false } },
       days: [{
-        id: 'd1', dow: 'Mon', date: '2026-09-07', title: 'Upstate loop', phase: 'rally',
+        id: 'probeday', dow: 'Mon', date: '2026-09-07', title: 'Upstate loop', phase: 'rally',
         miles: 0, hours: 0, depart: '9:00 AM', arrive: '', anchor: false, summary: '',
         constraints: [], gates: [], meals: [], photos: [], modules: [], ops: [],
         lodging: { status: 'none', name: '', where: '', note: '' },
@@ -124,11 +124,28 @@ await page.evaluate(([start, end]) => {
     },
   });
 }, [START, END]);
-await page.waitForTimeout(800);
+await page.waitForTimeout(600);
+// Enter the trip we just made, not whatever was open before.
+await page.locator('.trip-card', { hasText: 'DRAG TEST' }).first().click();
+await page.waitForSelector('.modebar', { timeout: 20000 });
+// Wait for the app to actually BE on the new trip before touching the ribbon —
+// a fixed delay raced trip creation, left the previous trip's chips on screen,
+// and the sim then measured the seed trip in Montana. A flake, not a finding.
+await page.waitForFunction(() => document.title.includes('DRAG TEST')
+  || document.querySelector('.mast-id')?.textContent?.includes('DRAG TEST'), null, { timeout: 20000 })
+  .catch(() => {});
+await page.waitForTimeout(700);
 // The first ribbon chip is the whole-trip view; the day chips follow it.
 await page.locator('.rchip').nth(1).click();
 await page.waitForSelector('.wp-row', { timeout: 10000 });
-await page.waitForTimeout(2500);
+// Wait for the ROUTED line rather than a fixed delay: a straight two-vertex
+// placeholder means routing has not landed yet, and every measurement below
+// depends on the real road shape.
+await page.waitForFunction(() => {
+  const c = window.__map?.getSource('route-probeday')?._data?.geometry?.coordinates;
+  return Array.isArray(c) && c.length > 2;
+}, null, { timeout: 20000 }).catch(() => {});
+await page.waitForTimeout(500);
 
 // The reducer persists on every apply_ops, so localStorage is the trip's truth.
 const stops = () => page.evaluate(() => {
@@ -140,10 +157,12 @@ const stops = () => page.evaluate(() => {
 // ---------------------------------------------------------------- the setup
 const geo = await page.evaluate(() => {
   const m = window.__map;
-  const src = m.getSource('route-d1');
+  const src = m.getSource('route-probeday');
   return src?._data?.geometry?.coordinates ?? null;
 });
-check(Array.isArray(geo) && geo.length >= 4, `the day is routed with a detouring line (${geo?.length ?? 0} vertices)`);
+check(Array.isArray(geo) && geo.length >= 4,
+  `the day is routed with a detouring line (${geo?.length ?? 0} vertices; valhalla hits ${globalThis.__vh || 0}; `
+  + `aborted ${[...new Set((globalThis.__aborted||[]).map(u=>u.split('/')[2]))].join(',') || 'none'})`);
 
 const dragLayers = await page.evaluate(() => window.__map.getStyle().layers.map((l) => l.id).filter((id) => id.startsWith('route-drag')));
 check(dragLayers.length === 3, `the drag proposal has its own layers (${dragLayers.join(', ') || 'none'})`);
@@ -223,7 +242,7 @@ check(dropped && dropped.lng < bulge[0] - 0.05,
 await page.waitForTimeout(1500);
 const rerouted = await page.evaluate(() => {
   const m = window.__map;
-  const coords = m.getSource('route-d1')?._data?.geometry?.coordinates ?? [];
+  const coords = m.getSource('route-probeday')?._data?.geometry?.coordinates ?? [];
   return coords;
 });
 const nearest = rerouted.reduce((best, c) => Math.min(best, hav(c, [dropped.lng, dropped.lat])), Infinity);

@@ -49,9 +49,9 @@ await page.waitForSelector('.trip-card', { timeout: 30000 });
 await page.waitForTimeout(2500);
 check(true, 'signed in on a phone-sized touch context against live Supabase');
 
-await page.locator('.trip-card').first().click();
-await page.waitForSelector('.modebar', { timeout: 20000 });
-await page.waitForTimeout(1200);
+// Create the trip from HOME and enter THAT one. Entering another trip first
+// put eleven days of routing in flight, and routing is latest-only by design —
+// so the request this sim actually measures was the one that got dropped.
 await page.evaluate(() => {
   const mk = (id, name, lng, lat, kind) => ({ id, kind, name, lat, lng, mile: null, note: '' });
   window.__dispatch({
@@ -77,7 +77,17 @@ await page.evaluate(() => {
     },
   });
 });
-await page.waitForTimeout(1500);
+await page.waitForTimeout(700);
+await page.locator('.trip-card', { hasText: 'WHEEL LIVE' }).first().click();
+await page.waitForSelector('.modebar', { timeout: 20000 });
+// Wait for the ROUTED line rather than a fixed delay: two vertices is the
+// straight placeholder that means routing has not landed yet.
+await page.waitForFunction(() => {
+  const c = window.__map?.getSource('route-wl1')?._data?.geometry?.coordinates;
+  return Array.isArray(c) && c.length > 20;
+}, null, { timeout: 45000 }).catch(() => {});
+await page.waitForTimeout(600);
+// The first ribbon chip is the whole-trip view; the day chips follow it.
 await page.locator('.rchip').nth(1).click();
 await page.waitForSelector('.wp-row', { timeout: 20000 });
 await page.waitForTimeout(9000);

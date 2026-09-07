@@ -71,21 +71,25 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
    shells size off that truth. Fallback is plain dvh for the moment before
    the first measurement lands. */
 @media all and (display-mode: standalone) {
-  /* Nothing here may scroll the DOCUMENT. --app-h is a measurement floored at
-     screen.height on purpose (see main.jsx), so it is allowed to over-estimate
-     by a few pixels — and an over-estimate makes the shell taller than the real
-     viewport, which iOS then happily scrolls. The rider sees the whole app drag
-     upward: the masthead slides off the top, white shows under the mode bar,
-     and the map's own furniture — positioned against the map rather than the
-     document — stays put while the chrome moves past it, which is why the
-     "Editing …" chip and the layers pill ended up above the masthead and under
-     the status bar. Pinning the document turns a few pixels of over-estimate
-     into a few pixels of clipping, which nobody can see. */
+  /* The shell is a FIXED box, not a measured one.
+     
+     Every previous attempt here sized the shell off --app-h, a JS measurement
+     of the viewport. That measurement can be wrong in both directions on iOS,
+     and each direction breaks differently: too tall and the document scrolls
+     (the app drags up, the masthead slides past the map's own furniture), too
+     short and there is dead space under the mode bar. Clamping the document
+     with overflow:hidden only converted the first failure into the second —
+     the shell was still the wrong size, it just got clipped instead.
+     
+     `position: fixed; inset: 0` sizes against the layout viewport itself, so
+     the browser answers the question instead of us guessing at it. It cannot
+     scroll and it cannot leave a gap, whatever --app-h happens to say. That
+     variable is left alone for the places that genuinely want a NUMBER. */
   html, body, #root { overflow: hidden; overscroll-behavior: none; }
-  .app, .home, .landing { height: 100vh; height: var(--app-h, 100dvh); }
-  /* the ride overlay is fixed inset:0 — its bottom edge pins to the same
-     stale viewport, so swap the bottom anchor for the measured height */
-  .ride-mode { bottom: auto; height: 100vh; height: var(--app-h, 100dvh); }
+  .app, .home, .landing {
+    position: fixed; inset: 0; height: auto; width: auto;
+  }
+  .ride-mode { position: fixed; inset: 0; height: auto; bottom: 0; }
 }
 /* Masthead and ribbon are one thing — the chrome above the content. Grouping
    them lets the map tab lift both off the layout in a single move instead of
@@ -1382,7 +1386,12 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
      the escape valve, but once the back button joined the row it pushed
      Undo/gear onto a second line floating over the map (field screenshot). */
   .masthead { flex-wrap: nowrap; gap: 8px; }
-  .mast-back { min-width: 36px; min-height: 36px; font-size: 22px; }
+  /* 44pt, like every other touch target in this app. At 36 these were the
+     hardest things on the screen to hit — small, at the very top edge, and on
+     a notched phone partly under the status bar. The rider reported having to
+     tap several times to leave a trip. */
+  .mast-back { min-width: 44px; min-height: 44px; font-size: 22px; }
+  .masthead .actions .btn.icon { min-width: 44px; min-height: 44px; }
   .mast-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
   .masthead h1 { font-size: 21px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* The stats line plus the flags need ~460px and a phone gives it ~250, so
@@ -4065,4 +4074,21 @@ input:focus, textarea:focus, select:focus {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---- installed PWA: the chrome clears the status bar --------------------
+   Last in the sheet on purpose. env(safe-area-inset-top) is the right answer
+   WHEN iOS supplies one, but a home-screen icon added before viewport-fit=cover
+   shipped keeps reporting 0 forever — and then the back button and the wordmark
+   sit under the Dynamic Island, which is what the rider photographed. max()
+   takes the real inset where there is one and a floor where there is not.
+   It has to come after the mobile block, which sets the same property at the
+   same specificity and would otherwise win on source order. */
+@media all and (display-mode: standalone) {
+  /* Panel open: the masthead is the bar at the top, so it carries the inset. */
+  .masthead { padding-top: max(env(safe-area-inset-top, 0px), 44px); }
+  /* Map full: .topchrome floats over the map and carries it instead — matched
+     at the same specificity as the rule it has to beat, and placed after it. */
+  .app.map-full > .topchrome { padding-top: max(env(safe-area-inset-top, 0px), 44px); }
+  .app.map-full .masthead { padding-top: 8px; }
 }

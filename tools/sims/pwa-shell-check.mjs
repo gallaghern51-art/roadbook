@@ -134,6 +134,68 @@ check(closed.basemap === null || closed.basemap.top >= closed.masthead.bottom - 
 console.log(`   panel open: masthead ${opened.masthead.top}, hint ${opened.hint?.top ?? '—'}`);
 await page.screenshot({ path: SHOT('pwa-shell') });
 
+// ---- the shell fills the viewport exactly: no scroll AND no dead space -----
+// Clamping the document only converted "the app drags up" into "there is a
+// black band under the mode bar" — the shell was still the wrong size. It is a
+// fixed box now, so both directions of a wrong --app-h are irrelevant.
+for (const delta of [+80, -80]) {
+  await page.evaluate((d) => {
+    document.documentElement.style.setProperty('--app-h', `${window.innerHeight + d}px`);
+  }, delta);
+  await page.waitForTimeout(350);
+  const fit = await page.evaluate(() => {
+    const a = document.querySelector('.app').getBoundingClientRect();
+    return {
+      top: Math.round(a.top), bottom: Math.round(a.bottom),
+      viewport: window.innerHeight,
+      scroll: Math.round(document.scrollingElement.scrollTop),
+    };
+  });
+  check(fit.top === 0 && Math.abs(fit.bottom - fit.viewport) <= 1 && fit.scroll === 0,
+    `--app-h ${delta > 0 ? 'over' : 'under'}-reporting by ${Math.abs(delta)}px leaves no gap and no scroll `
+    + `(shell ${fit.top}→${fit.bottom} of ${fit.viewport})`);
+}
+
+// ---- the top chrome clears the status bar even with no reported inset ------
+// env(safe-area-inset-top) is 0 in a desktop browser, which is exactly the
+// case a stale home-screen install produces on a real phone.
+// Measured in BOTH states: with the panel open the masthead is the top bar and
+// carries the inset; in map-full the floating .topchrome carries it instead,
+// and each is set by a different rule.
+const chromeIn = async () => page.evaluate(() => {
+  const el = (s) => document.querySelector(s);
+  const r = (s) => { const e = el(s); if (!e) return null; const b = e.getBoundingClientRect(); return { top: Math.round(b.top), h: Math.round(b.height), w: Math.round(b.width) }; };
+  const m = el('.masthead');
+  const tc = el('.topchrome');
+  const mapFull = document.querySelector('.app').classList.contains('map-full');
+  return {
+    mapFull,
+    // What the top of the chrome actually reserves, whichever element owns it.
+    reserved: Math.round(parseFloat(getComputedStyle(mapFull ? tc : m).paddingTop))
+      + (mapFull ? Math.round(parseFloat(getComputedStyle(m).paddingTop)) : 0),
+    back: r('.mast-back'),
+    gear: r('.masthead .actions .btn.icon'),
+  };
+});
+const chrome = await chromeIn();
+check(chrome.reserved >= 44,
+  `map-full reserves the status bar even with env() at 0 (${chrome.reserved}px)`);
+check(!chrome.back || chrome.back.top >= 44,
+  `map-full: the back button sits below the status bar (top ${chrome.back?.top})`);
+
+// Re-open the panel (the day is already selected, so the tab is the way back).
+await page.locator('.panel-tab').click({ timeout: 5000 }).catch(() => {});
+await page.waitForTimeout(900);
+const withPanel = await chromeIn();
+check(withPanel.reserved >= 44,
+  `panel open reserves it too (${withPanel.reserved}px)`);
+check(!withPanel.back || withPanel.back.top >= 44,
+  `panel open: the back button sits below the status bar (top ${withPanel.back?.top})`);
+check(!chrome.back || (chrome.back.h >= 44 && chrome.back.w >= 44),
+  `the back button is a 44pt target (${chrome.back?.w}x${chrome.back?.h})`);
+check(!chrome.gear || (chrome.gear.h >= 44 && chrome.gear.w >= 44),
+  `the settings button is a 44pt target (${chrome.gear?.w}x${chrome.gear?.h})`);
+
 // A measurement that is SHORT must not tear the layout either.
 await page.evaluate(() => {
   document.documentElement.style.setProperty('--app-h', `${window.innerHeight - 60}px`);
