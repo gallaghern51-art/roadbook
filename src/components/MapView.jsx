@@ -984,16 +984,6 @@ export default function MapView() {
           </>
         )}
       </div>
-      <div className="map-legend">
-        {ui?.routePreview?.status === 'ready' && (
-          <span className="key preview-key"><i />{t('Proposed route')}</span>
-        )}
-        {Object.entries(PHASES).map(([k, p]) => (
-          <span key={k} className="key"><i style={{ background: p.color }} />{t(p.label)}</span>
-        ))}
-        <span className="key"><i style={{ background: '#f48322', height: 8, width: 8, borderRadius: 2 }} />{t('Fuel')}</span>
-        <span className="key"><i style={{ background: '#cecece', height: 8, width: 8, borderRadius: 2, transform: 'rotate(45deg)' }} />{t('Photo')}</span>
-      </div>
     </div>
   );
 }

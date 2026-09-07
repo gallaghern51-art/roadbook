@@ -77,14 +77,15 @@ html[data-app-display='standalone'] {
   background: var(--asphalt-1);
 }
 html[data-app-display='standalone'] body {
-  /* Anchored at the top and sized to --shell-h (the screen) rather than
-     inset:0 (the reported viewport). See main.jsx: a black-translucent
-     standalone app is given a containing block that is the screen minus the
-     status bar, so `inset: 0` stops ~62pt above the glass and everything
-     anchored to the bottom floats there. Falls back to 100% wherever that
-     measurement does not apply. */
-  position: fixed; top: 0; left: 0; right: 0;
-  width: 100%; height: var(--shell-h, 100%);
+  /* inset: 0 — the reported containing block, and nothing larger.
+     
+     Sizing this to screen.height was tried and REVERTED: on a real iPhone the
+     shell then measured 0→874 as intended, and the mode bar vanished. iOS does
+     not merely under-report the viewport for a black-translucent standalone
+     app, it CLIPS to it — so the bottom 62pt is not addressable by the page at
+     any size. Reclaiming that strip needs a different status-bar style, not a
+     taller box; growing the box only pushes the controls out of sight. */
+  position: fixed; inset: 0; width: 100%; height: 100%;
   overflow: hidden; overscroll-behavior: none;
   /* If legacy WebKit reserves the Home-indicator strip outside the layout
      viewport, paint it as a continuation of the bottom mode bar. */
