@@ -82,9 +82,14 @@ html[data-app-display='standalone'] body {
      Sizing this to screen.height was tried and REVERTED: on a real iPhone the
      shell then measured 0→874 as intended, and the mode bar vanished. iOS does
      not merely under-report the viewport for a black-translucent standalone
-     app, it CLIPS to it — so the bottom 62pt is not addressable by the page at
-     any size. Reclaiming that strip needs a different status-bar style, not a
-     taller box; growing the box only pushes the controls out of sight. */
+     app, it CLIPS to it — so that bottom 62pt was not addressable by the page
+     at any size, and growing the box only pushed the controls out of sight.
+     
+     That strip is gone now, and NOT because this box changed. index.html ships
+     an opaque status bar, so iOS hands the page a box of the same height
+     anchored below the status bar instead of at y=0 — it ends at the glass,
+     and inset: 0 fills it. If anyone reintroduces `black-translucent`, the
+     dead strip comes back with it and the answer is still not a taller box. */
   position: fixed; inset: 0; width: 100%; height: 100%;
   overflow: hidden; overscroll-behavior: none;
   /* If legacy WebKit reserves the Home-indicator strip outside the layout
@@ -4113,30 +4118,22 @@ input:focus, textarea:focus, select:focus {
     padding-bottom: max(4px, calc(var(--viewport-safe-bottom) - 20px));
   }
 
-  html[data-app-display='standalone'] .masthead {
-    padding-top: calc(8px + max(var(--viewport-safe-top), var(--ios-status-guard, 0px)));
-  }
-  html[data-app-display='standalone'] .app.map-full > .topchrome {
-    padding-top: max(var(--viewport-safe-top), var(--ios-status-guard, 0px));
-  }
-  html[data-app-display='standalone'] .app.map-full .masthead { padding-top: 8px; }
+  /* The standalone shell no longer needs a masthead guard: with an opaque
+     status bar (index.html) iOS starts the web view BELOW it, so
+     env(safe-area-inset-top) — which the base rules already read — is the
+     whole story, and the old --ios-status-guard fallback would double it.
+
+     What the shell DOES need now is a real bottom clearance. Until this
+     change the box stopped ~62pt above the glass and the 6px here was
+     cosmetic: the Home indicator was nowhere near the labels. The box reaches
+     the glass now, so the gesture is genuinely under the bar and the labels
+     have to sit above it. Same 14pt-short-of-the-inset arithmetic as the
+     browser rule above, with the device fallback for an install whose env()
+     reports zero — and clamped at both ends, because an install was once
+     reported lifting this row ~70pt on a bottom env() far taller than the
+     gesture it describes. 20px is the whole budget even if iOS asks for more. */
   html[data-app-display='standalone'] .tabnav {
-    /* A Home Screen app already owns the full physical viewport. Some iOS 26
-       installs report a bottom env() far taller than the gesture itself; using
-       it lifted this entire control row by ~70pt in the field. Keep the bar at
-       the glass and reserve only a small visual gutter. */
-    padding-bottom: 6px;
-  }
-  /* Paint into whatever strip WebKit reserves below the layout viewport, so the
-     bar reads as running to the glass rather than floating above dead space.
-     
-     A box-shadow, NOT a pseudo-element. The first attempt used an absolutely
-     positioned ::after, and an absolutely positioned box extends its
-     ancestor's SCROLLABLE OVERFLOW — which made the whole app scrollable by
-     64px and let the rider scroll the mode bar off the screen. A shadow
-     paints outside the border box and can never affect layout or overflow. */
-  html[data-app-display='standalone'] .tabnav {
-    box-shadow: 0 64px 0 0 var(--asphalt-1);
+    padding-bottom: clamp(6px, calc(max(var(--viewport-safe-bottom), var(--ios-home-guard, 0px)) - 14px), 20px);
   }
 }
 
