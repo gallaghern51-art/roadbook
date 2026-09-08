@@ -199,9 +199,18 @@ for (const delta of [+80, -80]) {
     + `(shell ${fit.top}→${fit.bottom} of ${fit.viewport})`);
 }
 
-// ---- the top chrome clears the status bar even with no reported inset ------
-// env(safe-area-inset-top) is 0 in a desktop browser, which is exactly the
-// case a stale home-screen install produces on a real phone.
+// ---- the top chrome tracks env(), and never double-reserves ---------------
+// This block used to assert the OPPOSITE: that the chrome reserves ~59pt even
+// when env(safe-area-inset-top) reads 0, via a device-shaped --ios-status-guard
+// fallback. That guard existed for `black-translucent`, where iOS draws the
+// status bar ON TOP of the page. index.html now ships `black`, so iOS starts
+// the web view BELOW the status bar and the page must reserve NOTHING of its
+// own — a 59pt fallback would push the masthead 59pt down inside a box that
+// already clears the status bar, which is the bug the guard was written to
+// prevent, upside down.
+//
+// So the assertion is now two-sided: with env() at 0 the chrome adds only its
+// own padding, and with an inset reported it moves by exactly that much.
 // Measured in BOTH states: with the panel open the masthead is the top bar and
 // carries the inset; in map-full the floating .topchrome carries it instead,
 // and each is set by a different rule.
@@ -221,19 +230,30 @@ const chromeIn = async () => page.evaluate(() => {
   };
 });
 const chrome = await chromeIn();
-check(chrome.reserved >= 59,
-  `map-full reserves the status bar even with env() at 0 (${chrome.reserved}px)`);
-check(!chrome.back || chrome.back.top >= 59,
-  `map-full: the back button sits below the status bar (top ${chrome.back?.top})`);
+check(chrome.reserved < 20,
+  `map-full adds no phantom status-bar inset when env() is 0 (${chrome.reserved}px)`);
+check(!chrome.back || chrome.back.top < 40,
+  `map-full: the back button starts at the top of the box iOS handed us (top ${chrome.back?.top})`);
+
+// Now report an inset and prove env() alone still drives the chrome. A legacy
+// install on `black-translucent` reports 62 here; it must still be respected.
+const INSET = 62;
+await page.evaluate((v) => document.documentElement.style.setProperty('--viewport-safe-top', `${v}px`), INSET);
+await page.waitForTimeout(300);
+const inset = await chromeIn();
+check(inset.reserved >= chrome.reserved + INSET - 1,
+  `map-full moves by exactly the reported inset, not more (${chrome.reserved} → ${inset.reserved}px)`);
+await page.evaluate(() => document.documentElement.style.removeProperty('--viewport-safe-top'));
+await page.waitForTimeout(300);
 
 // Re-open the panel (the day is already selected, so the tab is the way back).
 await page.locator('.panel-tab').click({ timeout: 5000 }).catch(() => {});
 await page.waitForTimeout(900);
 const withPanel = await chromeIn();
-check(withPanel.reserved >= 59,
-  `panel open reserves it too (${withPanel.reserved}px)`);
-check(!withPanel.back || withPanel.back.top >= 59,
-  `panel open: the back button sits below the status bar (top ${withPanel.back?.top})`);
+check(withPanel.reserved < 20,
+  `panel open adds no phantom inset either (${withPanel.reserved}px)`);
+check(!withPanel.back || withPanel.back.top < 40,
+  `panel open: the back button starts at the top of the box (top ${withPanel.back?.top})`);
 check(!chrome.back || (chrome.back.h >= 44 && chrome.back.w >= 44),
   `the back button is a 44pt target (${chrome.back?.w}x${chrome.back?.h})`);
 check(!chrome.gear || (chrome.gear.h >= 44 && chrome.gear.w >= 44),
@@ -248,11 +268,26 @@ const bottom = await page.evaluate(() => {
     padding: Math.round(parseFloat(getComputedStyle(bar).paddingBottom)),
   };
 });
-// The exact inset is a judgement call that has already moved twice on field
-// feedback ("too high", then "lower"). Assert the INTENT — the bar reaches the
-// glass and keeps only a token gutter — rather than a number that churns.
-check(bottom.bottom === bottom.viewport && bottom.padding > 0 && bottom.padding <= 12,
-  `the mode bar reaches the edge with compact gesture clearance (bottom ${bottom.bottom}, inset ${bottom.padding}px)`);
+// The exact inset is a judgement call that has already moved several times on
+// field feedback ("too high", "lower", "too high" again). Assert the INTENT —
+// the bar reaches the bottom of the box and keeps a gutter big enough to clear
+// the Home gesture but small enough not to float — rather than a number that
+// churns. The ceiling is 20px because that is what the clamp in app.css allows
+// even if iOS reports an absurd bottom env(); one install was reported lifting
+// this row ~70pt that way.
+check(bottom.bottom === bottom.viewport && bottom.padding > 0 && bottom.padding <= 20,
+  `the mode bar reaches the edge with gesture clearance (bottom ${bottom.bottom}, inset ${bottom.padding}px)`);
+
+// And the bar's bottom edge IS the glass now, which is the whole point of the
+// opaque status bar: under `black-translucent` iOS handed the page a box
+// anchored at y=0 and 62pt short of the screen, so this row floated above a
+// strip it could not reach. Nothing in the shell may reintroduce a gap.
+const toGlass = await page.evaluate(() => {
+  const app = document.querySelector('.app').getBoundingClientRect();
+  return { gap: Math.round(window.innerHeight - app.bottom), barGap: Math.round(window.innerHeight - document.querySelector('.modebar').getBoundingClientRect().bottom) };
+});
+check(toGlass.gap === 0 && toGlass.barGap === 0,
+  `no dead strip below the shell or the mode bar (${toGlass.gap}px / ${toGlass.barGap}px)`);
 
 // ---- nothing may add scrollable overflow ---------------------------------
 // An absolutely positioned pseudo-element painting into the reserved bottom

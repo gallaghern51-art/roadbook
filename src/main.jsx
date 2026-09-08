@@ -24,38 +24,35 @@ const syncShellMode = () => {
   root.dataset.appDisplay = standalone ? 'standalone' : 'browser';
   root.toggleAttribute('data-apple-standalone', appleStandalone);
 
-  // `env(safe-area-inset-*)` remains authoritative. A legacy iOS Home Screen
-  // install can return zero, though, so provide a device-shaped fallback only
-  // for that platform. These are the CSS-pixel safe areas used by the iPhone
-  // families; iPad is excluded by its much wider hardware screen. In landscape
-  // the status bar is not above the app, while the Home gesture keeps a smaller
-  // bottom exclusion.
-  let topGuard = 0;
+  // There is no top guard any more, and this is the reason.
+  //
+  // It existed to hold the masthead clear of a status bar drawn ON TOP of the
+  // page, which is what `black-translucent` does. index.html now ships
+  // `black`: iOS places the web view BELOW the status bar, so nothing overlaps
+  // the top of the page and `env(safe-area-inset-top)` is the whole answer —
+  // zero in portrait, zero in landscape. A device-shaped 62px fallback here
+  // would now push the masthead 62pt down inside a box that already starts
+  // below the status bar, which is the bug it was written to prevent.
+  //
+  // The bottom guard, by contrast, only just became load-bearing. Until now
+  // the shell stopped ~62pt above the glass and the Home indicator was
+  // somebody else's problem; the shell reaches the glass now, so the mode bar
+  // has to clear the gesture itself. `env(safe-area-inset-bottom)` is still
+  // authoritative — this is the fallback for an install that reports zero.
   let bottomGuard = 0;
   if (appleStandalone) {
     const portrait = !window.matchMedia('(orientation: landscape)').matches;
     const shortSide = Math.min(screen.width || 0, screen.height || 0);
     const longSide = Math.max(screen.width || 0, screen.height || 0);
     const fullScreenIPhone = shortSide <= 440 && longSide >= 812;
-    if (fullScreenIPhone) {
-      if (portrait) {
-        topGuard = longSide >= 874 && shortSide >= 402 ? 62
-          : longSide >= 852 && shortSide >= 393 ? 59
-            : 47;
-        bottomGuard = 34;
-      } else {
-        bottomGuard = 21;
-      }
-    } else if (portrait && shortSide <= 440) {
-      topGuard = 20;
-    }
+    if (fullScreenIPhone) bottomGuard = portrait ? 34 : 21;
   }
-  root.style.setProperty('--ios-status-guard', `${topGuard}px`);
   root.style.setProperty('--ios-home-guard', `${bottomGuard}px`);
 
   // NOTE: a --shell-h experiment lived here and was reverted — see app.css.
   // iOS CLIPS a black-translucent standalone app to its reported viewport, so
-  // sizing the shell to screen.height hid the mode bar entirely.
+  // sizing the shell to screen.height hid the mode bar entirely. That is the
+  // failure the status-bar style change above actually fixes.
 };
 
 syncShellMode();

@@ -8,7 +8,18 @@
     <meta name="theme-color" content="#1c1813" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- `black`, NOT `black-translucent`. Under black-translucent iOS anchors a
+         standalone app's containing block at y=0 and sizes it to the screen
+         MINUS the status bar, leaving a strip at the BOTTOM that the page
+         cannot address (measured: 402x812 box on a 402x874 screen) and that
+         iOS clips rather than merely under-reports — #80/#81/#82 proved both
+         halves of that on a real install. The mode bar therefore floated ~62pt
+         above the glass and no amount of padding could reach down to it.
+         An opaque status bar moves the whole box down instead: same 812pt of
+         height, now anchored under the status bar and running to the glass.
+         The trade is the top 62pt, which the map used to bleed into behind a
+         scrim it needed in order to stay readable. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Roadbook" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />

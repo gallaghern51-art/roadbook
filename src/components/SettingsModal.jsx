@@ -47,7 +47,6 @@ function readShell() {
     apple: navigator.standalone === true,
     top: px('--viewport-safe-top'),
     bottom: px('--viewport-safe-bottom'),
-    guardTop: px('--ios-status-guard'),
     guardBottom: px('--ios-home-guard'),
     innerW: window.innerWidth,
     innerH: window.innerHeight,
@@ -55,12 +54,18 @@ function readShell() {
     screenH: window.screen?.height ?? 0,
     appTop: app ? Math.round(app.top) : null,
     appBottom: app ? Math.round(app.bottom) : null,
-    // Measured against the SCREEN, not window.innerHeight. iOS under-reports
-    // innerHeight by the status-bar inset for a black-translucent standalone
-    // app, so a shell that correctly reaches the glass shows as a NEGATIVE gap
-    // against innerHeight — which reads like a fault and is not one. The screen
-    // is the thing the rider can actually see.
-    gapBelow: app ? Math.round((window.screen?.height ?? window.innerHeight) - app.bottom) : null,
+    // Measured against the VIEWPORT, which is the right baseline again.
+    //
+    // It was the screen for one release, because a black-translucent standalone
+    // app got a viewport anchored at y=0 and 62pt short at the bottom: the
+    // shell could reach the glass and still measure as short against
+    // innerHeight. With an opaque status bar the box is anchored BELOW the
+    // status bar and its bottom edge is the glass, so viewport and screen
+    // disagree by the status bar at the TOP. Measuring the bottom gap against
+    // screen.height would now report a correct shell as 62px short.
+    gapBelow: app ? Math.round(window.innerHeight - app.bottom) : null,
+    // Named separately so nobody re-diagnoses it as dead space under the bar.
+    aboveApp: Math.round((window.screen?.height ?? window.innerHeight) - window.innerHeight),
   };
 }
 
@@ -269,7 +274,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                   numbers that decide the layout: what the app thinks it is,
                   what iOS says the insets are, and — the one that actually
                   answers "why is the bar high" — how far the shell's bottom
-                  edge falls short of the screen. */}
+                  edge falls short of the viewport it was handed. */}
               <div className="set-row">
                 <span className="set-label">{t('Shell')}</span>
                 <button className="btn" type="button" onClick={() => setShell(readShell())}>{t('Measure')}</button>
@@ -279,9 +284,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                   <code>
                     {`mode ${shell.mode}${shell.apple ? ' (apple)' : ''}\n`}
                     {`inset top ${shell.top} · bottom ${shell.bottom}\n`}
-                    {`guard top ${shell.guardTop} · bottom ${shell.guardBottom}\n`}
-                    {`viewport ${shell.innerW}x${shell.innerH} · screen ${shell.screenW}x${shell.screenH}\n`}
-                    {`shell ${shell.appTop}→${shell.appBottom} of ${shell.screenH}`}
+                    {`home guard ${shell.guardBottom}\n`}
+                    {`viewport ${shell.innerW}x${shell.innerH} · screen ${shell.screenW}x${shell.screenH}`}
+                    {shell.aboveApp > 0 ? ` · ${shell.aboveApp}px status bar above\n` : '\n'}
+                    {`shell ${shell.appTop}→${shell.appBottom} of ${shell.innerH}`}
                     {shell.gapBelow === 0
                       ? ' · reaches the glass'
                       : ` · ${shell.gapBelow > 0 ? `${shell.gapBelow}px short of` : `${-shell.gapBelow}px past`} the glass`}
