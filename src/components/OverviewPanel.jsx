@@ -1,6 +1,6 @@
 import React from 'react';
-import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
@@ -27,19 +27,26 @@ const ROUTE_STYLE_UI = [
   { id: 'backroads', label: 'Back roads', copy: 'Strongly favors secondary roads. Expect longer days.' },
 ];
 
+// The day list is a COLUMN, so horizontal travel was never a reorder — it was
+// the card escaping the panel under the pointer. dnd-kit ships this as
+// @dnd-kit/modifiers; three lines is cheaper than a dependency.
+const LOCK_VERTICAL = ({ transform }) => ({ ...transform, x: 0 });
+
 export default function OverviewPanel() {
   const { state, dispatch, summary, ui } = useTrip();
   const { trip } = state;
   const t = useT();
   const tt = useTT();
   const u = useUnits();
-  // The whole day row is the drag handle, so on touch the drag has to wait out
-  // a press-and-hold — otherwise the list could never be scrolled.
+  // Reordering is the GRIP's job, not the row's (see SortableDay). With a
+  // dedicated handle the sensors need no intent gate: everything else in the
+  // panel scrolls and taps as normal, so there is nothing to disambiguate.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 3 } }),
+    useSensor(TouchSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const reorderHint = ui?.isMobile ? 'press & hold to reorder' : 'drag to reorder';
+  const reorderHint = 'grab ⠿ to reorder';
 
   const onDragEnd = (e) => {
     const { active, over } = e;
@@ -71,7 +78,7 @@ export default function OverviewPanel() {
 
       <div className="section">
         <h3>{t('Days')} <span className="cnt">{t(reorderHint)} · {t('dates stay pinned to the calendar')}</span></h3>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[LOCK_VERTICAL]} onDragEnd={onDragEnd}>
           <SortableContext items={trip.days.map((d) => d.id)} strategy={verticalListSortingStrategy}>
             <div className="ov-days">
               {trip.days.map((d) => <SortableDay key={d.id} day={d} summary={summary} dispatch={dispatch} />)}
@@ -445,11 +452,19 @@ function RouteCharacterPreview({ trip, preview, onClose, onRetry, onApply, onRes
   );
 }
 
+// One row, two jobs — and they used to fight. The whole row carried the drag
+// listeners AND opened the day, so a tap that drifted a few pixels lifted the
+// card, slid it under the pointer in both axes, and on release rewrote the
+// itinerary (`reorder_days` re-cascades every date). Nothing in a day panel
+// behaves that way, which is exactly how it reads as loose. Reordering now
+// belongs to a visible grip: the row is a button again, the card can only
+// travel along its own column, and no amount of dragging the row moves it.
 function SortableDay({ day, summary, dispatch }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day.id });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: day.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const per = summary.perDay.find((p) => p.id === day.id);
   const dangers = per?.warnings.filter((w) => w.level === 'danger').length ?? 0;
+  const t = useT();
   const tt = useTT();
   const u = useUnits();
   return (
@@ -457,13 +472,21 @@ function SortableDay({ day, summary, dispatch }) {
       ref={setNodeRef}
       style={style}
       className={`ov-day${isDragging ? ' dragging' : ''}`}
-      {...attributes}
-      {...listeners}
       onClick={() => dispatch({ type: 'select_day', dayId: day.id })}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'select_day', dayId: day.id }); }}
     >
+      <button
+        type="button"
+        className="ov-grip"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        aria-label={t('Reorder this day')}
+        title={t('Reorder this day')}
+        onClick={(e) => e.stopPropagation()}
+      >⠿</button>
       <div className="ph" style={{ background: PHASES[day.phase]?.color }} />
       <div className="dt">{day.dow}<br />{fmtDayDate(day.date)}{day.anchor ? ' ★' : ''}</div>
       <div>

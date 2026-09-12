@@ -14,7 +14,7 @@ import { useT, useUnits } from '../engine/settings.jsx';
 // trip card wears the trip's own shape: the silhouette is how a rider tells
 // their trips apart the way they'd tell routes apart on paper roadbooks.
 
-export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings }) {
+export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp }) {
   const { state, routedLegsByDay } = useTrip();
   const { lib } = state;
   const t = useT();
@@ -48,6 +48,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         <h1 className="brand"><RoadbookBrand /></h1>
         <div className="mast-controls">
           <ThemeToggle />
+          <button className="btn icon" title={t('How to use Roadbook')} onClick={onHelp} aria-label={t('How to use Roadbook')}>?</button>
           <button className="btn icon" title={t('Settings')} onClick={onSettings} aria-label={t('Settings')}><SettingsIcon /></button>
         </div>
       </header>
@@ -136,6 +137,16 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               <div className="tc-name">{t('Import JSON')}</div>
               <div className="tc-meta">{t('A trip file from a riding buddy')}</div>
               <div className="tc-open">{t('Load it →')}</div>
+            </div>
+            {/* Not a way to start a trip — a way to learn the app. It sits in
+                this row because this row is where a first-time rider looks. */}
+            <div className="trip-card start-card guide-card" role="button" tabIndex={0}
+              onClick={onHelp}
+              onKeyDown={(e) => { if (e.key === 'Enter') onHelp(); }}>
+              <div className="gc-mark" aria-hidden="true">?</div>
+              <div className="tc-name">{t('How to use Roadbook')}</div>
+              <div className="tc-meta">{t('Step-by-step directions and walkthrough videos')}</div>
+              <div className="tc-open">{t('Open the guide →')}</div>
             </div>
           </div>
         </section>

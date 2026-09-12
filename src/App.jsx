@@ -17,6 +17,7 @@ import NewTripModal from './components/NewTripModal.jsx';
 import RideMode from './components/RideMode.jsx';
 import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import HelpGuide from './components/HelpGuide.jsx';
 import { RoadbookBrand, SettingsIcon, ThemeToggle } from './components/Chrome.jsx';
 import { ConfirmSheet, InputSheet } from './components/Sheets.jsx';
 import { useTripSync } from './engine/useTripSync.js';
@@ -96,7 +97,10 @@ export default function App() {
   const [mode, setMode] = useState('plan'); // plan | prep
   const [prepFocus, setPrepFocus] = useState(null); // null | feasibility | budget | packing | bookings | file
   const [dockOpen, setDockOpen] = useState(false); // the Copilot dock
-  const [sheet, setSheet] = useState(null); // { type: settings|save-scenario|reset|delete-trip, ... }
+  const [sheet, setSheet] = useState(null); // { type: settings|help|save-scenario|reset|delete-trip, ... }
+  // The guide on the signed-out door cannot ride the sheet stack: Landing
+  // returns before it is rendered.
+  const [helpOnLanding, setHelpOnLanding] = useState(false);
   const [newTrip, setNewTrip] = useState(null); // { tab, prompt } while the modal is open
   const [rideOpen, setRideOpen] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false); // desktop: fold the side panel away, map takes the room
@@ -121,6 +125,31 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem(SCREEN_KEY, screen); } catch { /* non-fatal */ }
   }, [screen]);
+
+  // A link can point straight at the guide — #help, or #help-ride for one
+  // chapter. That is the link you send a friend who has just installed it,
+  // so it has to work on the signed-out door too.
+  useEffect(() => {
+    const read = () => {
+      const hash = (window.location.hash || '').replace(/^#/, '');
+      if (!hash.startsWith('help')) return;
+      const chapter = hash.includes('-') ? hash.slice(hash.indexOf('-') + 1) : undefined;
+      setSheet({ type: 'help', chapter });
+      setHelpOnLanding(true);
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []);
+
+  // Closing the guide drops the hash, or reopening the app would land back in it.
+  const closeHelp = () => {
+    setSheet(null);
+    setHelpOnLanding(false);
+    if ((window.location.hash || '').startsWith('#help')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  };
 
   // Route every day whenever its waypoint sequence OR the trip-wide road
   // character changes. The same preferences also flow into Ride Mode.
@@ -560,6 +589,11 @@ export default function App() {
 
   const sheets = (
     <>
+      {/* The guide depends on nothing but the settings provider, so the same
+          sheet serves home, a trip, and a link arriving cold at #help. */}
+      {sheet?.type === 'help' && (
+        <HelpGuide initialChapter={sheet.chapter} onClose={closeHelp} />
+      )}
       {sheet?.type === 'settings' && (
         <div className="modal-backdrop" onClick={() => setSheet(null)}>
           <div className="modal settings" onClick={(e) => e.stopPropagation()}>
@@ -574,6 +608,7 @@ export default function App() {
                 setGuest(false);
                 setSheet(null);
               }}
+              onHelp={() => setSheet({ type: 'help' })}
             />
           </div>
         </div>
@@ -636,12 +671,15 @@ export default function App() {
   if (auth.recovery || auth.finishAccount || (auth.enabled && !auth.account && !guest)) {
     return (
       <Landing
+        onHelp={() => setHelpOnLanding(true)}
         onGuest={continueAsGuest}
         recovery={auth.recovery}
         finishAccount={auth.finishAccount}
         onRecovered={auth.clearRecovery}
         onFinished={auth.clearFinishAccount}
-      />
+      >
+        {helpOnLanding && <HelpGuide initialChapter={sheet?.type === 'help' ? sheet.chapter : undefined} onClose={closeHelp} />}
+      </Landing>
     );
   }
 
@@ -656,6 +694,7 @@ export default function App() {
           onImport={() => fileRef.current?.click()}
           onDeleteTrip={(rec) => setSheet({ type: 'delete-trip', rec })}
           onSettings={() => setSheet({ type: 'settings' })}
+          onHelp={() => setSheet({ type: 'help' })}
         />
         {newTrip && (
           <NewTripModal
