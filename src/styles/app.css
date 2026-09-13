@@ -913,6 +913,10 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .stop-copy small { margin-top: 1px; font-size: 10.5px; color: var(--ink-faint); }
 .stop-verified { color: var(--ok); font-family: var(--mono); font-size: 10px; }
 .stop-unverified { color: var(--danger); font-family: var(--mono); font-size: 8.5px; font-weight: 500; text-transform: uppercase; }
+.place-glance-row { display: flex; align-items: center; gap: 10px; margin-left: 60px; padding: 2px 0 6px; }
+.place-glance-row .place-glance { display: flex; gap: 8px; align-items: baseline; color: var(--ink-dim); font-size: 11px; }
+.place-glance-row .place-glance b { color: var(--ink); }
+.place-details-btn { margin-left: auto; min-height: 30px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--route); font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
 .place-details { margin-left: 60px; border-top: 1px solid rgba(255,255,255,0.055); }
 .place-details summary {
   min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 10px;

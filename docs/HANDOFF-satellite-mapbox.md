@@ -39,4 +39,7 @@ Public `pk.` token, default public scopes, nothing secret. URL restrictions (Map
 ## Done after the merge (same day)
 - **iOS simulator pass** (iPhone 17 Pro, Safari, the deployed build): Mapbox renders, pinch/pan never fires a tap, a real POI touch opens the card above the mode bar, Mapbox glyphs load, Ride Mode's chase camera reads over Mapbox imagery.
 - **Roadbook's own place page** (`PlaceSheet.jsx`, `place-details.mjs`, `place-photo.mjs`, `src/engine/places.js`) replaces the Google Maps link on the POI card and the picker row — see the CLAUDE.md note. Along the way: POI lookups are location-RESTRICTED (a bias returned Mirch Masalas 500 miles away), and the 44pt phone button rule is re-asserted after the design pass's 38px override.
-- Still linking out: the AI builder's expanded place rows (`TripConstructionChat.jsx`) — a follow-up.
+- **The AI builder's place rows** now show a rating/price glance and a Details button that opens the same PlaceSheet (with "Change this stop" for intermediate stops). Nothing in the app links out to Google Maps any more.
+
+## Next (owner, same day: "what is the plan for the general map view / quick route?")
+Quick Ride today is a form: pick a destination in the picker, get a one-day trip straight into Ride Mode. With tappable POIs and the place sheet, the plan is a **live map on the home screen**: browse the Mapbox map, tap any place, and the sheet offers **Ride here** (a quick route — `buildQuickTrip` with that place as the destination) and **Add to a trip**. One sheet, three doors (map tap, picker, builder), one more action. The Quick Ride form stays as the no-map path (voice, home place).
