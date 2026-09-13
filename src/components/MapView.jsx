@@ -7,7 +7,7 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, emphasizeSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, SAT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, emphasizeSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
 import StopSheet from './StopSheet.jsx';
 import DropPin from './DropPin.jsx';
@@ -111,8 +111,13 @@ export default function MapView() {
 
   const phaseColor = (phase) => {
     if (basemapRef.current === 'light' && LIGHT_SAFE[phase]) return LIGHT_SAFE[phase];
+    if (basemapRef.current === 'sat' && SAT_SAFE[phase]) return SAT_SAFE[phase];
     return PHASES[phase]?.color ?? '#999';
   };
+  // Google's grammar: roads are dark-cased light lines, the ROUTE is a
+  // light-cased coloured one — on satellite (where the roads are drawn that
+  // way) the casing flips to white so the route is never mistaken for a road
+  const routeCasing = () => (basemapRef.current === 'sat' ? '#ffffff' : '#000000');
 
   // Event handlers registered at init would otherwise capture the first render's
   // drawAll (empty routes) — route everything through a ref to the latest one.
@@ -535,6 +540,7 @@ export default function MapView() {
       const lineOpacity = active ? 0.95 : 0.25;
       map.setPaintProperty(`${srcId}-line`, 'line-color', color);
       map.setPaintProperty(`${srcId}-glow`, 'line-color', color);
+      map.setPaintProperty(`${srcId}-casing`, 'line-color', routeCasing());
       map.setPaintProperty(`${srcId}-line`, 'line-opacity', lineOpacity);
       map.setPaintProperty(`${srcId}-line`, 'line-width', lineWidth(sel === day.id ? 4.5 : 3));
       map.setPaintProperty(`${srcId}-casing`, 'line-width', lineWidth(sel === day.id ? 7 : 5.5));

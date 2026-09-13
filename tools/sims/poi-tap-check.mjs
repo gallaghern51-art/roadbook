@@ -41,7 +41,7 @@ const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); 
   // satellite roads: the hairline becomes a lit, cased line
   const n2 = emphasizeSatelliteRoads(fm);
   const w = fm.paint['road-primary']?.['line-width'];
-  check(n2 === 2 && Array.isArray(w) && w[0] === 'interpolate' && w[w.indexOf(9) + 1] >= 3, `satellite: primary roads get a width floor at touring zooms (${n2} layers, ${w?.[w.indexOf(9) + 1]}px at z9)`);
+  check(n2 === 2 && Array.isArray(w) && w[0] === 'interpolate' && w[w.indexOf(9) + 1] >= 2.4, `satellite: primary roads get a width floor at touring zooms (${n2} layers, ${w?.[w.indexOf(9) + 1]}px at z9)`);
   check(fm.zoom['road-primary-case']?.[0] === 5 && Array.isArray(fm.paint['road-primary-case']?.['line-gap-width']) && /hsla\(0, 0%, 0%/.test(fm.paint['road-primary-case']['line-color']), 'and a dark hollow casing from zoom 5');
   check(fm.paint['road-simple'] === undefined && fm.paint['road-label'] === undefined, 'nothing else in the style is touched');
   check(emphasizeSatelliteRoads(fakeMap({ ...MAPBOX_MINI, name: 'Mapbox Streets' })) === 0, 'Streets is left as Mapbox drew it');

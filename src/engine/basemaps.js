@@ -125,8 +125,10 @@ export function tappableLayerIds(map) {
 const ROAD_MAIN = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?$/;
 const ROAD_CASE = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?-case$/;
 const FADE = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 0]; // the style's own: at street zoom the imagery IS the road
-const MAJOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 3, 1, 6, 2, 9, 3.2, 12, 4.5, 18, 28, 22, 280];
-const MINOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 6, 0, 8, 1.6, 10, 2.4, 12, 3.4, 18, 26, 22, 260];
+// widths a step under our route line (3–4.5px + casing), so the road never
+// out-weighs the route drawn on it
+const MAJOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 3, 1, 6, 1.8, 9, 2.6, 12, 3.6, 18, 22, 22, 220];
+const MINOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 6, 0, 8, 1.3, 10, 2, 12, 2.8, 18, 20, 22, 200];
 export function emphasizeSatelliteRoads(map) {
   let style;
   try { style = map.getStyle(); } catch { return 0; }
@@ -137,7 +139,7 @@ export function emphasizeSatelliteRoads(map) {
     const major = /motorway-trunk|primary/.test(layer.id);
     try {
       if (ROAD_MAIN.test(layer.id)) {
-        map.setPaintProperty(layer.id, 'line-color', 'hsl(40, 25%, 96%)');
+        map.setPaintProperty(layer.id, 'line-color', 'hsl(40, 12%, 86%)'); // light, not white: white is the route's casing
         map.setPaintProperty(layer.id, 'line-opacity', FADE);
         map.setPaintProperty(layer.id, 'line-width', major ? MAJOR_W : MINOR_W);
         touched += 1;
@@ -189,6 +191,12 @@ export function hideNativeRoadShields(map) {
 
 // The light-gray "return"/"prep" phases disappear on a light basemap — swap in dark tones.
 export const LIGHT_SAFE = { return: '#1a1a1a', prep: '#5a5a5a' };
+// …and on SATELLITE, where the roads themselves are drawn light with a dark
+// casing (emphasizeSatelliteRoads), a grey route reads as just another road
+// (owner: "the contrast against the grey route [is] impossible to see your
+// route vs regular road"). Saturated stand-ins: the route is the one thing on
+// a satellite map that is not a colour the ground has.
+export const SAT_SAFE = { return: '#4f9cff', prep: '#b48cff' };
 
 // ---- look-ahead tile warming (Ride Mode) ----
 // Only the Esri fallback is plain tile URLs we can prefetch into the browser
