@@ -138,8 +138,9 @@ const onRow = rows.find((r) => /Sinclair/.test(r));
 check(onRow && /(^|\D)0(\.0)? mi off route/.test(onRow), 'a place on the line reads 0 mi off route');
 const exxonRow = rows.find((r) => /Exxon Ridge/.test(r));
 check(exxonRow && /Fills the gap/.test(exxonRow), `a fuel row says what it does for the day's fuel plan ("${(exxonRow || '').match(/Fills the gap[^A-Z]*/)?.[0]?.trim()}")`);
-const pins = await page.evaluate(() => window.__map?.getSource?.('picker-pins')?._data?.features?.length ?? -1);
-check(pins === 3, `the three candidates are drawn on the map (${pins} pins)`);
+await page.waitForFunction(() => document.querySelectorAll('.pl-pin').length === 3, null, { timeout: 4000 }).catch(() => {});
+const pins = await page.locator('.pl-pin').count();
+check(pins === 3, `the three candidates are drawn on the map as pins (${pins} pins)`);
 await page.screenshot({ path: SHOT('nearby-add') });
 // add Exxon as a fuel stop
 await page.locator('.nb-item', { hasText: 'Exxon Ridge' }).locator('.nb-main').click();
@@ -152,7 +153,8 @@ check(exxon && exxon.kind === 'fuel' && exxon.fuel === true && exxon.placeId ===
 const idx = trip.days[0].waypoints.findIndex((w) => w.id === exxon.id);
 check(idx === 1, `inserted by route order — between Basecamp and Granite Diner (index ${idx})`);
 await page.waitForTimeout(300);
-check((await page.evaluate(() => window.__map?.getSource?.('picker-pins')?._data?.features?.length ?? -1)) === 0, 'pins clear when the picker closes');
+await page.waitForFunction(() => document.querySelectorAll('.pl-pin').length === 0, null, { timeout: 4000 }).catch(() => {});
+check((await page.locator('.pl-pin').count()) === 0, 'pins clear when the picker closes');
 
 // ---- 2. swap keeps the role ----
 const diner = page.locator('.wp-row', { hasText: 'Granite Diner' });

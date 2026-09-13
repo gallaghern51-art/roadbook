@@ -28,13 +28,14 @@ const QUICK = [
 const MAX_OFF_MI = 6;   // a place further off the road than this is a plan, not a quick stop
 const SHOW = 3;
 
-export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, onClose }) {
+export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, onClose, onRows = null, tapped = null }) {
   const t = useT();
   const u = useUnits();
   const [cat, setCat] = useState(null);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
+  const [hot, setHot] = useState(null); // a card lit from its pin on the map
   const seq = useRef(0);
   const recRef = useRef(null);
   const pickRef = useRef(null);
@@ -101,6 +102,12 @@ export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, 
 
   pickRef.current = pick;
 
+  // the cards on the map, as pins — the rider sees WHERE the three are on the road
+  useEffect(() => {
+    onRows?.((rows ?? []).map((r) => ({ id: String(r.id), lat: r.lat, lng: r.lng, name: r.name, glyph: cat?.glyph ?? '📍', hot: String(r.id) === hot })));
+  }, [rows, hot, cat]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tapped?.id) { setHot(String(tapped.id)); document.querySelector(`.rqa-card[data-id="${CSS.escape(String(tapped.id))}"]`)?.scrollIntoView({ block: 'nearest' }); } }, [tapped?.at]);
+
   // Escape / a tap on the dimmed map closes it
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -145,7 +152,7 @@ export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, 
               const dist = chain ? r.aheadMi : r.distMi;
               const cuisine = cat.id === 'food' ? cuisineLabel(r.primaryType, r.types) : '';
               return (
-                <button key={`${r.id}`} className={`rqa-card${i === 0 ? ' first' : ''}`} onClick={() => onAdd(r, { fuel: cat.fuel })}>
+                <button key={`${r.id}`} data-id={String(r.id)} className={`rqa-card${i === 0 ? ' first' : ''}${String(r.id) === hot ? ' hot' : ''}`} onClick={() => onAdd(r, { fuel: cat.fuel })}>
                   <span className="rqa-name">{r.name}{cuisine && <em>{cuisine}</em>}</span>
                   <span className="rqa-dist">
                     <b>{u.miNum(dist)}</b> {u.miUnit} {chain ? t('ahead') : ''}

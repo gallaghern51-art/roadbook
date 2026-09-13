@@ -495,6 +495,7 @@ function fuelMarks(day, chain, trip) {
 }
 
 function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
+  const { state: st, ui } = useTrip();
   const t = useT();
   const [open, setOpen] = useState(false);
   const chain = dayChain(day, routes);
@@ -532,7 +533,10 @@ function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
       routePrefs={tripRoutePrefs(trip)}
       gateSlack={gateSlack(day, timeline, parseTime, null)}
       fuelPlan={fuelMarks(day, chain, trip)}
-      onRows={(pins) => dispatch({ type: 'set_picker_pins', pins })}
+      onRows={(pins, o) => dispatch({ type: 'set_picker_pins', pins, ...o })}
+      tapped={st.pickerTap}
+      area={st.pickerArea}
+      halfSheet={!!ui?.panelHalf}
       onPick={pick}
       onClose={() => setOpen(false)}
       title={t('Add a stop to this day')}
@@ -545,6 +549,7 @@ function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
 // a remove-and-add. The ETA the picker judges "open at" against is THIS
 // stop's arrival in the simulated day.
 function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
+  const { state: st, ui } = useTrip();
   const t = useT();
   const { routedLegsByDay } = useTrip();
   const chain = dayChain(day, routes);
@@ -579,7 +584,10 @@ function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
       routePrefs={tripRoutePrefs(trip)}
       gateSlack={gateSlack(day, tl, parseTime, idx)}
       fuelPlan={fuelMarks(day, chain, trip)}
-      onRows={(pins) => dispatch({ type: 'set_picker_pins', pins })}
+      onRows={(pins, o) => dispatch({ type: 'set_picker_pins', pins, ...o })}
+      tapped={st.pickerTap}
+      area={st.pickerArea}
+      halfSheet={!!ui?.panelHalf}
       initialCategory={cat}
       onPick={pick}
       onClose={onClose}
@@ -593,7 +601,7 @@ function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
 // dinner at the day's end.
 function MealSwapPicker({ day, meal, dispatch, onClose }) {
   const t = useT();
-  const { routes, routedLegsByDay, state } = useTrip();
+  const { routes, routedLegsByDay, state, ui } = useTrip();
   const chain = dayChain(day, routes);
   const tl = dayTimeline(day, routedLegsByDay[day.id]);
   const mid = day.waypoints[Math.floor(day.waypoints.length / 2)] ?? day.waypoints[0];
@@ -617,6 +625,10 @@ function MealSwapPicker({ day, meal, dispatch, onClose }) {
       dow={dayDow(day)}
       routePrefs={tripRoutePrefs(state.trip)}
       initialCategory={meal.meal === 'breakfast' ? 'coffee' : 'food'}
+      onRows={(pins, o) => dispatch({ type: 'set_picker_pins', pins, ...o })}
+      tapped={state.pickerTap}
+      area={state.pickerArea}
+      halfSheet={!!ui?.panelHalf}
       onPick={pick}
       onClose={onClose}
       title={`${t('Swap')} ${t(meal.meal)}`}

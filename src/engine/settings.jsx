@@ -221,6 +221,8 @@ const ES = {
   'Measuring the detour…': 'Midiendo el desvío…',
   'Narrow it down — a name, a town…': 'Afina la búsqueda: un nombre, un pueblo…',
   'Near here': 'Cerca de aquí',
+  'Map area': 'Zona del mapa',
+  'Search this area': 'Buscar en esta zona',
   'Near me': 'Cerca de mí',
   'Nothing found — try another chip or add the town name.': 'Nada encontrado: prueba otra categoría o agrega el nombre del pueblo.',
   'Open at your ETA': 'Abierto a tu hora de llegada',

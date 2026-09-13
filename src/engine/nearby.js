@@ -59,9 +59,16 @@ const CUISINE_WORDS = {
   restaurant: '', // bare "restaurant" says nothing — leave the tag off
 };
 
-/** "Mexican", "BBQ", "Steakhouse" — from Google's primaryType (or the first cuisine-ish type). */
-export function cuisineLabel(primaryType, types = []) {
+/**
+ * "Mexican", "BBQ", "Steakhouse" — from Google's primaryType (or the first
+ * cuisine-ish type). `prefer` is the cuisine chip the rider tapped: Google's
+ * strict filter matches ANY of a place's types, so a steakhouse that also
+ * smokes brisket comes back under BBQ with primaryType steak_house — and the
+ * rider who asked for BBQ should read BBQ on it (caught live, Sep 13, 2026).
+ */
+export function cuisineLabel(primaryType, types = [], prefer = null) {
   const pick = (t) => (t in CUISINE_WORDS ? CUISINE_WORDS[t] : null);
+  if (prefer && (primaryType === prefer || (types ?? []).includes(prefer)) && pick(prefer)) return pick(prefer);
   const fromPrimary = pick(primaryType);
   if (fromPrimary) return fromPrimary;
   for (const t of types ?? []) { const w = pick(t); if (w) return w; }

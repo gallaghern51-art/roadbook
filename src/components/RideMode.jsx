@@ -10,6 +10,7 @@ import { viewGate } from '../engine/mapVis.js';
 import { routeDaySteps, routeFrom, trafficEta } from '../engine/routing.js';
 import NearbyPicker from './NearbyPicker.jsx';
 import RideQuickAdd from './RideQuickAdd.jsx';
+import PlacePins from './PlacePins.jsx';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
@@ -350,6 +351,7 @@ export default function RideMode({ onClose }) {
   const [clock, setClock] = useState(nowMin());
   const [steps, setSteps] = useState(null);
   const [mapObj, setMapObj] = useState(null); // the loaded nav map, for marker children
+  const [navMap, setNavMap] = useState(null); // the nav map from creation — DOM markers need no style, and a style that never loads (offline) must not hide the pins
   const [reroute, setReroute] = useState(null); // { geometry, steps } from live position
   const [rerouting, setRerouting] = useState(false);
   const [rerouteFailed, setRerouteFailed] = useState(false);
@@ -357,6 +359,8 @@ export default function RideMode({ onClose }) {
   const [muted, setMuted] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false); // the ride sheet — everything that isn't glanceable
   const [quickAdd, setQuickAdd] = useState(false); // the glove-sized add-ahead overlay
+  const [ridePins, setRidePins] = useState([]);    // the quick add's / sheet picker's candidates, on the nav map
+  const [pinTap, setPinTap] = useState(null);       // {id, at} — a pin tapped on the nav map
   const [navStyle, setNavStyle] = useState('hybrid');
   // Camera grammar, Google-style: track-up is the tilted chase view; north-up
   // is flat overhead with the puck arrow carrying the heading. The compass
@@ -534,6 +538,7 @@ export default function RideMode({ onClose }) {
       maxTileCacheSize: 1024, // keep ridden-past tiles around for overview jumps
     });
     mapRef.current = map;
+    setNavMap(map);
     // console/sim debugging — the GPS-sim SOP asserts on the nav map's paint
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
@@ -573,7 +578,7 @@ export default function RideMode({ onClose }) {
       .setLngLat(start ? [start.lng, start.lat] : [-108, 45])
       .addTo(map);
 
-    return () => { setMapObj(null); map.remove(); mapRef.current = null; };
+    return () => { setMapObj(null); setNavMap(null); map.remove(); mapRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run something that touches sources and layers as soon as the map can take
@@ -1663,10 +1668,14 @@ export default function RideMode({ onClose }) {
           chain={hasRealRoute && geomInfo.chain.length > 1 ? geomInfo.chain : null}
           fromAlong={geoProj?.along ?? 0}
           speak={speak}
-          onAdd={(r, { fuel }) => { setQuickAdd(false); addStop(r, fuel); speak(`${t('Added')} ${r.name}.`); }}
-          onClose={(why) => { setQuickAdd(false); if (why === 'sheet') { setSheetOpen(true); setTimeout(() => document.querySelector('.ride-sheet .nb-q')?.focus(), 350); } }}
+          onRows={setRidePins}
+          tapped={pinTap}
+          onAdd={(r, { fuel }) => { setQuickAdd(false); setRidePins([]); addStop(r, fuel); speak(`${t('Added')} ${r.name}.`); }}
+          onClose={(why) => { setQuickAdd(false); setRidePins([]); if (why === 'sheet') { setSheetOpen(true); setTimeout(() => document.querySelector('.ride-sheet .nb-q')?.focus(), 350); } }}
         />
       )}
+      {/* candidates on the road ahead, as pins the rider can see past the cards */}
+      <PlacePins map={navMap} pins={ridePins} mode="ride" onTap={(id) => setPinTap({ id, at: Date.now() })} />
       {/* ---- right edge: one-tap controls, glove-sized ---- */}
       {!sheetOpen && (
       <div className="ride-fabs">
@@ -1841,7 +1850,9 @@ export default function RideMode({ onClose }) {
                     nextStop={nextWp && Number.isFinite(nextWp.lat) ? { lat: nextWp.lat, lng: nextWp.lng } : null}
                     routePrefs={routePrefs}
                     initialCategory="fuel"
-                    onPick={(r, { fuel }) => addStop(r, fuel)}
+                    onRows={(pins) => setRidePins(pins)}
+                    tapped={pinTap}
+                    onPick={(r, { fuel }) => { setRidePins([]); addStop(r, fuel); }}
                     title={t('Add a stop ahead')}
                   />
                 </div>

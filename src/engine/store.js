@@ -135,7 +135,11 @@ export const initialState = () => {
     chatAsk: null, // question queued for the optimizer
     opLog: [], // ops since the last collab mark — a rider's unsent proposal
     focusLeg: null, // { dayId, index } — hovered leg, highlighted on the map
-    pickerPins: [], // [{lat,lng,name,hot}] — the place picker's current rows, drawn on the map
+    pickerPins: [], // [{id,lat,lng,name,glyph,hot}] — the place picker's current rows, drawn on the map as pins
+    pickerActive: false, // a picker is mounted (the map offers "Search this area")
+    pickerFit: 0,       // bumped when a NEW result set lands — the map frames it once
+    pickerTap: null,    // {id, at} — a pin the rider tapped; the picker expands that row
+    pickerArea: null,   // {lat, lng, at} — the rider asked to search around the map centre
   };
 };
 
@@ -328,7 +332,16 @@ export function reducer(state, action) {
       // `at` makes re-clicking the same stop re-trigger the map effect.
       return { ...state, focus: { lat: action.lat, lng: action.lng, at: Date.now() } };
     case 'set_picker_pins':
-      return { ...state, pickerPins: Array.isArray(action.pins) ? action.pins : [] };
+      return {
+        ...state,
+        pickerPins: Array.isArray(action.pins) ? action.pins : [],
+        pickerActive: action.active === undefined ? state.pickerActive : !!action.active,
+        pickerFit: action.fit ? Date.now() : state.pickerFit,
+      };
+    case 'picker_pin_tap':
+      return { ...state, pickerTap: { id: String(action.id), at: Date.now() } };
+    case 'picker_area':
+      return { ...state, pickerArea: { lat: action.lat, lng: action.lng, at: Date.now() } };
     case 'focus_leg':
       // Hovering a stop row lights its arriving leg on the map. null clears.
       return { ...state, focusLeg: action.leg ?? null };

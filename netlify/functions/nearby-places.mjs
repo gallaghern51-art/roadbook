@@ -33,7 +33,11 @@ const TYPES = {
   coffee: { type: 'cafe', query: 'coffee' },
   lodging: { type: 'lodging', query: 'motel hotel lodging' },
   sights: { type: 'tourist_attraction', query: 'scenic viewpoint attraction' },
-  moto: { type: 'motorcycle_repair_shop', query: 'motorcycle repair dealer' },
+  // Google Places has NO motorcycle type to filter on (motorcycle_repair_shop
+  // is rejected as an invalid includedType — caught live, Sep 13, 2026): the
+  // shops come back typed car_repair / store. So Moto is a text search with no
+  // type filter, kept to rows that read as a bike shop by name or are repair.
+  moto: { type: null, query: 'motorcycle repair shop dealer', keep: (p) => /motor|cycle|moto|powersport|twin|harley|indian|bmw|ducati|triumph|honda|yamaha|kawasaki|suzuki|ktm|bike/i.test(p.name ?? '') || (p.types ?? []).includes('car_repair') },
   help: { type: 'hospital', query: 'hospital urgent care' },
 };
 
@@ -98,7 +102,8 @@ export default async (req) => {
       encodedPolyline: route ? encodePolyline5(route) : null,
     });
     // permanently closed places are not options
-    const open = places.filter((p) => p.status !== 'CLOSED_PERMANENTLY');
+    let open = places.filter((p) => p.status !== 'CLOSED_PERMANENTLY');
+    if (cat?.keep) open = open.filter(cat.keep);
     return Response.json(open, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
     return Response.json({ error: String(e.message).slice(0, 300) }, { status: 502 });

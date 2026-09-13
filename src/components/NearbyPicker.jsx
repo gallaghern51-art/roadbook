@@ -27,14 +27,19 @@ export default function NearbyPicker({
   near, chain = null, fromAlong = 0, nextStop = null, etaMin = null, dow = null, routePrefs,
   mode = 'add', initialCategory = null, onPick, onClose, title, gateSlack = [],
   fuelPlan = null, // { comfortMi, marks: [alongMi of start, every fuel stop, end] } — for fuel rows on a routed day
-  onRows = null,   // (rows, hotId) → the caller draws them on the map
+  onRows = null,   // (pins, {fit, active}) → the caller draws them on the map as tappable pins
+  tapped = null,   // {id, at} — a pin the rider tapped on the map: expand that row, scroll to it
+  area = null,     // {lat, lng, at} — the rider pressed "Search this area" on the map
+  halfSheet = false, // phone: the panel is a half sheet over the map — keep the picker at its top
 }) {
   const t = useT();
   const u = useUnits();
   const [cat, setCat] = useState(initialCategory);
   const [sub, setSub] = useState(null); // cuisine under Food
   const [q, setQ] = useState('');
-  const [scope, setScope] = useState(chain ? 'route' : 'near'); // near | route
+  const [scope, setScope] = useState(chain ? 'route' : 'near'); // near | route | area
+  const [center, setCenter] = useState(null); // {lat,lng} — the map centre, for scope 'area'
+  const rootRef = useRef(null);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -50,9 +55,10 @@ export default function NearbyPicker({
     try {
       let res;
       try {
+        const at = scope === 'area' && center ? center : near;
         res = await searchNearby({
-          category: cat, subtype: cat === 'food' ? sub : null, query: q.trim(), near,
-          radiusMi: scope === 'route' ? 60 : 25,
+          category: cat, subtype: cat === 'food' ? sub : null, query: q.trim(), near: at,
+          radiusMi: scope === 'route' ? 60 : scope === 'area' ? 15 : 25,
           route: scope === 'route' && chain ? chain.map((p) => [p.lng, p.lat]) : null,
         });
       } catch (e) {
@@ -61,7 +67,7 @@ export default function NearbyPicker({
         else throw e;
       }
       if (my !== seq.current) return;
-      const enriched = enrichAlong(res, chain, { near, fromAlong });
+      const enriched = enrichAlong(res, chain, { near: scope === 'area' && center ? center : near, fromAlong });
       // sort: along-route by aheadMi (behind-you last) when the rider is
       // MOVING through the day (add / ride); by road distance from the stop
       // when swapping — "behind" means nothing for a stop you are replacing
@@ -85,7 +91,7 @@ export default function NearbyPicker({
   };
 
   // chips and scope search at once; typing is debounced
-  useEffect(() => { run(); }, [cat, sub, scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { run(); }, [cat, sub, scope, center]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     clearTimeout(timer.current);
     if (!q.trim()) return undefined;
@@ -93,10 +99,40 @@ export default function NearbyPicker({
     return () => clearTimeout(timer.current);
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const lastRows = useRef(null);
   useEffect(() => {
-    onRows?.((rows ?? []).map((r) => ({ lat: r.lat, lng: r.lng, name: r.name, hot: r.id === open })));
+    const glyph = CATEGORIES.find((c) => c.id === cat)?.glyph ?? '📍';
+    const fresh = rows !== lastRows.current; // a new list, not a row opening
+    lastRows.current = rows;
+    onRows?.((rows ?? []).map((r) => ({ id: String(r.id), lat: r.lat, lng: r.lng, name: r.name, glyph, hot: r.id === open })), { fit: fresh && (rows?.length ?? 0) > 0, active: true });
+    // on a phone the panel is a half sheet while pins are up: the picker, not
+    // the day header above it, is what should be in that half
+    if (fresh && rows?.length && halfSheet) rootRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, [rows, open]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => onRows?.([]), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onRows?.([], { active: false }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // the half sheet arrives one render AFTER the pins that caused it — scroll then too
+  useEffect(() => {
+    if (!halfSheet) return undefined;
+    const id = setTimeout(() => rootRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 80);
+    return () => clearTimeout(id);
+  }, [halfSheet]);
+
+  // A pin tapped on the map is a row chosen here: expand it and bring it into view.
+  useEffect(() => {
+    if (!tapped?.id || !rows) return;
+    const r = rows.find((x) => String(x.id) === String(tapped.id));
+    if (!r) return;
+    if (open !== r.id) expand(r);
+    requestAnimationFrame(() => rootRef.current?.querySelector(`[data-id="${CSS.escape(String(r.id))}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  }, [tapped?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "Search this area": the map centre becomes the bias point
+  useEffect(() => {
+    if (!area?.at || !Number.isFinite(area.lat)) return;
+    setCenter({ lat: area.lat, lng: area.lng });
+    setScope('area');
+    if (!cat && q.trim().length < 2) setCat('food'); // something to look for
+  }, [area?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A fuel candidate's worth is the stretch it leaves on either side. Marks are
   // the along-route positions of the start, every fuel stop and the end; the
@@ -132,7 +168,7 @@ export default function NearbyPicker({
   };
 
   return (
-    <div className={`nearby nearby-${mode}`} role="region" aria-label={title ?? t('Find a place')}>
+    <div ref={rootRef} className={`nearby nearby-${mode}`} role="region" aria-label={title ?? t('Find a place')}>
       <div className="nb-head">
         <b>{title ?? (mode === 'swap' ? t('Swap this stop for…') : t('Find a place'))}</b>
         {onClose && <button className="mini-edit" onClick={onClose} aria-label={t('Cancel')}>✕</button>}
@@ -163,10 +199,11 @@ export default function NearbyPicker({
           enterKeyHint="search"
           autoComplete="off"
         />
-        {chain && (
+        {(chain || center) && (
           <div className="nb-scope" role="radiogroup" aria-label={t('Where to look')}>
-            <button role="radio" aria-checked={scope === 'route'} className={scope === 'route' ? 'active' : ''} onClick={() => setScope('route')}>{t('Along route')}</button>
+            {chain && <button role="radio" aria-checked={scope === 'route'} className={scope === 'route' ? 'active' : ''} onClick={() => setScope('route')}>{t('Along route')}</button>}
             <button role="radio" aria-checked={scope === 'near'} className={scope === 'near' ? 'active' : ''} onClick={() => setScope('near')}>{mode === 'ride' ? t('Near me') : t('Near here')}</button>
+            {center && <button role="radio" aria-checked={scope === 'area'} className={scope === 'area' ? 'active' : ''} onClick={() => setScope('area')}>{t('Map area')}</button>}
           </div>
         )}
       </div>
@@ -182,12 +219,12 @@ export default function NearbyPicker({
             const d = detour[r.id];
             const behind = mode !== 'swap' && Number.isFinite(r.aheadMi) && r.aheadMi < -0.3;
             return (
-              <li key={`${r.source}:${r.id}`} className={`nb-item${open === r.id ? ' open' : ''}${behind ? ' behind' : ''}`}>
+              <li key={`${r.source}:${r.id}`} data-id={String(r.id)} className={`nb-item${open === r.id ? ' open' : ''}${behind ? ' behind' : ''}`}>
                 <button className="nb-main" onClick={() => expand(r)} aria-expanded={open === r.id}>
                   <span className="nb-name">{r.name}</span>
                   <span className="nb-facts">
                     {/* what kind of place, first — the fact a rider scans a food list for */}
-                    {cuisineLabel(r.primaryType, r.types) && <span className="nb-cuisine">{cuisineLabel(r.primaryType, r.types)}</span>}
+                    {cuisineLabel(r.primaryType, r.types, cat === 'food' ? sub : null) && <span className="nb-cuisine">{cuisineLabel(r.primaryType, r.types, cat === 'food' ? sub : null)}</span>}
                     {Number.isFinite(r.rating) && <span className="nb-rate">★ {r.rating.toFixed(1)}{r.userRatingCount ? <small> ({r.userRatingCount})</small> : null}</span>}
                     {priceGlyph(r.priceLevel) && <span className="nb-price">{priceGlyph(r.priceLevel)}</span>}
                     {Number.isFinite(r.offRouteMi) && scope === 'route'

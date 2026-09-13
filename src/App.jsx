@@ -305,8 +305,12 @@ export default function App() {
   const selectedDay = state.trip.days.find((d) => d.id === state.selectedDayId) ?? null;
 
   const showPanel = () => setPanelOpen(true);
+  // While a place search has pins on the map, a phone's panel drops to a half
+  // sheet so the pins are visible and tappable above it — a search whose
+  // results are drawn under an opaque panel is drawn for nobody.
+  const panelHalf = isMobile && panelOpen && mode === 'plan' && state.pickerActive && (state.pickerPins?.length ?? 0) > 0;
   const ui = {
-    isMobile, panelOpen, setPanelOpen, showPanel, routeLoad,
+    isMobile, panelOpen, setPanelOpen, showPanel, routeLoad, panelHalf,
     routePreview, beginRoutePreview, closeRoutePreview, applyRoutePreview, researchRouteAlternatives,
     saveAsTemplate: () => setSheet({ type: 'save-template' }),
   };
@@ -832,13 +836,13 @@ export default function App() {
             ResizeObserver in MapView resizes it when it comes back. */}
         <div
           className="main"
-          data-panel={isMobile && panelOpen ? 'open' : 'closed'}
+          data-panel={panelHalf ? 'half' : isMobile && panelOpen ? 'open' : 'closed'}
           data-collapsed={!isMobile && panelCollapsed ? 'yes' : 'no'}
         >
           <MapView />
           {/* the visible strip of map beside the open panel dismisses it —
               tapping what you want to get back to is the gesture */}
-          {isMobile && panelOpen && (
+          {isMobile && panelOpen && !panelHalf && (
             <button className="panel-scrim" aria-label={t('Back to the map')} onClick={() => setPanelOpen(false)} />
           )}
           <aside className="side">
