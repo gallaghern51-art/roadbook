@@ -34,9 +34,45 @@ export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, 
   const [cat, setCat] = useState(null);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [listening, setListening] = useState(false);
   const seq = useRef(0);
+  const recRef = useRef(null);
+  const pickRef = useRef(null);
+
+  // Voice-first: the overlay LISTENS the moment it opens. "Fuel", "gas",
+  // "food", "coffee", "help" — one word, gloves stay on the bars. Web Speech
+  // is Safari/Chrome-only and needs the same gesture that opened us, which
+  // is why it starts here and not on a timer.
+  const SR = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  const heard = (text) => {
+    const w = String(text || '').toLowerCase();
+    const c = /fuel|gas|petrol|tank/.test(w) ? QUICK[0]
+      : /food|eat|lunch|dinner|breakfast|hungry|restaurant|diner/.test(w) ? QUICK[1]
+      : /coffee|cafe|caffeine/.test(w) ? QUICK[2]
+      : /help|hospital|doctor|emergency|medic/.test(w) ? QUICK[3] : null;
+    if (c) pickRef.current?.(c);
+    return !!c;
+  };
+  const listen = () => {
+    if (!SR || recRef.current) return;
+    try {
+      const rec = new SR();
+      rec.lang = 'en-US'; rec.continuous = false; rec.interimResults = false; rec.maxAlternatives = 3;
+      rec.onresult = (e) => {
+        const alts = [...(e.results?.[0] ?? [])].map((a) => a.transcript);
+        if (!alts.some(heard)) speak?.(t('Say fuel, food, coffee or help.'));
+      };
+      rec.onend = () => { recRef.current = null; setListening(false); };
+      rec.onerror = () => { recRef.current = null; setListening(false); };
+      rec.start();
+      recRef.current = rec;
+      setListening(true);
+    } catch { recRef.current = null; setListening(false); }
+  };
+  useEffect(() => { listen(); return () => { try { recRef.current?.abort?.(); } catch { /* gone */ } }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = async (c) => {
+    try { recRef.current?.abort?.(); } catch { /* gone */ }
     setCat(c); setRows(null); setBusy(true);
     const my = ++seq.current;
     try {
@@ -63,6 +99,8 @@ export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, 
     }
   };
 
+  pickRef.current = pick;
+
   // Escape / a tap on the dimmed map closes it
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -85,6 +123,11 @@ export default function RideQuickAdd({ fix, chain, fromAlong = 0, speak, onAdd, 
                 <i aria-hidden="true">{c.glyph}</i><span>{t(c.label)}</span>
               </button>
             ))}
+            {SR && (
+              <button className={`rqa-mic${listening ? ' on' : ''}`} onClick={listen} aria-pressed={listening}>
+                {listening ? `🎙 ${t('Listening — say fuel, food, coffee or help')}` : `🎙 ${t('Tap to speak')}`}
+              </button>
+            )}
             <button className="rqa-more" onClick={() => onClose?.('sheet')}>{t('More options…')}</button>
           </div>
         )}

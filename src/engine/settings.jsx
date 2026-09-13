@@ -172,6 +172,13 @@ const ES = {
   'one-day rides from where you were — ride again, or make one a trip': 'rodadas de un día desde donde estabas: repítelas o convierte una en viaje',
   'Make it a trip': 'Convertir en viaje',
   // nearby picker
+  'Fills the gap': 'Cubre el tramo',
+  'Still leaves': 'Aún deja',
+  'past your': 'más allá de tu',
+  'range': 'autonomía',
+  'Say fuel, food, coffee or help.': 'Di gasolina, comida, café o ayuda.',
+  'Listening — say fuel, food, coffee or help': 'Escuchando: di gasolina, comida, café o ayuda',
+  'Tap to speak': 'Toca para hablar',
   'Breaks': 'Rompe',
   'by': 'por',
   'to spare': 'de margen',

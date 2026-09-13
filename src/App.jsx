@@ -129,6 +129,22 @@ export default function App() {
     try { localStorage.setItem(SCREEN_KEY, screen); } catch { /* non-fatal */ }
   }, [screen]);
 
+  // Quick rides are ephemera: after 30 days an un-promoted one goes, through
+  // the same delete path a rider would use — and only once the account backup
+  // has synced (or there is no account), so the cloud gets its tombstone
+  // instead of restoring the ride on the next sign-in.
+  const prunedRef = useRef(false);
+  useEffect(() => {
+    if (prunedRef.current) return;
+    if (auth.account && backup.status !== 'saved') return;
+    prunedRef.current = true;
+    const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    for (const rec of state.lib.trips) {
+      if (!rec.trip?.meta?.quick || rec.id === state.lib.activeId) continue;
+      if (new Date(rec.updatedAt || 0).getTime() < cutoff) dispatch({ type: 'delete_trip', id: rec.id });
+    }
+  }, [auth.account, backup.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A link can point straight at the guide — #help, or #help-ride for one
   // chapter. That is the link you send a friend who has just installed it,
   // so it has to work on the signed-out door too.

@@ -26,6 +26,8 @@ import { useT, useUnits } from '../engine/settings.jsx';
 export default function NearbyPicker({
   near, chain = null, fromAlong = 0, nextStop = null, etaMin = null, dow = null, routePrefs,
   mode = 'add', initialCategory = null, onPick, onClose, title, gateSlack = [],
+  fuelPlan = null, // { comfortMi, marks: [alongMi of start, every fuel stop, end] } — for fuel rows on a routed day
+  onRows = null,   // (rows, hotId) → the caller draws them on the map
 }) {
   const t = useT();
   const u = useUnits();
@@ -90,6 +92,25 @@ export default function NearbyPicker({
     timer.current = setTimeout(run, 450);
     return () => clearTimeout(timer.current);
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    onRows?.((rows ?? []).map((r) => ({ lat: r.lat, lng: r.lng, name: r.name, hot: r.id === open })));
+  }, [rows, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onRows?.([]), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A fuel candidate's worth is the stretch it leaves on either side. Marks are
+  // the along-route positions of the start, every fuel stop and the end; the
+  // candidate splits the gap it falls in. Past the comfortable range on either
+  // side and it is not the station that fixes the day.
+  const fuelVerdict = (r) => {
+    if (!fuelPlan || cat !== 'fuel' || !Number.isFinite(r.alongMi)) return null;
+    const before = Math.max(...fuelPlan.marks.filter((m) => m <= r.alongMi), -Infinity);
+    const after = Math.min(...fuelPlan.marks.filter((m) => m >= r.alongMi), Infinity);
+    const gapBefore = Number.isFinite(before) ? r.alongMi - before : null;
+    const gapAfter = Number.isFinite(after) ? after - r.alongMi : null;
+    const worst = Math.max(gapBefore ?? 0, gapAfter ?? 0);
+    return { gapBefore, gapAfter, ok: worst <= fuelPlan.comfortMi, worst };
+  };
 
   const expand = async (r) => {
     setOpen((cur) => (cur === r.id ? null : r.id));
@@ -177,6 +198,13 @@ export default function NearbyPicker({
                         }</span>
                       : Number.isFinite(r.distMi) && <span className="nb-dist">{u.miNum(r.distMi)} {u.miUnit}</span>}
                     {ob && <span className={`nb-open ${ob.cls}`}>{ob.txt}</span>}
+                    {(() => {
+                      const f = fuelVerdict(r);
+                      if (!f) return null;
+                      return f.ok
+                        ? <span className="nb-fuel ok">{t('Fills the gap')} · {u.miNum(f.gapBefore ?? 0)} / {u.miNum(f.gapAfter ?? 0)} {u.miUnit}</span>
+                        : <span className="nb-fuel bad">{t('Still leaves')} {u.miNum(f.worst)} {u.miUnit} {t('past your')} {u.miNum(fuelPlan.comfortMi)} {u.miUnit} {t('range')}</span>;
+                    })()}
                     {r.verified !== false && r.source === 'google' && <span className="nb-ver">✓</span>}
                   </span>
                   {r.detail && <span className="nb-addr">{r.detail}</span>}

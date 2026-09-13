@@ -124,7 +124,7 @@ export const CHAPTERS = [
       },
       {
         t: 'Add a stop — by category, along the route',
-        b: 'Press "Find a place" in the day panel. Chips for Fuel, Food, Coffee, Lodging, Sights, Moto and Help; "Along route" lists what sits on the road you are riding with how far off it each place is, "Near here" lists by distance. Every row carries rating, price and whether it is open. Tap a row for its hours and the measured detour to the next stop. New stops are inserted by ROUTE order, so a stop on a loop day lands in the leg it actually belongs to.',
+        b: 'Press "Find a place" in the day panel. Chips for Fuel, Food, Coffee, Lodging, Sights, Moto and Help; "Along route" lists what sits on the road you are riding with how far off it each place is, "Near here" lists by distance. Every row carries rating, price and whether it is open; food rows say what kind of food, fuel rows say what the station does for your range ("Fills the gap", or how many miles it still leaves past it). The candidates are drawn on the map as you browse. Tap a row for its hours, the measured detour to the next stop, and whether that detour breaks a hard gate later in the day. New stops are inserted by ROUTE order, so a stop on a loop day lands in the leg it actually belongs to.',
       },
       {
         t: 'Swap a stop, keep its role',
@@ -352,7 +352,7 @@ export const CHAPTERS = [
       },
       {
         t: 'Need fuel, food, coffee or help — now',
-        b: 'The magnifier opens four big buttons. Tap one and you get the three best places AHEAD on the road you are riding — how far ahead, how far off the road, open or not — read out loud, each with one big Add. One tap adds it, reroutes, and confirms by voice. "More options" opens the full browse with cuisines, hours and a text box for when you are parked.',
+        b: 'The magnifier opens four big buttons — and starts listening: say "fuel", "food", "coffee" or "help" and it searches with no tap at all. Either way you get the three best places AHEAD on the road you are riding — how far ahead, how far off the road, open or not — read out loud, each with one big Add. One tap adds it, reroutes, and confirms by voice. "More options" opens the full browse with cuisines, hours and a text box for when you are parked.',
       },
       {
         t: 'Know the limits',

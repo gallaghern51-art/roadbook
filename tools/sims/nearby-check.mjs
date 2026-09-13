@@ -74,6 +74,12 @@ await page.addInitScript(() => {
   const fakeSynth = { speak: (u) => window.__spoken.push(u.text), cancel() {}, resume() {}, getVoices: () => [], speaking: false, pending: false, paused: false, addEventListener() {}, removeEventListener() {} };
   Object.defineProperty(window, 'speechSynthesis', { value: fakeSynth, configurable: true });
   window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  window.__saidGas = 0;
+  // Chromium ships an unprefixed SpeechRecognition too — stub both, or the native one wins
+  window.SpeechRecognition = window.webkitSpeechRecognition = function () {
+    this.start = () => { window.__saidGas++; setTimeout(() => this.onresult?.({ results: [[{ transcript: 'I need gas' }]] }), 1200); };
+    this.abort = () => {}; this.stop = () => {};
+  };
   const stub = { watchPosition: (cb) => { window.__geoCb = cb; return 1; }, clearWatch: () => {}, getCurrentPosition: (cb) => { if (window.__lastFix) cb(window.__lastFix); } };
   Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
   window.__feed = (lat, lng, heading, mps) => { window.__lastFix = { coords: { latitude: lat, longitude: lng, accuracy: 5, speed: mps, heading }, timestamp: Date.now() }; window.__geoCb?.(window.__lastFix); };
@@ -130,6 +136,10 @@ const offMi = Number((offRow || '').match(/([\d.]+) mi off route/)?.[1]);
 check(offMi >= 3 && offMi <= 7, `an off-line place says how far off the road it is (${offMi} mi; 0.09° north of a NE-running line)`);
 const onRow = rows.find((r) => /Sinclair/.test(r));
 check(onRow && /(^|\D)0(\.0)? mi off route/.test(onRow), 'a place on the line reads 0 mi off route');
+const exxonRow = rows.find((r) => /Exxon Ridge/.test(r));
+check(exxonRow && /Fills the gap/.test(exxonRow), `a fuel row says what it does for the day's fuel plan ("${(exxonRow || '').match(/Fills the gap[^A-Z]*/)?.[0]?.trim()}")`);
+const pins = await page.evaluate(() => window.__map?.getSource?.('picker-pins')?._data?.features?.length ?? -1);
+check(pins === 3, `the three candidates are drawn on the map (${pins} pins)`);
 await page.screenshot({ path: SHOT('nearby-add') });
 // add Exxon as a fuel stop
 await page.locator('.nb-item', { hasText: 'Exxon Ridge' }).locator('.nb-main').click();
@@ -141,6 +151,8 @@ const exxon = trip.days[0].waypoints.find((w) => w.name === 'Exxon Ridge');
 check(exxon && exxon.kind === 'fuel' && exxon.fuel === true && exxon.placeId === 'g2' && exxon.verified === 'google', 'the fuel-chip pick lands as a verified fuel stop with place identity');
 const idx = trip.days[0].waypoints.findIndex((w) => w.id === exxon.id);
 check(idx === 1, `inserted by route order — between Basecamp and Granite Diner (index ${idx})`);
+await page.waitForTimeout(300);
+check((await page.evaluate(() => window.__map?.getSource?.('picker-pins')?._data?.features?.length ?? -1)) === 0, 'pins clear when the picker closes');
 
 // ---- 2. swap keeps the role ----
 const diner = page.locator('.wp-row', { hasText: 'Granite Diner' });
@@ -211,8 +223,10 @@ await page.waitForTimeout(600);
   check(bigs.length === 4 && /Fuel/.test(bigs[0]), `four giant choices, fuel first (${bigs.map((b) => b.replace(/\s+/g, ' ').trim()).join(' · ')})`);
   const bb = await page.locator('.rqa-big').first().boundingBox();
   check(bb.height >= 90 && bb.width >= 140, `each choice is a glove target (${Math.round(bb.width)}×${Math.round(bb.height)})`);
-  await page.locator('.rqa-big', { hasText: 'Fuel' }).click();
+  // voice-first: the overlay started listening on open and "I need gas" is the tap
   await page.waitForSelector('.rqa-card', { timeout: 6000 });
+  check((await page.evaluate(() => window.__saidGas)) >= 1, 'the overlay listened the moment it opened');
+  check((await page.locator('.rqa-head b').textContent()).includes('Fuel'), 'saying "I need gas" chose Fuel with no tap');
   const cards = await page.locator('.rqa-card').allTextContents();
   check(cards.length <= 3 && cards.length >= 2, `at most three cards, only places AHEAD (${cards.length})`);
   check(cards.every((c) => /ahead/.test(c)), 'every card says how far ahead');

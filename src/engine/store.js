@@ -135,6 +135,7 @@ export const initialState = () => {
     chatAsk: null, // question queued for the optimizer
     opLog: [], // ops since the last collab mark — a rider's unsent proposal
     focusLeg: null, // { dayId, index } — hovered leg, highlighted on the map
+    pickerPins: [], // [{lat,lng,name,hot}] — the place picker's current rows, drawn on the map
   };
 };
 
@@ -326,6 +327,8 @@ export function reducer(state, action) {
     case 'focus_point':
       // `at` makes re-clicking the same stop re-trigger the map effect.
       return { ...state, focus: { lat: action.lat, lng: action.lng, at: Date.now() } };
+    case 'set_picker_pins':
+      return { ...state, pickerPins: Array.isArray(action.pins) ? action.pins : [] };
     case 'focus_leg':
       // Hovering a stop row lights its arriving leg on the map. null clears.
       return { ...state, focusLeg: action.leg ?? null };

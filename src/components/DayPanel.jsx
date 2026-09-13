@@ -9,7 +9,7 @@ import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute, summaryI
 import { dayTimeline, fmtTime, fmtDur, to24h, from24h, parseTime } from '../engine/timeline.js';
 import NearbyPicker from './NearbyPicker.jsx';
 import { gateSlack } from '../engine/nearby.js';
-import { tripRoutePrefs, alongOnRoute } from '../engine/tripEngine.js';
+import { tripRoutePrefs, alongOnRoute, tripRange } from '../engine/tripEngine.js';
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
@@ -463,6 +463,18 @@ function dayChain(day, routes) {
   return geom?.length > 1 ? geom.map(([lng, lat]) => ({ lat, lng })) : null;
 }
 const dayDow = (day) => (day?.date ? new Date(`${day.date}T12:00:00`).getDay() : null);
+// Where the day's fuel already is, along the routed line — the start and the
+// end count as fuel marks (you leave full, you can fill on arrival).
+function fuelMarks(day, chain, trip) {
+  if (!chain) return null;
+  const marks = [];
+  day.waypoints.forEach((w, i) => {
+    if (!(i === 0 || i === day.waypoints.length - 1 || w.fuel || w.kind === 'fuel')) return;
+    const a = alongOnRoute(chain, { lat: w.lat, lng: w.lng })?.along;
+    if (Number.isFinite(a)) marks.push(a);
+  });
+  return { comfortMi: tripRange(trip).comfort, marks };
+}
 
 function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
   const t = useT();
@@ -501,6 +513,8 @@ function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
       dow={dayDow(day)}
       routePrefs={tripRoutePrefs(trip)}
       gateSlack={gateSlack(day, timeline, parseTime, null)}
+      fuelPlan={fuelMarks(day, chain, trip)}
+      onRows={(pins) => dispatch({ type: 'set_picker_pins', pins })}
       onPick={pick}
       onClose={() => setOpen(false)}
       title={t('Add a stop to this day')}
@@ -546,6 +560,8 @@ function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
       dow={dayDow(day)}
       routePrefs={tripRoutePrefs(trip)}
       gateSlack={gateSlack(day, tl, parseTime, idx)}
+      fuelPlan={fuelMarks(day, chain, trip)}
+      onRows={(pins) => dispatch({ type: 'set_picker_pins', pins })}
       initialCategory={cat}
       onPick={pick}
       onClose={onClose}
