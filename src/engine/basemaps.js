@@ -51,9 +51,9 @@ export const BASEMAPS = {
 // "Map Tiles API" enabled on the Google project. Everything degrades to the
 // free basemaps above when the key is absent or a session can't be created.
 
-export const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || '';
-const GT_CACHE = 'moto.gtiles.v2';
-try { localStorage.removeItem('moto.gtiles.v1'); } catch { /* older, unstyled sessions */ }
+export const GOOGLE_KEY = (import.meta.env ?? {}).VITE_GOOGLE_MAPS_KEY || ''; // `?? {}` so node check scripts can import this
+const GT_CACHE = 'moto.gtiles.v3';
+try { localStorage.removeItem('moto.gtiles.v1'); localStorage.removeItem('moto.gtiles.v2'); } catch { /* older sessions, styled differently */ }
 
 // mapType key → createSession body. hybrid = satellite imagery + road overlay.
 const G_SESSION_SPECS = {
@@ -71,6 +71,16 @@ const G_SESSION_SPECS = {
 const NO_ROAD_SHIELDS = [
   { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
 ];
+// And Google's business/POI icons (owner, Sep 13 2026: "the satellite view has
+// the location pins as flat images you can't interact with"). In Google Maps
+// those icons are vector features with ids behind them; in a raster tile they
+// are pixels, and a pin that looks tappable and is not is a small lie on every
+// screen. The names stay; the icons go. Our own pins — the trip's stops, and
+// the place picker's candidates — are the only pins, and they are real.
+const NO_POI_ICONS = [
+  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+];
+export const TILE_STYLES = [...NO_ROAD_SHIELDS, ...NO_POI_ICONS];
 
 function loadGtCache() {
   try { return JSON.parse(localStorage.getItem(GT_CACHE) || '{}'); } catch { return {}; }
@@ -126,7 +136,9 @@ export async function googleStyle(kind) {
   // that will not open at all costs the whole basemap — so a rejected style
   // falls back to a plain session (doubled shields, still a map) rather than
   // dropping the rider onto Esri.
-  const json = await open({ ...spec, styles: NO_ROAD_SHIELDS })
+  // Staged: both styles, then shields-only, then a plain session.
+  const json = await open({ ...spec, styles: TILE_STYLES })
+    .catch(() => open({ ...spec, styles: NO_ROAD_SHIELDS }))
     .catch(() => open(spec));
   const rec = { session: json.session, expiry: Number(json.expiry) };
   try {

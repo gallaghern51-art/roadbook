@@ -4532,3 +4532,58 @@ input:focus, textarea:focus, select:focus {
 
 .phase-select.more { --seg-color: var(--ink-faint); color: var(--ink-dim); }
 .fld.phase-unused { opacity: 0.55; }
+
+/* ---- Place pins: the picker's candidates on the map (PlacePins.jsx) ----
+   A glyph in a turquoise roundel — route intelligence, the same hue the
+   picker's circles used — with the name underneath, both readable on
+   satellite. anchor: bottom, so the roundel's tip sits on the place. */
+.pl-pin {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: #fff;
+  transform-origin: 50% 100%;
+}
+.pl-pin .pl-glyph {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: #2dd4c4; color: #06201d; font-size: 15px; line-height: 1; order: 2;
+  border: 2px solid #ffffff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+.pl-pin .pl-label {
+  order: 1; font-family: var(--mono); font-size: 11px; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 3px #000, 0 0 6px rgba(0, 0, 0, 0.8);
+}
+.pl-pin.hot { z-index: 3; }
+.pl-pin.hot .pl-glyph { background: var(--outbound); color: #1a0d00; width: 36px; height: 36px; font-size: 19px; animation: pl-pulse 1.2s ease-out 2; }
+.pl-pin.hot .pl-label { font-weight: 600; color: #fff; }
+@keyframes pl-pulse {
+  0% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 0 color-mix(in srgb, var(--outbound) 70%, transparent); }
+  100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 18px transparent; }
+}
+/* glove-sized on the nav map */
+.pl-pin.pl-ride .pl-glyph { width: 44px; height: 44px; font-size: 22px; }
+.pl-pin.pl-ride .pl-label { font-size: 13px; font-weight: 600; }
+.pl-pin.pl-ride.hot .pl-glyph { width: 52px; height: 52px; }
+.pl-pin:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
+.rqa-card.hot { border-color: var(--outbound); box-shadow: 0 0 0 2px color-mix(in srgb, var(--outbound) 45%, transparent); }
+
+/* "Search this area" — appears after the rider pans while a search is open */
+.map-area-btn {
+  position: absolute; left: 50%; top: 58px; transform: translateX(-50%); z-index: 6;
+  min-height: 40px; padding: 8px 16px; border-radius: 999px;
+  background: var(--asphalt-1); color: var(--ink); border: 1px solid #2dd4c4;
+  font: 600 13.5px var(--ui, inherit); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); cursor: pointer;
+}
+.map-area-btn:hover { background: var(--asphalt-2); }
+@media (pointer: coarse) { .map-area-btn { min-height: 44px; top: calc(var(--chrome-h, 0px) + 60px); } }
+
+/* Phone: while pins are up, the panel is a HALF SHEET — the map above it is
+   live (pins tappable, pannable), the picker sits at the top of the sheet. */
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .main[data-panel="half"] > .side {
+    transform: none; visibility: visible; pointer-events: auto;
+    justify-self: stretch; align-self: end; width: 100%; height: 52%;
+    border-left: none; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0;
+    box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.55);
+  }
+  .main[data-panel="half"] > .side .panel-tab { display: none; }
+  .main[data-panel="half"] > .map-wrap .map-hint { display: none; }
+}

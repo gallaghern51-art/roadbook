@@ -12,6 +12,7 @@ import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
 import RouteWheel from './RouteWheel.jsx';
+import PlacePins from './PlacePins.jsx';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { InputSheet } from './Sheets.jsx';
 
@@ -521,20 +522,10 @@ export default function MapView() {
         layout: round,
       });
     }
-    // The place picker's candidates: turquoise dots (route intelligence), the
-    // expanded row bigger. Circles only — a symbol layer needs glyphs the
-    // raster basemaps do not carry. Names live in the picker's rows.
-    if (!map.getSource('picker-pins')) {
-      map.addSource('picker-pins', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({
-        id: 'picker-pins-halo', type: 'circle', source: 'picker-pins',
-        paint: { 'circle-radius': ['case', ['get', 'hot'], 16, 11], 'circle-color': '#2dd4c4', 'circle-opacity': 0.22 },
-      });
-      map.addLayer({
-        id: 'picker-pins-dot', type: 'circle', source: 'picker-pins',
-        paint: { 'circle-radius': ['case', ['get', 'hot'], 8, 5.5], 'circle-color': '#2dd4c4', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
-      });
-    }
+    // The place picker's candidates are DOM pins (PlacePins) — a glyph, a
+    // name, a tap — not a circle layer: the raster basemaps carry no glyphs
+    // for a symbol layer, and a dot with no name has to be matched to the
+    // list by eye.
     // The drag proposal rides above everything: dashed turquoise, the color
     // this app reserves for route intelligence and live state. It is not the
     // route until the rider lets go.
@@ -586,19 +577,39 @@ export default function MapView() {
     return () => window.removeEventListener('keydown', onKey);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The picker's rows → dots on the map, so "along the route" is seen, not read.
+  // A NEW result set frames the map around its pins, once — a search whose
+  // results sit off screen is a list, not a map. On a phone the panel is a
+  // half sheet at that moment, so the frame keeps clear of it. A row opening
+  // later does not re-frame (that is `hot`, not `fit`).
+  const [areaMoved, setAreaMoved] = React.useState(false); // the rider panned away since the last frame
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.getLayer?.('picker-pins-dot')) return;
-    const pins = state.pickerPins ?? [];
-    map.getSource('picker-pins').setData({
-      type: 'FeatureCollection',
-      features: pins.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((p) => ({
-        type: 'Feature', properties: { name: p.name ?? '', hot: !!p.hot },
-        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-      })),
+    const pins = (state.pickerPins ?? []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (!map || !state.pickerFit || !pins.length) return;
+    const b = new maplibregl.LngLatBounds();
+    pins.forEach((p) => b.extend([p.lng, p.lat]));
+    const h = containerRef.current?.clientHeight ?? 600;
+    map.fitBounds(b, {
+      padding: { top: 70, left: 40, right: 40, bottom: ui?.panelHalf ? Math.round(h * 0.55) + 30 : 60 },
+      maxZoom: 13, duration: 500,
     });
-  }, [state.pickerPins]); // eslint-disable-line react-hooks/exhaustive-deps
+    setAreaMoved(false);
+  }, [state.pickerFit]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A rider who pans while a search is open is asking about somewhere else:
+  // offer to look there. Only a HAND-moved camera counts (originalEvent), so
+  // our own fitBounds never offers to re-search the place it just framed.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return undefined;
+    // dragstart, not dragend: a pan that ends with the pointer over a pin
+    // (the pan slid it there) never gets its dragend, and the rider has still
+    // moved the map by hand
+    const onEnd = (e) => { if (e.originalEvent) setAreaMoved(true); };
+    const onDrag = () => setAreaMoved(true);
+    map.on('moveend', onEnd);
+    map.on('dragstart', onDrag);
+    return () => { map.off('moveend', onEnd); map.off('dragstart', onDrag); };
+  }, [mapObj]);
 
   // Hovered leg → the slice of routed geometry between its two waypoints.
   const legZoomAtRef = useRef(0);
@@ -924,6 +935,19 @@ export default function MapView() {
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
+      {/* The place picker's candidates: real pins, tap one to open its row */}
+      <PlacePins map={mapObj} pins={state.pickerPins} mode="plan" onTap={(id) => dispatch({ type: 'picker_pin_tap', id })} />
+      {state.pickerActive && areaMoved && (
+        <button
+          className="map-area-btn"
+          onClick={() => {
+            const c = mapRef.current?.getCenter();
+            if (!c) return;
+            setAreaMoved(false);
+            dispatch({ type: 'picker_area', lat: c.lat, lng: c.lng });
+          }}
+        >⟳ {t('Search this area')}</button>
+      )}
       <div className={`map-hint${wheel ? ' wheel' : ''}`}>
         {wheel
           ? (wheel.movedMi > 0.03
