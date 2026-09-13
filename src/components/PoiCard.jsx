@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PlaceSheet from './PlaceSheet.jsx';
 import { searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineLabel } from '../engine/nearby.js';
 import { haversineMiles } from '../engine/tripEngine.js';
+import { coordLabel } from '../engine/places.js';
 import { useT, useUnits } from '../engine/settings.jsx';
 
 // The card for a POI the rider tapped ON THE MAP — the vector symbol under
@@ -62,14 +63,20 @@ export function usePoiMatch(poi) {
 export default function PoiCard({ poi, day, onAdd, onClose }) {
   const t = useT();
   const u = useUnits();
-  const match = usePoiMatch(poi);
+  // A dropped pin (poi.placed) is the rider's own coordinate: nothing to look
+  // up, nothing to verify — it rides as a deliberate `placed` pin.
+  const placed = poi.placed ?? null;
+  const looked = usePoiMatch(placed ? null : poi);
+  const match = placed ? null : looked;
   const cat = poiCategory(poi.cls, poi.subclass);
-  const glyph = poiGlyph(poi.cls, poi.subclass);
-  const natural = poiIsNatural(poi.cls, poi.subclass);
+  const glyph = placed ? '◎' : poiGlyph(poi.cls, poi.subclass);
+  const natural = !placed && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
 
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, source: 'google', verified: 'google' }
-    : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider' } : {}) };
+    : placed
+    ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
+    : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };
   const elev = poi.elevFt ? `${u.metric ? `${Math.round(poi.elevFt / 3.28084)} m` : `${poi.elevFt.toLocaleString()} ft`}` : '';
   const cuisine = match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '';
 
@@ -78,9 +85,9 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
     <PlaceSheet
       place={place}
       glyph={glyph}
-      kicker={[cuisine, elev, (poi.subclass || poi.cls).replace(/_/g, ' ')].filter(Boolean).join(' · ')}
-      note={natural ? t('A place on the map, not a listed business — it will be added as a placed pin.') : match === undefined ? t('Checking with Google…') : match === null ? t('No Google listing found here — it will be added as an unverified stop.') : null}
-      facts={match && dist ? <span className="nb-note">{t('Listing')} {dist} {t('from the pin')}</span> : null}
+      kicker={placed ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi)) : [cuisine, elev, (poi.subclass || poi.cls).replace(/_/g, ' ')].filter(Boolean).join(' · ')}
+      note={placed ? t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.') : natural ? t('A place on the map, not a listed business — it will be added as a placed pin.') : match === undefined ? t('Checking with Google…') : match === null ? t('No Google listing found here — it will be added as an unverified stop.') : null}
+      facts={placed ? <span className="tag placed">◎ {t('placed')}</span> : match && dist ? <span className="nb-note">{t('Listing')} {dist} {t('from the pin')}</span> : null}
       onClose={onClose}
       actions={(
         <>

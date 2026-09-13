@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, tappableLayerIds, emphasizeSatelliteRoads, ensureTerrain } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
+import { attachLongPress } from '../engine/mapGestures.js';
+import DropPin from './DropPin.jsx';
 
 // The home screen's map (owner, Sep 13 2026: option A, "map first"). No trip
 // on it — this is the map you browse before there is a trip: Mapbox
@@ -14,9 +16,12 @@ import PlacePins from './PlacePins.jsx';
 //   pins      PlacePins rows     the picker's candidates
 //   fitAt     number             bump → frame the pins, clear of the sheet
 //   sheetPx   number             how much of the bottom the sheet covers (fit padding)
+//   drop      {key,lat,lng} | null  the pin the rider dropped (a long press / right-click): a draggable needle with the wheel
+//   onDropMove([lng,lat]) · onDropMoveEnd([lng,lat]) · onDropConfirm() · onDropCancel()
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
 //   basemap   'sat' | 'streets' | 'dark' | 'light' — the same styles the trip map switches between
 //   terrain3d the 3D toggle (Mapbox's DEM), re-asserted after every style swap
+//   onDrop({lat,lng})  a long press (touch) or right-click (mouse) on open map — never a tap
 // at: the tap itself, for a feature whose geometry is a line (a range, a
 // river — natural_label line labels) rather than a point
 const featureToPoi = (f, at) => {
@@ -28,7 +33,7 @@ const featureToPoi = (f, at) => {
   return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1], ...(elevFt != null ? { elevFt } : {}) };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap, onPoi, onCenter, onBearing, basemap = 'sat', terrain3d = false }) {
+export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -38,6 +43,8 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   centerRef.current = onCenter;
   const bearingRef = useRef(onBearing);
   bearingRef.current = onBearing;
+  const dropRef = useRef(onDrop);
+  dropRef.current = onDrop;
   const landedRef = useRef(false);
   const appliedRef = useRef(null);
   const terrainRef = useRef(terrain3d);
@@ -77,14 +84,19 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
     map.on('dragstart', () => centerRef.current?.(null, { hand: true }));
     // a two-finger twist rotates the map; a North-up button appears while it is turned
     map.on('rotateend', () => bearingRef.current?.(map.getBearing()));
+    // a long press / right-click on open map drops a pin; the click that can
+    // trail a press is swallowed so it never doubles as a dismiss
+    const press = attachLongPress(map, (pt) => dropRef.current?.(pt));
+    window.__homePress = (pt) => dropRef.current?.(pt); // sim seam: the same handler a real press reaches
     map.on('click', (e) => {
       if (e.originalEvent?._wpHandled) return; // a pin tap is the pin's
+      if (press.recent()) return;
       const ids = tappableLayerIds(map);
       const hits = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
       poiRef.current?.(hits.length ? featureToPoi(hits[0], e.lngLat) : null);
     });
     window.__homePoiTap = (f, at) => poiRef.current?.(f ? featureToPoi(f, at) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
-    return () => { map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
+    return () => { press.detach(); map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the layers pill: setStyle, then our shield-hiding and terrain once the new
@@ -118,7 +130,9 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !focus) return;
-    map.easeTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 14), duration: 700, padding: { bottom: sheetPx } });
+    // top padding clears the pill + chips + readout, so a focused point (and a
+    // dropped pin's ✓ above it) lands in the open part of the map
+    map.easeTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 14), duration: 700, padding: { top: 260, bottom: sheetPx } });
   }, [focus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -132,6 +146,8 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   return (
     <div className="hm-map" ref={divRef}>
       {mapObj && <PlacePins map={mapObj} pins={pins ?? []} onTap={onPinTap} />}
+      {/* the dropped pin: a needle on the exact spot, draggable, with ✓ / ✕ */}
+      {mapObj && drop && <DropPin map={mapObj} drop={drop} onMove={onDropMove} onMoveEnd={onDropMoveEnd} onConfirm={onDropConfirm} onCancel={onDropCancel} confirmLabel={dropLabel} />}
     </div>
   );
 }

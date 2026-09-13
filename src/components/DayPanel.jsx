@@ -31,7 +31,7 @@ import ScenarioStrip from './ScenarioStrip.jsx';
 // rider's own pin — that no listing names, and is not pretending to be one),
 // and UNVERIFIED (a business the planner named that the places database
 // could not find — the rider re-picks it, and the tag itself is the door).
-function VerifyTag({ on, placed, t, onPlace }) {
+export function VerifyTag({ on, placed, t, onPlace }) {
   if (on === false) {
     const label = `⚠ ${t('unverified')}${onPlace ? ` · ${t('place it')}` : ''}`;
     const title = t('The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.');

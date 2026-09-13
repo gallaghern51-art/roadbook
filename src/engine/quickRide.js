@@ -59,7 +59,7 @@ export function buildQuickTrip({ start, dest, routePrefs, defaults = {} }) {
         },
         {
           id: uid('wp'), kind: 'end', name: dest.name, lat: dest.lat, lng: dest.lng, mile: null, note: dest.detail ?? '',
-          ...(placeIdOf(dest) ? { placeId: placeIdOf(dest), verified: 'google' } : {}),
+          ...(placeIdOf(dest) ? { placeId: placeIdOf(dest), verified: 'google' } : dest.placed ? { placed: dest.placed } : {}),
         },
       ],
     }],

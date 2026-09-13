@@ -4850,3 +4850,64 @@ input:focus, textarea:focus, select:focus {
   .set-tabs button { min-height: 48px; padding: 10px 14px; }
   .set-seg button { min-height: 48px; }
 }
+
+/* ---- dropped pin + the stop card (Sep 13, 2026) ----
+   A long press / right-click on open map drops a PLACED pin: the placed
+   glyph (◎) in the hot roundel, turquoise like every placed tag, so a
+   rider's own coordinate never reads as a listing. The stop card's facts
+   are the schedule strip the editor already draws, plus the honest tag. */
+/* The dropped pin: a needle whose TIP is the coordinate (anchor bottom), the
+   head 40px above it so a thumb never hides the spot; a crosshair ring on the
+   tip; the wheel's satellites around the head. Every target ≥ 44pt. */
+.drop-pin { position: relative; width: 0; height: 0; }
+.drop-pin .dp-tip {
+  position: absolute; left: 50%; top: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  border-radius: 50%; border: 2px solid var(--route, #3fd0c9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.drop-pin .dp-tip::before, .drop-pin .dp-tip::after {
+  content: ''; position: absolute; left: 50%; top: 50%; background: var(--route, #3fd0c9);
+}
+.drop-pin .dp-tip::before { width: 2px; height: 34px; margin: -17px 0 0 -1px; }
+.drop-pin .dp-tip::after { width: 34px; height: 2px; margin: -1px 0 0 -17px; }
+.drop-pin .dp-needle {
+  position: absolute; left: 50%; bottom: 0; width: 44px; height: 62px; margin-left: -22px;
+  cursor: grab; touch-action: none;
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.55));
+  transition: transform 160ms ease;
+  animation: dp-land 260ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.drop-pin .dp-needle svg { width: 44px; height: 62px; display: block; }
+.drop-pin .dp-body { fill: var(--rally, #d8542a); stroke: rgba(0, 0, 0, 0.7); stroke-width: 1.5; }
+.drop-pin .dp-shadow { fill: rgba(0, 0, 0, 0.35); }
+.drop-pin .dp-eye { fill: #fff; }
+.drop-pin .dp-eye-in { fill: var(--route, #3fd0c9); }
+.drop-pin.dragging .dp-needle { transform: translateY(-10px) scale(1.08); cursor: grabbing; }
+.drop-pin.dragging .dp-tip { border-color: var(--rally, #d8542a); }
+.drop-pin.dragging .dp-tip::before, .drop-pin.dragging .dp-tip::after { background: var(--rally, #d8542a); }
+@keyframes dp-land { from { transform: translateY(-26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.drop-pin .dp-act {
+  position: absolute; left: 50%; top: 0; width: 44px; height: 44px; margin: -22px 0 0 -22px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  border-radius: 50%; font-size: 19px; line-height: 1; cursor: pointer;
+  color: var(--ink); background: var(--asphalt-1);
+  border: 1px solid var(--line);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+.drop-pin .dp-act.confirm {
+  transform: translate(0, -112px);
+  color: #fff; background: var(--rally, #d8542a); border-color: transparent; font-weight: 700;
+}
+.drop-pin .dp-act.cancel { transform: translate(-62px, -40px); }
+.drop-pin .dp-act.info { transform: translate(62px, -40px); }
+@media (prefers-reduced-motion: reduce) { .drop-pin .dp-needle { animation: none; transition: none; } }
+/* the readout: the home map's hint chip while a pin is down */
+.hm-drop-hint { position: absolute; left: 12px; right: 68px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 7px 11px; border-radius: 10px; background: rgba(8, 10, 11, 0.86); border: 1px solid var(--line); font-size: 12px; line-height: 1.35; color: var(--ink); }
+.hm-drop-hint b { color: var(--route, #3fd0c9); font-weight: 500; }
+.hm-place.placed .poi-facts .tag.placed { margin-right: 4px; }
+.ss-facts { display: grid; gap: 8px; }
+.ss-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ss-coord { font-size: 12px; opacity: 0.7; }
+.ss-strip { margin: 0; }
+.ss-note { margin: 0; font-size: 14px; color: var(--ink, inherit); opacity: 0.85; }

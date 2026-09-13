@@ -9,6 +9,10 @@ import {
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
 import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, emphasizeSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
+import StopSheet from './StopSheet.jsx';
+import DropPin from './DropPin.jsx';
+import { attachLongPress } from '../engine/mapGestures.js';
+import { reverseGeocode, coordLabel } from '../engine/places.js';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
@@ -78,7 +82,13 @@ export default function MapView() {
   const beginDragRef = useRef(() => {});
   const paintedDragRef = useRef(0); // how many points the drag layer currently holds
   const [basemap, setBasemap] = React.useState('sat');
-  const [poi, setPoi] = React.useState(null); // a vector POI tapped on the composite satellite
+  const [poi, setPoi] = React.useState(null); // a vector POI tapped on the composite satellite — or a dropped pin (poi.placed)
+  const [stopSheet, setStopSheet] = React.useState(null); // {dayId, waypointId}: a stop marker tapped
+  const [drop, setDrop] = React.useState(null); // {key, lat, lng, name, detail}: the dropped pin, with its wheel
+  const dropStateRef = useRef(null);
+  dropStateRef.current = drop;
+  const dropRef = useRef(null);
+  const geoTimerRef = useRef(null);
   const appliedStyleRef = useRef(null); // the style object the map currently wears
   const poiTapRef = useRef(null);
   const poiHoverRef = useRef(new Set());
@@ -187,11 +197,18 @@ export default function MapView() {
     });
     hoverPopupRef.current = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 12, maxWidth: '280px' });
     // click empty map = add waypoint to the selected day
+    // a long press (touch) or right-click (mouse) on open map drops a pin —
+    // a PLACED spot the same card handles; the click that can trail a press
+    // is swallowed so it never doubles as a dismiss or a click-to-add
+    const press = attachLongPress(map, (pt) => dropRef.current?.(pt));
+    if (import.meta.env.DEV) window.__mapPress = (pt) => dropRef.current?.(pt); // sim seam: the handler a real press reaches
     map.on('click', (e) => {
       const { selectedDayId: dayId } = stateRef.current;
       if (e.originalEvent._wpHandled) return;
+      if (press.recent()) return;
       if (dragRef.current) return; // the click that ends a drag is not an add
       if (wheelRef.current) { setWheel(null); paintDrag(); return; } // dismiss first
+      if (dropStateRef.current) { dropRef.current?.cancel(); return; } // a dropped pin: a tap on open map takes it away
       // a POI symbol under the finger is a place, not a spot on the map —
       // satellite-streets draws them as vector features, so this is a real
       // hit test, the thing a baked raster could never answer
@@ -288,7 +305,7 @@ export default function MapView() {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0) map.resize();
     });
     ro.observe(containerRef.current);
-    return () => { ro.disconnect(); setMapObj(null); map.remove(); };
+    return () => { ro.disconnect(); press.detach(); setMapObj(null); map.remove(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- highway shields along the day you are editing ----
@@ -370,6 +387,48 @@ export default function MapView() {
     setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1], ...(elevFt != null ? { elevFt } : {}) });
   };
   useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f, at) => poiTapRef.current?.(f, at); }, []);
+  // A dropped pin: a needle on the exact spot with the wheel around it — the
+  // RouteWheel grammar, adjust and confirm as separate acts. Drag it onto
+  // the pullout you meant; the readout in the hint region carries the
+  // coordinate and, once named, the road; ✓ adds a placed: 'rider' stop to
+  // the open day by route order, ⓘ opens its card, ✕ (or a tap on open map)
+  // takes it away.
+  const nameDrop = (key, pt) => {
+    clearTimeout(geoTimerRef.current);
+    geoTimerRef.current = setTimeout(() => {
+      reverseGeocode(pt, { near: tRef.current('Near') }).then((g) => {
+        if (!g) return;
+        setDrop((d) => (d && d.key === key && d.lat === pt.lat && d.lng === pt.lng ? { ...d, name: g.name, detail: g.detail ?? '' } : d));
+        setPoi((cur) => (cur?.placed && cur.lat === pt.lat && cur.lng === pt.lng ? { ...cur, name: g.name, detail: g.detail ?? '' } : cur));
+      });
+    }, 350);
+  };
+  const dropHandler = (pt) => {
+    setWheel(null); wheelRef.current = null; paintDrag();
+    setStopSheet(null); setPoi(null);
+    const key = Date.now();
+    setDrop({ key, lat: pt.lat, lng: pt.lng, name: null, detail: '' });
+    nameDrop(key, pt);
+  };
+  dropHandler.cancel = () => { clearTimeout(geoTimerRef.current); setDrop(null); setPoi((p) => (p?.placed ? null : p)); };
+  dropRef.current = dropHandler;
+  const moveDrop = ([lng, lat]) => setDrop((d) => (d ? { ...d, lat, lng, name: null, detail: '' } : d));
+  const settleDrop = ([lng, lat]) => setDrop((d) => { if (d) nameDrop(d.key, { lat, lng }); return d; });
+  const dropPlace = () => (drop ? { name: drop.name ?? coordLabel(drop), lat: drop.lat, lng: drop.lng, cls: '', subclass: '', detail: drop.detail ?? '', placed: 'rider' } : null);
+  const addDrop = (place, { fuel = false } = {}) => {
+    const day = trip.days.find((d) => d.id === selectedDayId);
+    if (!day || !place) return;
+    const pt = { lat: place.lat, lng: place.lng };
+    dispatch({
+      type: 'apply_ops',
+      ops: [{
+        op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
+        waypoint: { name: place.name, ...pt, kind: fuel ? 'fuel' : place.kind === 'photo' ? 'photo' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '', placed: place.placed ?? 'rider' },
+      }],
+    });
+    dropHandler.cancel();
+  };
+  const dropReadout = drop ? `${drop.name ?? coordLabel(drop, 5)}${drop.name ? ` · ${coordLabel(drop, 5)}` : ''}` : '';
 
   // 3D toggle — terrain + a tilted camera (drawAll re-asserts it after style switches)
   useEffect(() => {
@@ -806,6 +865,10 @@ export default function MapView() {
     map.on('mousedown', layerId.replace(/-line$/, '-glow'), press);
     map.on('mousemove', layerId, (e) => {
       if (dragRef.current) return;
+      // a stop marker ON the line owns its own hover — the leg tooltip must
+      // not overwrite the stop's (it did: no stop tooltip ever showed on a
+      // marker the route ran through)
+      if (e.originalEvent?.target?.closest?.('.wp-marker')) return;
       map.getCanvas().style.cursor = stateRef.current.selectedDayId === dayId && !isTouch()
         ? 'grab' : 'pointer';
       const day = stateRef.current.trip.days.find((d) => d.id === dayId);
@@ -922,15 +985,17 @@ export default function MapView() {
               <div class="pp-name">${esc(w.name)}</div>
               <div class="pp-note">${day.dow} · ${s ? `ETA ${fmtTime(s.arrive)}` : ''}${w.fuel ? ' · FUEL' : ''}${w.kind === 'photo' ? ` · ${t('Photo').toUpperCase()}` : ''}</div>
               ${w.note ? `<div class="pp-note">${esc(w.note)}</div>` : ''}
-              <div class="pp-note">${t('Click for details')}</div>`)
+              <div class="pp-note">${t('Click for the stop card')}</div>`)
             .addTo(map);
         });
         el.addEventListener('mouseleave', () => hoverPopupRef.current?.remove());
+        // tap: the stop's card (ETA, the leg in, its tag; Edit is one tap on)
         el.addEventListener('click', (ev) => {
           ev.stopPropagation();
           ev._wpHandled = true;
           hoverPopupRef.current?.remove();
-          dispatch({ type: 'open_modal', modal: { type: 'stop', dayId: day.id, waypointId: w.id } });
+          setPoi(null);
+          setStopSheet({ dayId: day.id, waypointId: w.id });
         });
 
         if (showAll) {
@@ -940,7 +1005,7 @@ export default function MapView() {
               type: 'apply_ops',
               // a dragged pin is a deliberate raw coordinate — any old place
               // identity no longer describes where the marker sits
-              ops: [{ op: 'update_waypoint', dayId: day.id, waypointId: w.id, patch: { lat: ll.lat, lng: ll.lng, placeId: null } }],
+              ops: [{ op: 'update_waypoint', dayId: day.id, waypointId: w.id, patch: { lat: ll.lat, lng: ll.lng, placeId: null, placed: 'rider' } }],
             });
           });
         }
@@ -959,6 +1024,18 @@ export default function MapView() {
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
       {/* The place picker's candidates: real pins, tap one to open its row */}
       <PlacePins map={mapObj} pins={state.pickerPins} mode="plan" onTap={(id) => dispatch({ type: 'picker_pin_tap', id })} />
+      {/* the dropped pin: a needle on the exact spot, draggable, with ✓ add / ✕ / ⓘ */}
+      {mapObj && drop && (
+        <DropPin
+          map={mapObj} drop={drop}
+          onMove={moveDrop} onMoveEnd={settleDrop}
+          onConfirm={() => (selectedDay ? addDrop(dropPlace()) : setPoi(dropPlace()))}
+          onCancel={() => dropHandler.cancel()}
+          onDetails={() => setPoi(dropPlace())}
+          confirmLabel={selectedDay ? t('Add this spot to the day') : t('Use this spot')}
+          detailsLabel={t('Details')}
+        />
+      )}
       {state.pickerActive && areaMoved && (
         <button
           className="map-area-btn"
@@ -970,8 +1047,10 @@ export default function MapView() {
           }}
         >⟳ {t('Search this area')}</button>
       )}
-      <div className={`map-hint${wheel ? ' wheel' : ''}`}>
-        {wheel
+      <div className={`map-hint${wheel || drop ? ' wheel' : ''}`}>
+        {drop
+          ? <>◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {selectedDay ? t('✓ to add it') : t('✓ to use it')}</>
+          : wheel
           ? (wheel.movedMi > 0.03
             ? <><b>{u.mi(wheel.movedMi, wheel.movedMi < 10 ? 1 : 0)}</b> {t('off route')} · {t('✓ to place')}</>
             : <>{t('Drag onto the road you want')}</>)
@@ -1007,15 +1086,15 @@ export default function MapView() {
           onAdd={(place, { fuel }) => {
             const day = selectedDay;
             if (!day) return;
+            if (place.placed) { addDrop(place, { fuel }); setPoi(null); return; }
             const pt = { lat: place.lat, lng: place.lng };
             dispatch({
               type: 'apply_ops',
               ops: [{
                 op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
                 waypoint: {
-                  name: place.name, ...pt, kind: fuel ? 'fuel' : place.placed ? 'photo' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
-                  ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : {}),
-                  ...(place.placed ? { placed: place.placed } : {}),
+                  name: place.name, ...pt, kind: fuel ? 'fuel' : place.kind === 'photo' ? 'photo' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
+                  ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : place.placed ? { placed: place.placed } : {}),
                 },
               }],
             });
@@ -1036,11 +1115,24 @@ export default function MapView() {
               op: 'add_waypoint',
               dayId: addAt.dayId,
               index: addAt.index,
-              waypoint: { name, ...addAt.pt, kind: 'via' },
+              waypoint: { name, ...addAt.pt, kind: 'via', placed: 'rider' }, // a tapped spot is the rider's own pin
             }],
           })}
         />
       )}
+      {/* A stop's card, from its marker; Edit hands off to the stop editor */}
+      {stopSheet && (() => {
+        const day = trip.days.find((d) => d.id === stopSheet.dayId);
+        const w = day?.waypoints.find((x) => x.id === stopSheet.waypointId);
+        if (!day || !w) return null;
+        return (
+          <StopSheet
+            day={day} waypoint={w} trip={trip} routedLegs={routedLegsByDay?.[day.id]}
+            onClose={() => setStopSheet(null)}
+            onEdit={() => { setStopSheet(null); dispatch({ type: 'open_modal', modal: { type: 'stop', dayId: day.id, waypointId: w.id } }); }}
+          />
+        );
+      })()}
       {/* Keep the previous complete route visible while the latest choice is
           calculated, but name that work so it never reads as a missed click. */}
       {ui?.routeLoad && (

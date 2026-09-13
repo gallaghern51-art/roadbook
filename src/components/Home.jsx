@@ -11,7 +11,7 @@ import { useT, useUnits } from '../engine/settings.jsx';
 import { libraryTrips, libraryTemplates, libraryQuickRides } from '../engine/templates.js';
 import { locateOnce } from '../engine/quickRide.js';
 import { CATEGORIES, searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineLabel, priceGlyph } from '../engine/nearby.js';
-import { hoursOnly, todayIndex } from '../engine/places.js';
+import { hoursOnly, todayIndex, reverseGeocode, coordLabel } from '../engine/places.js';
 import InstallPrompt from './InstallPrompt.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
 import HomeMap from './HomeMap.jsx';
@@ -145,6 +145,50 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };
   const rowToPoi = (r) => ({ name: r.name, lat: r.lat, lng: r.lng, cls: r.primaryType ?? '', subclass: r.primaryType ?? '' });
+  // A long press (or right-click) on open map drops a PIN — a needle on the
+  // exact spot with the wheel around it (the RouteWheel grammar: adjust and
+  // confirm are separate acts). The rider drags it onto the pullout they
+  // meant, reads the coordinate and the road as it resolves, and ✓ opens the
+  // same card as a tapped place, as a PLACED spot — the rider's own
+  // coordinate, never dressed up as a listing — with Ride here / Add to a
+  // trip. ✕, or a tap on open map, takes the pin away. A plain tap never
+  // drops one.
+  const [dropped, setDropped] = useState(null); // { key, lat, lng, name, detail }
+  const geoTimer = useRef(null);
+  const nameDrop = (key, pt) => {
+    clearTimeout(geoTimer.current);
+    geoTimer.current = setTimeout(() => {
+      reverseGeocode(pt, { near: t('Near') }).then((g) => {
+        if (!g) return;
+        setDropped((d) => (d && d.key === key && d.lat === pt.lat && d.lng === pt.lng ? { ...d, name: g.name, detail: g.detail ?? '' } : d));
+        // the card, if it is already up on this pin, learns the name too
+        setPlace((cur) => (cur?.poi?.placed && cur.poi.lat === pt.lat && cur.poi.lng === pt.lng ? { ...cur, poi: { ...cur.poi, name: g.name, detail: g.detail ?? '' } } : cur));
+      });
+    }, 350);
+  };
+  const sheetBeforeDrop = useRef(null);
+  const dropPin = (pt) => {
+    const key = Date.now();
+    setChip(null); setPins([]); setPlace(null);
+    // the map is the screen while a pin is being placed: the sheet drops to
+    // its handle (a peeking sheet plus the readout plus the wheel do not fit
+    // one phone screen) and comes back where it was when the pin goes
+    setSheet((cur) => { if (sheetBeforeDrop.current == null) sheetBeforeDrop.current = cur; return 'min'; });
+    setDropped({ key, lat: pt.lat, lng: pt.lng, name: null, detail: '' });
+    setFocus({ lat: pt.lat, lng: pt.lng, at: key });
+    nameDrop(key, pt);
+  };
+  const moveDrop = ([lng, lat]) => setDropped((d) => (d ? { ...d, lat, lng, name: null, detail: '' } : d));
+  const settleDrop = ([lng, lat]) => setDropped((d) => { if (d) nameDrop(d.key, { lat, lng }); return d; });
+  const confirmDrop = () => {
+    if (!dropped) return;
+    showPlace({ name: dropped.name ?? coordLabel(dropped), lat: dropped.lat, lng: dropped.lng, cls: '', subclass: '', placed: 'rider', detail: dropped.detail ?? '' });
+  };
+  const cancelDrop = () => {
+    clearTimeout(geoTimer.current); setDropped(null); setPlace((p) => (p?.poi?.placed ? null : p));
+    if (sheetBeforeDrop.current != null) { setSheet(sheetBeforeDrop.current); sheetBeforeDrop.current = null; }
+  };
+  const dropReadout = dropped ? `${dropped.name ?? coordLabel(dropped, 5)}${dropped.name ? ` · ${coordLabel(dropped, 5)}` : ''}` : '';
 
   // start: a chosen place, or (undefined) where the rider is — the card's From row
   const rideTo = async (dest, prefs, start) => {
@@ -161,12 +205,19 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         pins={pins}
         fitAt={fitAt}
         sheetPx={sheetPx}
+        drop={dropped}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={onCenter}
         onBearing={setBearing}
         basemap={basemap}
         terrain3d={terrain3d}
-        onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the card closes, or the sheet steps down
+        onDrop={dropPin}
+        onDropMove={moveDrop}
+        onDropMoveEnd={settleDrop}
+        onDropConfirm={confirmDrop}
+        onDropCancel={cancelDrop}
+        dropLabel={t('Use this spot')}
+        onPoi={(poi) => { if (poi) showPlace(poi); else if (dropped) cancelDrop(); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the pin goes, the card closes, or the sheet steps down
       />
 
       <div className="hm-top">
@@ -227,7 +278,9 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           </>
         )}
       </div>
-      {fix && <div className="hm-near mono">{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</div>}
+      {dropped
+        ? <div className="hm-drop-hint mono" role="status" aria-live="polite">◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {t('✓ to use it')}</div>
+        : fix && <div className="hm-near mono">{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</div>}
 
       {searching && (
         <HomeSearch
@@ -246,7 +299,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               poi={place.poi} row={place.row} fix={fix} defaults={quickDefaults}
               onRide={rideTo}
               onAdd={(p) => setAddTo(p)}
-              onClose={() => setPlace(null)}
+              onClose={() => { setPlace(null); if (place.poi.placed) cancelDrop(); }}
             />
           ) : chip ? (
             <NearbyPicker
@@ -382,7 +435,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const t = useT();
   const u = useUnits();
-  const looked = usePoiMatch(row ? null : poi);
+  const placed = poi.placed ?? null; // a dropped pin: nothing to look up, nothing to verify
+  const looked = usePoiMatch(row || placed ? null : poi);
   // Ride here opens the one thing a map app will not offer a motorcyclist —
   // the Roads choice — as a one-line strip, then Go
   const [confirm, setConfirm] = useState(false);
@@ -403,29 +457,35 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   }, [fromQ, fromEdit]); // eslint-disable-line react-hooks/exhaustive-deps
   const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
   const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
-  const match = row ?? looked;
-  const natural = !row && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
+  const match = placed ? null : (row ?? looked);
+  const natural = !row && !placed && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
   const cat = poiCategory(poi.cls, poi.subclass) ?? (match?.primaryType?.includes('gas') ? 'fuel' : null);
-  const glyph = row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
+  const glyph = placed ? '◎' : row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
   const [details, setDetails] = useState(false);
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: 'google', verified: 'google' }
+    : placed
+    ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
     : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };
   const elev = poi.elevFt ? (u.metric ? `${Math.round(poi.elevFt / 3.28084)} m` : `${poi.elevFt.toLocaleString()} ft`) : '';
-  const kicker = [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', elev, poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
+  const kicker = placed
+    ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi))
+    : [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', elev, poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
   const dist = fix ? `${u.miNum(haversineMiles(fix, poi))} ${u.miUnit} ${t('from you')}` : '';
   const hours = Array.isArray(match?.hours) && match.hours.length ? match.hours : null;
   return (
-    <div className="hm-place" role="dialog" aria-label={place.name}>
+    <div className={`hm-place${placed ? ' placed' : ''}`} role="dialog" aria-label={place.name}>
       <div className="hm-place-head">
         <span className="poi-glyph" aria-hidden="true">{glyph}</span>
         <div className="poi-title"><b>{place.name}</b><small><span className="hm-kicker">{kicker}</span>{kicker && dist ? ' · ' : ''}<span className="hm-dist">{dist}</span></small></div>
         <button className="mini-edit" onClick={onClose} aria-label={t('Close')}>✕</button>
       </div>
       <div className="poi-facts">
+        {placed && <span className="tag placed" title={t('A spot placed on the map on purpose — not a listed business.')}>◎ {t('placed')}</span>}
+        {placed && <span className="nb-note">{t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.')}</span>}
         {natural && <span className="nb-note">{t('A place on the map, not a listed business — it will be added as a placed pin.')}</span>}
-        {!natural && match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
-        {!natural && match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
+        {!placed && !natural && match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
+        {!placed && !natural && match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
         {match && (
           <>
             {Number.isFinite(match.rating) && <span className="nb-rate">★ {match.rating.toFixed(1)}{match.userRatingCount ? <small> ({match.userRatingCount})</small> : null}</span>}

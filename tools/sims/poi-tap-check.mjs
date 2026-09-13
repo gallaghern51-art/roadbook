@@ -198,7 +198,7 @@ async function run(width, label) {
   await page.waitForTimeout(600);
   trip = await lib(); wps = trip.days[0].waypoints;
   const pass_ = wps.find((w) => w.name === 'Beartooth Pass');
-  check(!!pass_ && pass_.kind === 'photo' && pass_.placed === 'rider' && !pass_.placeId && pass_.verified === undefined, 'it landed as a PLACED photo stop — not verified, not unverified');
+  check(!!pass_ && pass_.kind === 'photo' && pass_.placed === 'rider' && !pass_.placeId && pass_.verified === undefined, `it landed as a PLACED photo stop — not verified, not unverified (${JSON.stringify(pass_ && { kind: pass_.kind, placed: pass_.placed, placeId: pass_.placeId, verified: pass_.verified })})`);
   // a line label (a range) has no point: the tap itself is the place
   await page.evaluate(([lng, lat]) => window.__poiTap({ properties: { name: 'Beartooth Mountains', class: 'landform' }, geometry: { type: 'LineString', coordinates: [[lng, lat], [lng + 0.1, lat]] } }, { lng, lat: lat + 0.03 }), on1);
   await page.waitForSelector('.place-sheet', { timeout: 5000 });
