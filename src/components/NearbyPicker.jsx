@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CATEGORIES, CUISINES, cuisineLabel, searchNearby, enrichAlong, openAt, detourCost, priceGlyph } from '../engine/nearby.js';
 import { geocode } from '../engine/geocode.js';
 import { useT, useUnits } from '../engine/settings.jsx';
+import PlaceSheet from './PlaceSheet.jsx';
 
 // One picker, three doors: add a stop to a day, SWAP a stop keeping its role,
 // add a stop ahead mid-ride. Category chips + free text; a scope; rows that
@@ -44,6 +45,7 @@ export default function NearbyPicker({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [open, setOpen] = useState(null); // expanded row id
+  const [detail, setDetail] = useState(null); // the row whose place sheet is open
   const [detour, setDetour] = useState({}); // id → {minutes, miles} | 'busy' | 'na'
   const timer = useRef(null);
   const seq = useRef(0);
@@ -283,7 +285,7 @@ export default function NearbyPicker({
                       {mode !== 'swap' && cat !== 'fuel' && (
                         <button className="btn" onClick={() => onPick(r, { fuel: true })}>{t('Add as fuel stop')}</button>
                       )}
-                      {r.googleMapsUri && <a className="btn" href={r.googleMapsUri} target="_blank" rel="noreferrer">{t('Maps')}</a>}
+                      {r.source === 'google' && <button className="btn" onClick={() => setDetail(r)}>{t('Details')}</button>}
                     </div>
                     <div className="nb-attrib">{t('Place facts from Google')}</div>
                   </div>
@@ -293,6 +295,45 @@ export default function NearbyPicker({
           })}
         </ul>
       )}
+      {detail && (() => {
+        const d = detour[detail.id];
+        const pickLabel = mode === 'swap' ? t('Use this instead') : mode === 'ride' ? t('Add ahead') : t('Add to the day');
+        return (
+          <PlaceSheet
+            place={{ ...detail, placeId: detail.id }}
+            glyph={CATEGORIES.find((c) => c.id === cat)?.glyph ?? '📍'}
+            kicker={cat === 'food' ? cuisineLabel(detail.primaryType, detail.types, sub) : (CATEGORIES.find((c) => c.id === cat)?.label ?? '')}
+            facts={(nextStop && d && d !== 'busy' && d !== 'na') || gateSlack.length ? (
+              <>
+                {nextStop && d && d !== 'busy' && d !== 'na' && (
+                  <div className="nb-detour"><b>+{Math.round(d.minutes)} min</b> · +{u.miNum(d.miles)} {u.miUnit} {t('detour on the way to the next stop')}</div>
+                )}
+                {d && d !== 'busy' && d !== 'na' && gateSlack.length > 0 && (
+                  <div className="nb-gates">
+                    {gateSlack.map((g) => {
+                      const left = g.marginMin - Math.round(d.minutes);
+                      return (
+                        <div key={g.label} className={`nb-gate ${left < 0 ? 'bad' : left < 20 ? 'warn' : 'ok'}`}>
+                          {left < 0 ? `${t('Breaks')} ${g.label} (${g.by}) ${t('by')} ${Math.abs(left)} min` : `${g.label} (${g.by}): ${left} min ${t('to spare')}`}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : null}
+            onClose={() => setDetail(null)}
+            actions={(
+              <>
+                <button className="btn gold" onClick={() => { onPick(detail, { fuel: cat === 'fuel' }); setDetail(null); }}>{pickLabel}</button>
+                {mode !== 'swap' && cat !== 'fuel' && (
+                  <button className="btn" onClick={() => { onPick(detail, { fuel: true }); setDetail(null); }}>{t('Add as fuel stop')}</button>
+                )}
+              </>
+            )}
+          />
+        );
+      })()}
     </div>
   );
 }

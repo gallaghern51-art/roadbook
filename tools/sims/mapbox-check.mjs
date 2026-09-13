@@ -89,14 +89,14 @@ async function open(styleStatus) {
   await page.locator('.basemap-switch button', { hasText: /^Streets$/ }).click();
   // a Streets-v8-shaped POI feature: class bucket + maki icon
   await page.evaluate(() => window.__poiTap({ properties: { name: 'Buffalo Cafe', class: 'food_and_drink', maki: 'cafe' }, geometry: { coordinates: [-108.0, 44.0] } }));
-  await page.waitForSelector('.poi-card', { timeout: 5000 });
-  check((await page.locator('.poi-card .poi-glyph').textContent()) === '☕', 'a Mapbox cafe (class food_and_drink, maki cafe) wears the coffee glyph');
-  await page.locator('.poi-card .mini-edit').click();
+  await page.waitForSelector('.place-sheet', { timeout: 5000 });
+  check((await page.locator('.place-sheet .poi-glyph').textContent()) === '☕', 'a Mapbox cafe (class food_and_drink, maki cafe) wears the coffee glyph');
+  await page.locator('.place-sheet .ps-head .btn').click();
   await page.evaluate(() => window.__poiTap({ properties: { name: 'Rushmore Steakhouse', class: 'food_and_drink', maki: 'restaurant' }, geometry: { coordinates: [-108.0, 44.0] } }));
-  await page.waitForSelector('.poi-card', { timeout: 5000 });
-  check((await page.locator('.poi-card .poi-glyph').textContent()) === '🍽', 'a restaurant wears the food glyph');
+  await page.waitForSelector('.place-sheet', { timeout: 5000 });
+  check((await page.locator('.place-sheet .poi-glyph').textContent()) === '🍽', 'a restaurant wears the food glyph');
   await page.screenshot({ path: SHOT('mapbox-poi-card') });
-  await page.locator('.poi-card .mini-edit').click();
+  await page.locator('.place-sheet .ps-head .btn').click();
   // the nav map too
   await page.locator('.modebar button', { hasText: /ride/i }).click();
   await page.waitForSelector('.ride-bar', { timeout: 15000 });

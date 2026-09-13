@@ -124,14 +124,14 @@ async function run(width, label) {
   // 2. no day selected: the card opens, Add is disabled and says why
   if (phone) { await page.locator('.panel-tab').click().catch(() => {}); await page.waitForTimeout(300); }
   await page.evaluate(([lng, lat]) => window.__poiTap({ properties: { name: 'Sinclair', class: 'fuel', subclass: 'fuel' }, geometry: { coordinates: [lng, lat] } }), on1);
-  await page.waitForSelector('.poi-card', { timeout: 5000 });
-  check((await page.locator('.poi-card .poi-glyph').textContent()) === '⛽', 'a fuel POI wears the fuel glyph');
-  await page.waitForSelector('.poi-card .nb-ver', { timeout: 6000 });
-  check(/Sinclair Granite/.test(await page.locator('.poi-facts').textContent().catch(() => '')) || /4\.3/.test(await page.locator('.poi-facts').textContent()), 'Google\'s match is shown with its rating');
-  check(await page.locator('.poi-actions .btn.gold').isDisabled(), 'with no day selected, Add is disabled');
-  check(/Pick a day/.test(await page.locator('.poi-hint').textContent()), 'and the card says why');
+  await page.waitForSelector('.place-sheet', { timeout: 5000 });
+  check((await page.locator('.place-sheet .poi-glyph').textContent()) === '⛽', 'a fuel POI wears the fuel glyph');
+  await page.waitForSelector('.place-sheet .nb-ver', { timeout: 6000 });
+  check(/Sinclair Granite/.test(await page.locator('.place-sheet .ps-body').textContent().catch(() => '')) || /4\.3/.test(await page.locator('.place-sheet .ps-body').textContent()), 'Google\'s match is shown with its rating');
+  check(await page.locator('.place-sheet .ps-foot .btn.gold').isDisabled(), 'with no day selected, Add is disabled');
+  check(/Pick a day/.test(await page.locator('.place-sheet .poi-hint').textContent()), 'and the card says why');
   await page.screenshot({ path: SHOT(`poi-tap-noday-${width}`) });
-  await page.locator('.poi-card .mini-edit').click();
+  await page.locator('.place-sheet .ps-head .btn').click();
 
   // 3. a day selected: tap → match → Add as fuel stop, by route order, verified
   await page.locator('.ribbon .rchip:not(.trip-seat)').first().click();
@@ -139,26 +139,26 @@ async function run(width, label) {
   if (phone) { await page.locator('.panel-tab').click().catch(() => {}); await page.waitForTimeout(300); }
   calls = [];
   await page.evaluate(([lng, lat]) => window.__poiTap({ properties: { name: 'Sinclair', class: 'fuel' }, geometry: { coordinates: [lng, lat] } }), on1);
-  await page.waitForSelector('.poi-card .nb-ver', { timeout: 6000 });
+  await page.waitForSelector('.place-sheet .nb-ver', { timeout: 6000 });
   check(calls.at(-1)?.category === 'fuel' && /Sinclair/.test(calls.at(-1)?.query) && calls.at(-1)?.radiusMi <= 2, 'the Google lookup is strict-typed to the POI class and tight around the point');
-  check(/Add as fuel stop/.test(await page.locator('.poi-actions .btn.gold').textContent()), 'the action names the role the POI implies');
+  check(/Add as fuel stop/.test(await page.locator('.place-sheet .ps-foot .btn.gold').textContent()), 'the action names the role the POI implies');
   await page.screenshot({ path: SHOT(`poi-tap-${width}`) });
-  await page.locator('.poi-actions .btn.gold').click();
+  await page.locator('.place-sheet .ps-foot .btn.gold').click();
   await page.waitForTimeout(600);
   let trip = await lib();
   let wps = trip.days[0].waypoints;
   const added = wps.find((w) => w.name === 'Sinclair Granite');
   check(!!added && added.fuel === true && added.kind === 'fuel' && added.placeId === 'g-sinclair' && added.verified === 'google', 'the stop landed as a VERIFIED fuel stop with Google\'s identity and name');
   check(wps.indexOf(added) === 1, `inserted by route order, between Basecamp and Granite Diner (index ${wps.indexOf(added)})`);
-  check(await page.locator('.poi-card').count() === 0, 'the card closes on add');
+  check(await page.locator('.place-sheet').count() === 0, 'the card closes on add');
 
   // 4. no Google listing → still addable, unverified
   await page.evaluate(([lng, lat]) => window.__poiTap({ properties: { name: 'Nowhere Cafe', class: 'cafe' }, geometry: { coordinates: [lng, lat + 0.01] } }), on1);
-  await page.waitForSelector('.poi-card', { timeout: 5000 });
-  await page.waitForFunction(() => /unverified/.test(document.querySelector('.poi-facts')?.textContent ?? ''), null, { timeout: 6000 });
-  check((await page.locator('.poi-card .poi-glyph').textContent()) === '☕', 'a cafe wears the coffee glyph');
-  check(!(await page.locator('.poi-actions .btn.gold').isDisabled()), 'no listing: Add is still offered');
-  await page.locator('.poi-actions .btn.gold').click();
+  await page.waitForSelector('.place-sheet', { timeout: 5000 });
+  await page.waitForFunction(() => /unverified/.test(document.querySelector('.place-sheet .ps-body')?.textContent ?? ''), null, { timeout: 6000 });
+  check((await page.locator('.place-sheet .poi-glyph').textContent()) === '☕', 'a cafe wears the coffee glyph');
+  check(!(await page.locator('.place-sheet .ps-foot .btn.gold').isDisabled()), 'no listing: Add is still offered');
+  await page.locator('.place-sheet .ps-foot .btn.gold').click();
   await page.waitForTimeout(600);
   trip = await lib(); wps = trip.days[0].waypoints;
   const cafe = wps.find((w) => w.name === 'Nowhere Cafe');

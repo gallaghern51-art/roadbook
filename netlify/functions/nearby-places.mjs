@@ -99,6 +99,7 @@ export default async (req) => {
       enrich: true,
       type: cat?.type ?? null,
       radiusM,
+      restrict: body?.restrict === true && !route,
       encodedPolyline: route ? encodePolyline5(route) : null,
     });
     // permanently closed places are not options

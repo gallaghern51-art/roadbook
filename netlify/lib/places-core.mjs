@@ -18,6 +18,12 @@
 
 const SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 
+function rectAround(near, m) {
+  const dLat = m / 111320;
+  const dLng = m / (111320 * Math.max(0.2, Math.cos((near.lat * Math.PI) / 180)));
+  return { low: { latitude: near.lat - dLat, longitude: near.lng - dLng }, high: { latitude: near.lat + dLat, longitude: near.lng + dLng } };
+}
+
 export async function searchPlacesGoogle(key, query, near, {
   limit = 6,
   hours = false,
@@ -26,6 +32,7 @@ export async function searchPlacesGoogle(key, query, near, {
   classify = false,
   radiusM = 50000,
   encodedPolyline = null,
+  restrict = false, // the circle is a HARD boundary, not a bias — a tapped POI is HERE, not the best-named match in the country
 } = {}) {
   const body = {
     textQuery: query,
@@ -34,7 +41,11 @@ export async function searchPlacesGoogle(key, query, near, {
     ...(encodedPolyline
       ? { searchAlongRouteParameters: { polyline: { encodedPolyline } } }
       : near && Number.isFinite(near.lat) && Number.isFinite(near.lng)
-      ? { locationBias: { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: radiusM } } }
+      ? (restrict
+        // Text Search's locationRestriction takes a rectangle only: the
+        // circle's bounding box, so nothing outside it can come back
+        ? { locationRestriction: { rectangle: rectAround(near, radiusM) } }
+        : { locationBias: { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: radiusM } } })
       : {}),
   };
   const fields = new Set(['places.id', 'places.displayName', 'places.formattedAddress', 'places.location']);
