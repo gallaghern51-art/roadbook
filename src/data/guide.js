@@ -235,6 +235,43 @@ export const CHAPTERS = [
     tips: ['A day panel carries the same strip as a one-line pill, so you always know which plan you are looking at.'],
   },
   {
+    id: 'templates',
+    title: 'Templates — reuse a plan, or share it',
+    icon: '❒',
+    blurb: 'Keep a trip as a starting point, lay its days into another trip, or hand it to a friend as a file.',
+    video: { src: '/guide/templates.mp4', poster: '/guide/templates.jpg', length: '1:20' },
+    steps: [
+      {
+        t: 'Save any trip as a template',
+        b: 'Open the trip, go to the TRIP overview, and in Trip settings press "Save as template". Name it for what it is — "Sturgis — early exit from Red Lodge" — and it lands on the home screen under Your templates. You stay in the trip you were in.',
+      },
+      {
+        t: 'What a template keeps, and what it deliberately drops',
+        b: 'Every day, stop, gate, meal, module and note travels. Booking state does not: nothing arrives marked as confirmed, because a copied plan claiming a bed nobody booked is the one lie a planning tool must not tell.',
+      },
+      {
+        t: 'Start a new trip from one',
+        b: 'Home → the template card, or New trip → the Template tab, which lists the bundled Sturgis trip alongside your own. Give it a name and a start date; every date re-pins from that day and every stop gets fresh identity, so the new trip and the template can be edited apart.',
+      },
+      {
+        t: 'Or lay just some of its days into a trip you already have',
+        b: 'This is the "use it on top of" case. In the TRIP overview, under Days, press "＋ Days from a template", pick the template, tick the days you want, and say where they go. It is one undoable change, and the calendar re-pins — inserted days take the slots they land in rather than dragging their old dates along.',
+      },
+      {
+        t: 'Share it with a friend',
+        b: 'Press Share on a template card and you get a .json file. Send it however you like; they open Roadbook → Import JSON and it lands on their shelf as a template, ready to copy. No account, no join code, no signal needed at either end.',
+      },
+      {
+        t: 'Templates back up with your account',
+        b: 'They ride along with the trip library, so signing in on a new phone brings your templates with your trips.',
+      },
+    ],
+    tips: [
+      'A template is a snapshot, not a link: editing the trip it came from does not change the template, and trips already made from it are untouched if you delete it.',
+      'Sharing a template gives someone a copy to edit. To plan the SAME trip together in real time, share the trip itself with a join code — see "Ride with a crew".',
+    ],
+  },
+  {
     id: 'prep',
     title: 'Prep — get the trip actually ready',
     icon: '☑',
@@ -352,6 +389,7 @@ export const CHAPTERS = [
       { t: 'GPX', b: 'A day exports as GPX for a GPS or another nav app. Waypoint names carry the planned arrival times, so it doubles as a schedule check.' },
       { t: 'ICS', b: 'The trip exports to a calendar file. Set the trip\'s time zone in Trip settings first — the export uses it.' },
       { t: 'JSON', b: 'The whole trip, exactly as the app holds it. Import always creates a NEW trip rather than overwriting the one you are in, so a file from a friend can never eat your work.' },
+      { t: 'Templates', b: 'A saved template exports as a .json file from its card on the home screen, and imports as a template on the other end — the simplest way to hand a whole plan to a friend. See the Templates chapter.' },
       { t: 'Cloud backup', b: 'With an account, the library backs up automatically and merges rather than overwrites when you sign in on a new device: the newer edit of a trip wins, and a trip you deleted stays deleted unless it was edited elsewhere afterwards.' },
     ],
     tips: ['The bundled Sturgis trip is a template, not your data — it is dropped rather than uploaded if you never edited it.'],

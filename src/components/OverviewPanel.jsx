@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -10,6 +10,7 @@ import { uid } from '../engine/ops.js';
 import { tripPace, tripRoutePrefs } from '../engine/tripEngine.js';
 import { to24h, from24h } from '../engine/timeline.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
+import { libraryTemplates, daysFromTemplate, insertDaysOp } from '../engine/templates.js';
 
 // Suggestions only — riders type whatever they actually ride. (The list began
 // as the EagleRider rental lineup the Sturgis crew booked from; it survives as
@@ -85,7 +86,10 @@ export default function OverviewPanel() {
             </div>
           </SortableContext>
         </DndContext>
-        <button className="btn" style={{ marginTop: 8 }} onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'add_day' }] })}>＋ {t('Add day')}</button>
+        <div className="ov-day-actions">
+          <button className="btn" onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'add_day' }] })}>＋ {t('Add day')}</button>
+          <TemplateDays trip={trip} dispatch={dispatch} />
+        </div>
       </div>
 
       <TripSettings trip={trip} dispatch={dispatch} ui={ui} />
@@ -105,6 +109,85 @@ export default function OverviewPanel() {
       </div>}
 
       <RiderRoster trip={trip} dispatch={dispatch} />
+    </div>
+  );
+}
+
+// Lay days from a saved template INTO this trip — the "use my early-exit
+// version on top of the Sturgis trip" case. A template is a whole trip, so the
+// honest form of "on top of" is: pick the days you want, say where they go,
+// one undoable op. Dates re-cascade, so the inserted days take the calendar
+// slots they land in rather than dragging their old dates along.
+function TemplateDays({ trip, dispatch }) {
+  const { state } = useTrip();
+  const t = useT();
+  const tt = useTT();
+  const templates = libraryTemplates(state.lib);
+  const [open, setOpen] = useState(false);
+  const [tplId, setTplId] = useState(null);
+  const [picked, setPicked] = useState([]);
+  const [at, setAt] = useState(trip.days.length);
+
+  const tpl = templates.find((r) => r.id === tplId) ?? null;
+  const choose = (rec) => {
+    setTplId(rec.id);
+    setPicked(rec.trip.days.map((d) => d.id)); // whole template by default
+    setAt(trip.days.length);
+  };
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const insert = () => {
+    const days = daysFromTemplate(tpl, picked);
+    if (!days.length) return;
+    dispatch({ type: 'apply_ops', ops: [insertDaysOp(days, at, tpl.name)] });
+    setOpen(false); setTplId(null); setPicked([]);
+  };
+
+  if (!templates.length) return null;
+  if (!open) {
+    return <button className="btn" onClick={() => setOpen(true)}>＋ {t('Days from a template')}</button>;
+  }
+
+  return (
+    <div className="tpl-insert">
+      <div className="tpl-insert-head">
+        <b>{t('Days from a template')}</b>
+        <button className="mini-edit" onClick={() => { setOpen(false); setTplId(null); }} aria-label={t('Cancel')}>✕</button>
+      </div>
+      {!tpl && (
+        <div className="tpl-insert-list">
+          {templates.map((rec) => (
+            <button key={rec.id} className="tpl-insert-row" onClick={() => choose(rec)}>
+              <b>{rec.name}</b><small>{rec.trip.days.length} {t('days')}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {tpl && (
+        <>
+          <div className="tpl-insert-list">
+            {tpl.trip.days.map((d, i) => (
+              <label key={d.id} className="tpl-insert-day">
+                <input type="checkbox" checked={picked.includes(d.id)} onChange={() => toggle(d.id)} />
+                <span><b>{t('Day')} {i + 1}</b> {tt(d.title)}</span>
+              </label>
+            ))}
+          </div>
+          <label className="fld">{t('Insert before')}
+            <select value={at} onChange={(e) => setAt(Number(e.target.value))}>
+              {trip.days.map((d, i) => (
+                <option key={d.id} value={i}>{t('Day')} {i + 1} — {tt(d.title)}</option>
+              ))}
+              <option value={trip.days.length}>{t('End of the trip')}</option>
+            </select>
+          </label>
+          <div className="tpl-insert-foot">
+            <button className="btn" onClick={() => setTplId(null)}>{t('Back')}</button>
+            <button className="btn gold" disabled={!picked.length} onClick={insert}>
+              {t('Insert')} {picked.length} {picked.length === 1 ? t('day') : t('days')}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -166,6 +249,12 @@ function TripSettings({ trip, dispatch, ui }) {
   return (
     <div className="section">
       <h3>{t('Trip settings')}</h3>
+      {/* Keep this plan as a starting point — for the next trip, or for a
+          friend. It does not leave the trip you are in. */}
+      <div className="tpl-save">
+        <button className="btn" onClick={() => ui?.saveAsTemplate?.()}>❒ {t('Save as template')}</button>
+        <small>{t('Reuse this plan for another trip, or share the file with a friend.')}</small>
+      </div>
       <div className="budget-grid trip-settings-grid">
         <label className="fld settings-wide">{t('Trip name')}
           <input defaultValue={trip.meta.title} key={trip.meta.title}

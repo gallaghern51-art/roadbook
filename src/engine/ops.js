@@ -96,6 +96,19 @@ function applyOp(t, op) {
       t.days.splice(at, 0, day);
       return cascadeDates(t);
     }
+    // Lay whole days into the trip — the template path (src/engine/templates.js).
+    // The days arrive COMPLETE, ids and all: they are minted by the caller
+    // before the op is built, so a shared trip replays the same ids on every
+    // device. Deliberately NOT in the AI tool schema, for the same reason
+    // replace_trip is not — a model authoring whole day documents blind is what
+    // add_day + add_waypoint are for.
+    case 'insert_days': {
+      const days = (op.days ?? []).filter((d) => d && Array.isArray(d.waypoints));
+      if (!days.length) throw new Error('insert_days needs at least one day');
+      const at = Math.min(Math.max(op.index ?? t.days.length, 0), t.days.length);
+      t.days.splice(at, 0, ...days.map((d) => blankDay(d)));
+      return cascadeDates(t);
+    }
     case 'remove_day': {
       const idx = t.days.findIndex((d) => d.id === op.dayId);
       if (idx < 0) throw new Error(`unknown day ${op.dayId}`);
@@ -384,6 +397,7 @@ export function describeOps(trip, ops) {
       case 'update_meal': return `Change ${op.meal} on ${dayName(op.dayId)}`;
       case 'remove_meal': return `Remove ${op.meal} on ${dayName(op.dayId)}`;
       case 'add_day': return `Add a day${op.day?.title ? ` — “${op.day.title}”` : ''}`;
+      case 'insert_days': return `Add ${op.days?.length ?? 0} day${op.days?.length === 1 ? '' : 's'}${op.label ? ` from “${op.label}”` : ''}`;
       case 'remove_day': return `Remove ${dayName(op.dayId)}`;
       case 'update_lodging': return `Change lodging on ${dayName(op.dayId)}`;
       case 'set_meta': return `Update trip settings (${Object.keys(op.patch ?? {}).join(', ')})`;

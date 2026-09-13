@@ -4269,3 +4269,59 @@ input:focus, textarea:focus, select:focus {
 
 :root[data-theme='light'] .guide-chap.active { background: rgba(245, 63, 31, 0.09); }
 :root[data-theme='light'] .g-video { background: var(--asphalt-2); }
+
+/* ---------- templates ----------
+   A template is a library record wearing meta.template (src/engine/templates.js).
+   It reads as a trip card with its provenance on the front, because that is what
+   it is: somebody's plan, kept as a starting point. */
+.tpl-card { border-style: dashed; }
+.tpl-tag {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--outbound); border: 1px solid var(--outbound); border-radius: 3px; padding: 1px 5px;
+}
+.tc-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.tc-actions .tc-open { margin-top: 0; }
+.tc-share {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-dim); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; min-height: 32px;
+}
+.tc-share:hover { color: var(--rally); border-color: var(--rally); }
+
+/* the picker in New trip */
+.tpl-pick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.tpl-pick button {
+  text-align: left; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--asphalt-2); min-height: 44px;
+}
+.tpl-pick button b { display: block; font-family: var(--display); font-size: 15px; font-weight: 650; }
+.tpl-pick button small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+.tpl-pick button.active { border-color: var(--rally); background: rgba(245, 63, 31, 0.07); }
+.tpl-hint { color: var(--ink-faint); font-size: 12px; margin-top: 8px; }
+
+/* save-as-template row in Trip settings */
+.tpl-save { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.tpl-save small { color: var(--ink-faint); font-size: 11.5px; flex: 1 1 180px; }
+
+/* laying template days into this trip */
+.ov-day-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.tpl-insert {
+  flex: 1 1 100%; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; background: var(--asphalt-2);
+}
+.tpl-insert-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.tpl-insert-head b { font-family: var(--display); font-size: 14px; font-weight: 650; }
+.tpl-insert-list { display: flex; flex-direction: column; gap: 4px; max-height: 210px; overflow-y: auto; }
+.tpl-insert-row { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; min-height: 44px; }
+.tpl-insert-row:hover { border-color: var(--rally); }
+.tpl-insert-row b { font-family: var(--display); font-size: 14px; font-weight: 600; margin-right: 6px; }
+.tpl-insert-row small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+.tpl-insert-day { display: flex; gap: 9px; align-items: flex-start; padding: 6px 4px; min-height: 40px; font-size: 13px; color: var(--ink-dim); }
+.tpl-insert-day input { accent-color: var(--rally); width: 16px; height: 16px; margin-top: 2px; flex: none; }
+.tpl-insert-day b { color: var(--ink); font-family: var(--mono); font-size: 11px; margin-right: 4px; }
+.tpl-insert .fld { margin-top: 10px; }
+.tpl-insert-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .tpl-insert-foot .btn, .tc-share { min-height: 44px; }
+  .tpl-insert-day { min-height: 44px; align-items: center; }
+}
