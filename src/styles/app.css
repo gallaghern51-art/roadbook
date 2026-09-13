@@ -4529,3 +4529,6 @@ input:focus, textarea:focus, select:focus {
 .settings-adv summary span { text-transform: none; letter-spacing: 0; color: var(--ink-faint); font-size: 11px; }
 .settings-adv > .trip-settings-grid { padding: 4px 0 12px; }
 .modal.sheet .section { margin-top: 18px; }
+
+.phase-select.more { --seg-color: var(--ink-faint); color: var(--ink-dim); }
+.fld.phase-unused { opacity: 0.55; }

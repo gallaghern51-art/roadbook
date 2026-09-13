@@ -55,7 +55,7 @@ async function run(width, label) {
   for (const [sel, name] of [['.dm-seg', 'phase'], ['.anchor-toggle', 'anchor'], ['.ask-ai', 'Copilot'], ['.gpx-btn', 'GPX']]) {
     check(await page.locator(`.day-menu ${sel}`).count() >= 1, `⋯ holds ${name}`);
   }
-  const segWords = await page.locator('.day-menu .phase-select').allTextContents();
+  const segWords = await page.locator('.day-menu .phase-select:not(.more)').allTextContents();
   check(segWords.some((w) => /Rally/.test(w)) && !segWords.some((w) => /Destination/.test(w)), `the phase segment speaks the trip's words (${segWords.map((w) => w.trim()).join(' · ')})`);
   await page.screenshot({ path: SHOT(`phases-day-menu-${width}`) });
   await page.locator('.day-menu .phase-select', { hasText: 'Return' }).click();
@@ -112,8 +112,17 @@ async function run(width, label) {
   await page.waitForSelector('.day-head .day-more', { timeout: 10000 });
   await page.locator('.day-head .day-more').click();
   await page.waitForSelector('.day-menu', { timeout: 6000 });
-  const words = (await page.locator('.day-menu .phase-select').allTextContents()).map((w) => w.trim());
-  check(words.some((w) => /Destination/.test(w)) && !words.some((w) => /Rally/.test(w)), `its phases are agnostic (${words.join(' · ')})`);
+  // a blank trip is all Outbound days: the segment offers what the trip HAS,
+  // not a destination day it does not have — ＋ reveals the rest
+  const shown = (await page.locator('.day-menu .phase-select:not(.more)').allTextContents()).map((w) => w.trim());
+  check(shown.length === 1 && /Outbound/.test(shown[0]), `the segment lists only the phases this trip has (${shown.join(' · ')})`);
+  check(await page.locator('.day-menu .phase-select.more').count() === 1, 'and a ＋ for the rest');
+  await page.locator('.day-menu .phase-select.more').click();
+  const words = (await page.locator('.day-menu .phase-select:not(.more)').allTextContents()).map((w) => w.trim());
+  check(words.length === 4 && words.some((w) => /Destination/.test(w)) && !words.some((w) => /Rally/.test(w)), `expanded, its phases are agnostic (${words.join(' · ')})`);
+  await page.locator('.day-menu .phase-select', { hasText: 'Return' }).click();
+  await page.waitForTimeout(300);
+  check(/^Return/.test((await page.locator('.day-head .phase-chip').textContent()).trim()), 'an out-and-back marks its way home as Return');
   await ctx.close();
 }
 

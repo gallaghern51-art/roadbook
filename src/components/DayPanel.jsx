@@ -55,6 +55,8 @@ export default function DayPanel({ day }) {
   const timeline = dayTimeline(day, routedLegsByDay[day.id]);
   const [swapId, setSwapId] = useState(null); // the stop row with the swap picker open
   const [dayMenu, setDayMenu] = useState(false); // the ⋯ sheet
+  const [allPhases, setAllPhases] = useState(false);
+  const usedPhases = new Set(state.trip.days.map((d) => d.phase).filter(Boolean));
   const t = useT();
   const tt = useTT();
   const u = useUnits();
@@ -110,12 +112,18 @@ export default function DayPanel({ day }) {
             <div className="day-menu">
               <div className="dm-group">
                 <span className="dm-label">{t('Phase')}</span>
+                {/* Only the phases THIS trip has: an out-and-back offers
+                    Outbound and Return, and never a destination day it does
+                    not have. ＋ reveals the rest for the trip that grows one. */}
                 <div className="dm-seg" role="radiogroup" aria-label={t('Phase')}>
-                  {Object.entries(PHASES).map(([k, p]) => (
+                  {Object.entries(PHASES).filter(([k]) => allPhases || usedPhases.has(k)).map(([k, p]) => (
                     <button key={k} role="radio" aria-checked={day.phase === k} className={`phase-select${day.phase === k ? ' active' : ''}`} style={{ '--seg-color': p.color }}
                       onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'phase', value: k }] })}
                     ><i className="phase-dot" /> {t(phaseLabel(state.trip, k))}</button>
                   ))}
+                  {!allPhases && usedPhases.size < Object.keys(PHASES).length && (
+                    <button className="phase-select more" onClick={() => setAllPhases(true)} aria-label={t('More phases')}>＋ {t('More')}</button>
+                  )}
                 </div>
               </div>
               <button
