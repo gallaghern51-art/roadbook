@@ -562,14 +562,22 @@ export default function App() {
   // measure again after paint, and re-measure on every event that can follow a
   // stale layout. A zero is never written; the last good height stands until a
   // real one replaces it.
+  //
+  // Keyed on the chrome ELEMENT, not the screen (field-caught on a PWA cold
+  // launch, Sep 13 2026 — "compaction garbling with the top"): with the screen
+  // persisted as 'trip', the effect used to run while the signed-out landing
+  // gate (or the account session restoring) still owned the render, find no
+  // chrome, and never run again — so --chrome-h stayed unset and the map's
+  // pill and hint sat in the masthead row. A callback ref re-runs it the
+  // moment the chrome actually mounts.
   const appRef = useRef(null);
-  const chromeRef = useRef(null);
+  const [chromeEl, setChromeEl] = useState(null);
+  const chromeRef = setChromeEl;
   useEffect(() => {
-    const app = appRef.current;
-    if (!app) return undefined;
+    const chrome = chromeEl;
+    const app = chrome?.closest('.app') ?? appRef.current;
+    if (!chrome || !app) return undefined;
     const measure = () => {
-      const chrome = chromeRef.current;
-      if (!chrome) return;
       const h = Math.round(chrome.getBoundingClientRect().height);
       if (h > 0) app.style.setProperty('--chrome-h', `${h}px`);
     };
@@ -581,9 +589,9 @@ export default function App() {
     for (const e of events) window.addEventListener(e, measure);
     window.visualViewport?.addEventListener('resize', measure);
     let ro = null;
-    if (typeof ResizeObserver !== 'undefined' && chromeRef.current) {
+    if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(measure);
-      ro.observe(chromeRef.current);
+      ro.observe(chrome);
     }
     return () => {
       timers.forEach(clearTimeout);
@@ -591,7 +599,7 @@ export default function App() {
       window.visualViewport?.removeEventListener('resize', measure);
       ro?.disconnect();
     };
-  }, [screen]);
+  }, [chromeEl, screen]);
 
   const mapFull = isMobile && !panelOpen && mode === 'plan';
 

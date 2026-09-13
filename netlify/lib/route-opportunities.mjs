@@ -9,6 +9,29 @@ const DEFAULT_URL = 'https://valhalla1.openstreetmap.de';
 const KM_TO_MI = 0.621371;
 const M_TO_FT = 3.28084;
 export const MAX_ROUTE_LOCATIONS = 20;
+// The public Valhalla caps one request at 10 locations (error 150 — it was 20
+// until Sep 2026). A longer concept is routed in windows that share their
+// boundary stop, legs stitched back into one trip. Mirrors valhallaWindows in
+// src/engine/routing.js.
+export const VALHALLA_MAX_LOCATIONS = 10;
+export function valhallaWindows(locations, max = VALHALLA_MAX_LOCATIONS) {
+  if (locations.length <= max) return [locations];
+  const out = [];
+  for (let start = 0; start < locations.length - 1; start += max - 1) {
+    out.push(locations.slice(start, start + max).map((l, i, arr) => (i === 0 || i === arr.length - 1 ? { ...l, type: 'break' } : l)));
+    if (start + max >= locations.length) break;
+  }
+  return out;
+}
+async function valhallaTrip(fetchImpl, url, locations, motorcycle) {
+  const trips = [];
+  for (const win of valhallaWindows(locations)) {
+    const data = await jsonPost(fetchImpl, url, { locations: win, costing: 'motorcycle', costing_options: motorcycle, units: 'kilometers', directions_options: { units: 'kilometers' } });
+    trips.push(data.trip ?? {});
+  }
+  if (trips.length === 1) return { trip: trips[0] };
+  return { trip: { ...trips[0], legs: trips.flatMap((t) => t.legs ?? []), summary: { ...(trips[0].summary ?? {}), length: trips.reduce((n, t) => n + (Number(t.summary?.length) || 0), 0), time: trips.reduce((n, t) => n + (Number(t.summary?.time) || 0), 0) } } };
+}
 
 const round = (n, places = 0) => Number(Number(n).toFixed(places));
 const finite = (n) => Number.isFinite(Number(n));
@@ -269,17 +292,11 @@ export async function evaluateRouteOptions(input, {
     }
     if (locations.length < 2) return { id: concept.id, title: concept.title, error: 'needs at least two located stops' };
     try {
-      const data = await jsonPost(fetchImpl, `${String(baseUrl).replace(/\/$/, '')}/route`, {
-        locations: locations.map((p, i) => ({
-          lat: Number(p.lat),
-          lon: Number(p.lng),
-          type: i > 0 && i < locations.length - 1 ? 'break_through' : 'break',
-        })),
-        costing: 'motorcycle',
-        costing_options: costingOptions(input.routePrefs),
-        units: 'kilometers',
-        directions_options: { units: 'kilometers' },
-      });
+      const data = await valhallaTrip(fetchImpl, `${String(baseUrl).replace(/\/$/, '')}/route`, locations.map((p, i) => ({
+        lat: Number(p.lat),
+        lon: Number(p.lng),
+        type: i > 0 && i < locations.length - 1 ? 'break_through' : 'break',
+      })), costingOptions(input.routePrefs));
       const legs = data.trip?.legs ?? [];
       const miles = Number(data.trip?.summary?.length) * KM_TO_MI;
       const rawRideMinutes = Number(data.trip?.summary?.time) / 60;
