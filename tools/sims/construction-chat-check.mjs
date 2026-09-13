@@ -121,13 +121,18 @@ check(await page.locator('.concept-tabs button').count() === 3, 'planner present
 check((await page.locator('.concept-facts').innerText()).includes('max fuel gap'), 'selected option exposes measured route and fuel facts');
 check(await page.locator('.concept-stops li').count() >= 5, 'selected option exposes its ordered road and stop pieces');
 check(await page.locator('.concept-stops .stop-verified').count() >= 2, 'verified opportunity stops are visibly distinguished');
-const placeDetails = page.locator('.concept-stop', { hasText: 'Brickhouse 737' }).locator('.place-details');
-check(await placeDetails.locator('summary').isVisible(), 'verified food, lodging, and experiences offer expandable place details');
-await placeDetails.locator('summary').click();
-check((await placeDetails.innerText()).includes('4.7 ★')
-  && (await placeDetails.innerText()).includes('737 Main St')
-  && await placeDetails.locator('a', { hasText: 'Google Maps' }).getAttribute('href') === 'https://maps.google.com/brickhouse', 'expanded place details show ratings, address, hours, and useful links');
-check(await placeDetails.locator('.place-attribution').getByText('Google Maps', { exact: true }).isVisible(), 'expanded Google place content carries visible attribution');
+const glanceRow = page.locator('.concept-stop', { hasText: 'Brickhouse 737' }).locator('.place-glance-row');
+check(await glanceRow.isVisible() && (await glanceRow.innerText()).includes('4.7 ★') && (await glanceRow.innerText()).includes('$$'), 'verified food, lodging, and experiences show a rating/price glance on the row');
+await glanceRow.locator('.place-details-btn').click();
+await page.waitForSelector('.place-sheet', { timeout: 5000 });
+const sheetText = await page.locator('.place-sheet').innerText();
+check(sheetText.includes('Brickhouse 737') && sheetText.includes('★ 4.7') && sheetText.includes('737 Main St') && sheetText.includes('(970) 555-0137')
+  && await page.locator('.place-sheet .ps-contact a[href="https://example.com/brickhouse"]').count() === 1, "Details opens Roadbook's own place sheet with rating, address, phone and website");
+check(await page.locator('.place-sheet a[href*="maps.google.com"]').count() === 0 && !/Google Maps/.test(sheetText), 'the sheet never links out to Google Maps');
+check(/Place facts from Google/i.test(sheetText), 'Google place content carries visible attribution');
+check(/Change this stop/.test(await page.locator('.place-sheet .ps-foot').innerText()), "an intermediate stop's sheet offers Change this stop");
+await page.locator('.place-sheet .ps-head .btn').click();
+check(await page.locator('.place-sheet').count() === 0, 'the sheet closes');
 check(await page.locator('.construction-confirm').getByText('Nothing is created yet.').isVisible(), 'trip stays uncommitted while the rider refines it');
 check(!await page.locator('.builder-basics').isVisible() && await page.locator('.builder-context').isVisible(), 'trip inputs collapse to a compact summary once construction starts');
 await page.getByText('Edit trip details', { exact: true }).click();

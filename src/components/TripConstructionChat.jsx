@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { runPlanner } from '../engine/planner.js';
+import { CATEGORIES } from '../engine/nearby.js';
+import PlaceSheet from './PlaceSheet.jsx';
 
 const mins = (value) => {
   if (!Number.isFinite(value)) return '—';
@@ -21,41 +23,27 @@ const priceLabel = {
   PRICE_LEVEL_VERY_EXPENSIVE: '$$$$',
 };
 
-const mapsUrl = (stop) => stop.googleMapsUri
-  || (stop.placeId ? `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(stop.placeId)}&query=${encodeURIComponent(stop.name || '')}` : null);
+// kind → the picker's category, for the sheet's roundel glyph
+const KIND_CAT = { food: 'food', lodging: 'lodging', attraction: 'sights', fuel: 'fuel' };
+const kindGlyph = (kind) => CATEGORIES.find((c) => c.id === KIND_CAT[kind])?.glyph ?? '📍';
 
-function PlaceDetails({ stop }) {
-  const mapHref = mapsUrl(stop);
-  const hasDetails = stop.detail || Number.isFinite(stop.rating) || stop.priceLevel
-    || stop.hours?.length || stop.phone || stop.websiteUri || mapHref;
-  const hasGooglePlace = Boolean(stop.placeId || stop.googleMapsUri);
-  if (!hasGooglePlace || !hasDetails || !['food', 'lodging', 'attraction'].includes(stop.kind)) return null;
+// A verified place on a route option: the glance a rider scans (rating,
+// count, price) and a Details button that opens Roadbook's own place page —
+// the same PlaceSheet the map's POI tap and the picker use, never a link out
+// to Google Maps (owner, Sep 13 2026). Photo, hours, phone and website are
+// fetched by placeId when the sheet opens, not for every row.
+function PlaceGlance({ stop, onDetails }) {
+  const hasGooglePlace = Boolean(stop.placeId);
+  if (!hasGooglePlace || !['food', 'lodging', 'attraction'].includes(stop.kind)) return null;
   return (
-    <details className="place-details">
-      <summary>
-        <span>Place details</span>
-        <span className="place-glance">
-          {Number.isFinite(stop.rating) && <b>{stop.rating.toFixed(1)} ★</b>}
-          {Number.isFinite(stop.userRatingCount) && <small>{stop.userRatingCount.toLocaleString()} ratings</small>}
-          {stop.priceLevel && <b>{priceLabel[stop.priceLevel] || stop.priceLevel}</b>}
-        </span>
-      </summary>
-      <div className="place-details-body">
-        {stop.detail && <address>{stop.detail}</address>}
-        {stop.hours?.length > 0 && (
-          <div className="place-hours">
-            <b>Weekly hours</b>
-            <ul>{stop.hours.map((line) => <li key={line}>{line}</li>)}</ul>
-          </div>
-        )}
-        <div className="place-links">
-          {mapHref && <a href={mapHref} target="_blank" rel="noreferrer">Google Maps ↗</a>}
-          {stop.websiteUri && <a href={stop.websiteUri} target="_blank" rel="noreferrer">Website ↗</a>}
-          {stop.phone && <a href={`tel:${stop.phone}`}>{stop.phone}</a>}
-        </div>
-        <div className="place-attribution">Place information by <span translate="no">Google Maps</span></div>
-      </div>
-    </details>
+    <div className="place-glance-row">
+      <span className="place-glance">
+        {Number.isFinite(stop.rating) && <b>{stop.rating.toFixed(1)} ★</b>}
+        {Number.isFinite(stop.userRatingCount) && <small>{stop.userRatingCount.toLocaleString()} ratings</small>}
+        {stop.priceLevel && <b>{priceLabel[stop.priceLevel] || stop.priceLevel}</b>}
+      </span>
+      <button type="button" className="place-details-btn" onClick={() => onDetails(stop)}>Details</button>
+    </div>
   );
 }
 
@@ -78,8 +66,26 @@ function RouteFacts({ metrics }) {
 }
 
 function ConceptDetail({ concept, onRefine, onReject }) {
+  const [detail, setDetail] = useState(null); // the stop whose place sheet is open
+  const detailIdx = detail ? concept.locations.indexOf(detail) : -1;
+  const canChange = detailIdx > 0 && detailIdx < concept.locations.length - 1;
   return (
     <div className="concept-detail">
+      {detail && (
+        <PlaceSheet
+          place={detail}
+          glyph={kindGlyph(detail.kind)}
+          kicker={kindLabel[detail.kind] || 'Stop'}
+          onClose={() => setDetail(null)}
+          actions={canChange ? (
+            <button type="button" className="btn gold" onClick={() => {
+              setDetail(null);
+              onReject?.(detail, concept);
+              onRefine(`Replace ${detail.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
+            }}>Change this stop</button>
+          ) : null}
+        />
+      )}
       <div className="concept-story">
         <p>{concept.routeDescription}</p>
         <dl>
@@ -106,7 +112,7 @@ function ConceptDetail({ concept, onRefine, onReject }) {
                 }}>Change</button>
               )}
             </div>
-            <PlaceDetails stop={stop} />
+            <PlaceGlance stop={stop} onDetails={setDetail} />
           </li>
           </React.Fragment>
         ))}
