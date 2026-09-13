@@ -548,6 +548,11 @@ const ES = {
   'Edit stop': 'Editar parada',
   'A spot you placed on the map — not a listed business. It rides as a deliberate pin.': 'Un punto que ubicaste en el mapa — no es un negocio registrado. Viaja como un pin deliberado.',
   'Dropped pin': 'Pin colocado',
+  'Use this spot': 'Usar este punto',
+  'Add this spot to the day': 'Agregar este punto al día',
+  'drag the pin to adjust': 'arrastra el pin para ajustar',
+  '✓ to use it': '✓ para usarlo',
+  '✓ to add it': '✓ para agregarlo',
   // day panel details
   'Tonight': 'Esta noche',
   'lodging': 'alojamiento',

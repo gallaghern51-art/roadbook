@@ -228,34 +228,80 @@ async function run(width, label) {
   const lib = () => page.evaluate(() => { const l = JSON.parse(localStorage.getItem('moto.trips.v1')); return { active: l.activeId, trip: l.trips.find((r) => r.id === l.activeId).trip, all: l.trips }; });
 
   // ---------------- HOME MAP
+  const pinState = () => page.evaluate(() => {
+    const pin = document.querySelector('.drop-pin');
+    if (!pin) return { pin: false };
+    const tip = pin.querySelector('.dp-tip').getBoundingClientRect();
+    const needle = pin.querySelector('.dp-needle').getBoundingClientRect();
+    const acts = [...pin.querySelectorAll('.dp-act')].map((b) => { const r = b.getBoundingClientRect(); return { cls: b.className.replace('dp-act ', ''), w: r.width, h: r.height, on: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth }; });
+    return { pin: true, tip: { x: tip.left + tip.width / 2, y: tip.top + tip.height / 2 }, needleBottom: needle.bottom, needleTop: needle.top, acts, hint: (document.querySelector('.hm-drop-hint') ?? document.querySelector('.map-hint'))?.innerText ?? '', card: !!document.querySelector('.hm-place'), sheet: !!document.querySelector('.place-sheet') };
+  });
   // 1. a plain tap drops nothing — it steps the sheet down
   const before = await page.evaluate(() => document.querySelector('.hm-sheet').dataset.state);
   const p1 = await canvasPoint(page, 'window.__homeMap', 0.5, 0.3);
   if (phone) await page.touchscreen.tap(p1.x, p1.y); else await page.mouse.click(p1.x, p1.y);
   await page.waitForTimeout(500);
-  const afterTap = await page.evaluate(() => ({ state: document.querySelector('.hm-sheet').dataset.state, card: !!document.querySelector('.hm-place'), pins: document.querySelectorAll('.pl-pin').length }));
+  const afterTap = await page.evaluate(() => ({ state: document.querySelector('.hm-sheet').dataset.state, card: !!document.querySelector('.hm-place'), pins: document.querySelectorAll('.drop-pin').length }));
   check(!afterTap.card && afterTap.pins === 0 && (before === 'min' || afterTap.state !== before || !phone), `a plain tap drops no pin (sheet ${before} → ${afterTap.state})`);
 
-  // 2. a long press (phone: a real held touch; desktop: a right-click) drops one
+  // 2. a long press (phone: a real held touch; desktop: a right-click) drops the NEEDLE with the wheel — no card yet
   hits.geocode = 0;
+  const pressed = await page.evaluate(({ x, y }) => { const m = window.__homeMap; const r = m.getCanvas().getBoundingClientRect(); const ll = m.unproject([x - r.left, y - r.top]); return { lng: ll.lng, lat: ll.lat }; }, p1);
   if (phone) await holdOn(page, 'window.__homeMap', p1.x, p1.y, HOLD_MS + 200);
   else await page.mouse.click(p1.x, p1.y, { button: 'right' });
-  await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
-  await page.waitForFunction(() => /US-14A, Lovell/.test(document.querySelector('.hm-place')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
-  const s2 = await page.evaluate(() => {
-    const el = document.querySelector('.hm-place');
-    const pin = document.querySelector('.pl-pin[data-id="drop"]');
-    const r = pin?.getBoundingClientRect();
-    return { text: el.innerText, tag: el.querySelector('.tag.placed')?.textContent ?? '', btns: [...el.querySelectorAll('.hm-place-actions .btn')].map((b) => b.textContent.trim()), pin: !!pin, pinLabel: pin?.querySelector('.pl-label')?.textContent, pinOn: r ? r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth : false, hot: pin?.classList.contains('hot'), glyph: pin?.querySelector('.pl-glyph')?.textContent };
-  });
-  check(s2.tag.includes('placed') && /A spot you placed on the map/.test(s2.text), `the card is a PLACED spot (${s2.tag})`);
-  check(/US-14A, Lovell/.test(s2.text) && hits.geocode === 1, `named by its road and town after ONE reverse-geocode call (${hits.geocode})`);
-  check(s2.btns[0] === 'Ride here' && s2.btns[1] === 'Add to a trip' && !s2.btns.includes('Details'), `Ride here · Add to a trip — no Details for a spot with no listing (${s2.btns.join(' · ')})`);
-  check(s2.pin && s2.hot && s2.glyph === '◎' && s2.pinOn && /US-14A/.test(s2.pinLabel ?? ''), 'the pin is drawn hot on the map with the placed glyph and its name');
+  await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
+  await page.waitForFunction(() => /US-14A, Lovell/.test(document.querySelector('.hm-drop-hint')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
+  await page.waitForTimeout(800); // the focus ease settles
+  const s2 = await pinState();
+  const tipAt = await page.evaluate((pt) => { const m = window.__homeMap; const r = m.getCanvas().getBoundingClientRect(); const p = m.project([pt.lng, pt.lat]); return { x: r.left + p.x, y: r.top + p.y }; }, pressed);
+  check(s2.pin && !s2.card, 'a press drops the pin and opens NO card — adjust and confirm are separate acts');
+  check(Math.hypot(s2.tip.x - tipAt.x, s2.tip.y - tipAt.y) < 2 && Math.abs(s2.needleBottom - tipAt.y) < 3, `the needle's tip sits on the pressed coordinate to the pixel (${Math.hypot(s2.tip.x - tipAt.x, s2.tip.y - tipAt.y).toFixed(1)}px)`);
+  check(s2.needleTop < s2.tip.y - 40, `the head rises ${Math.round(s2.tip.y - s2.needleTop)}px above the tip, so a thumb never hides the spot`);
+  check(s2.acts.length === 2 && s2.acts.every((a) => a.w >= 44 && a.h >= 44 && a.on), `✓ and ✕ are ≥44pt and on screen (${s2.acts.map((a) => `${a.cls} ${Math.round(a.w)}×${Math.round(a.h)}`).join(', ')})`);
+  check(/US-14A, Lovell/.test(s2.hint) && /\d+\.\d{5}, -\d+\.\d{5}/.test(s2.hint) && /drag the pin/.test(s2.hint) && hits.geocode === 1, `the readout carries the road and a five-place coordinate after ONE reverse-geocode call (${s2.hint})`);
   check(hits.nearby === 0, 'no Places lookup was spent on it — there is nothing to verify');
   await page.screenshot({ path: SHOT(`pin-drop-home-${width}`) });
 
-  // 3. Add to a trip → lands placed: 'rider', in route order
+  // 3. drag the needle: the pin moves, the readout follows, the road is looked up again once it settles
+  const dragFrom = await page.evaluate(() => { const r = document.querySelector('.drop-pin .dp-needle').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height * 0.4 }; });
+  await page.mouse.move(dragFrom.x, dragFrom.y); await page.mouse.down();
+  for (let i = 1; i <= 8; i++) { await page.mouse.move(dragFrom.x + i * 8, dragFrom.y + i * 5); await page.waitForTimeout(16); }
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const s3a = await pinState();
+  await page.waitForFunction(() => /US-14A, Lovell/.test(document.querySelector('.hm-drop-hint')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
+  const s3 = await pinState();
+  check(Math.abs(s3.tip.x - (s2.tip.x + 64)) < 4 && Math.abs(s3.tip.y - (s2.tip.y + 40)) < 4, `dragging the needle moves the tip exactly with the finger (+${Math.round(s3.tip.x - s2.tip.x)}, +${Math.round(s3.tip.y - s2.tip.y)}px)`);
+  check(!/US-14A/.test(s3a.hint) && /\d+\.\d{5}/.test(s3a.hint), 'while it settles the readout is the bare coordinate — a stale road name is never shown');
+  check(/US-14A, Lovell/.test(s3.hint) && hits.geocode === 2, `the road is looked up again once, after the drag (${hits.geocode} calls)`);
+  check(!s3.card, 'still no card: nothing has been confirmed');
+
+  // 4. ✕ takes it away; a press again, then ✓ opens the card as a PLACED spot; closing the card takes the pin
+  await page.locator('.drop-pin .dp-act.cancel').click();
+  await page.waitForTimeout(300);
+  check(await page.locator('.drop-pin').count() === 0 && await page.locator('.hm-place').count() === 0, '✕ removes the pin and opens nothing');
+  await page.evaluate(() => window.__homePress({ lat: 44.03, lng: -107.99 })); // the seam: the handler a real press reaches
+  await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
+  await page.waitForFunction(() => /US-14A/.test(document.querySelector('.hm-drop-hint')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
+  await page.locator('.drop-pin .dp-act.confirm').click();
+  await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
+  const s4 = await page.evaluate(() => {
+    const el = document.querySelector('.hm-place');
+    return { text: el.innerText, tag: el.querySelector('.tag.placed')?.textContent ?? '', btns: [...el.querySelectorAll('.hm-place-actions .btn')].map((b) => b.textContent.trim()), pin: !!document.querySelector('.drop-pin') };
+  });
+  check(s4.tag.includes('placed') && /A spot you placed on the map/.test(s4.text) && /US-14A, Lovell/.test(s4.text), `✓ opens the card as a PLACED spot named by its road (${s4.tag})`);
+  check(s4.btns[0] === 'Ride here' && s4.btns[1] === 'Add to a trip' && !s4.btns.includes('Details') && s4.pin, `Ride here · Add to a trip — no Details for a spot with no listing; the pin stays up under the card (${s4.btns.join(' · ')})`);
+  await page.screenshot({ path: SHOT(`pin-drop-home-card-${width}`) });
+  await page.locator('.hm-place .mini-edit').click();
+  await page.waitForTimeout(300);
+  check(await page.locator('.drop-pin').count() === 0, 'closing the card takes the pin with it');
+
+  // 5. Add to a trip → lands placed: 'rider', in route order
+  await page.evaluate(() => window.__homePress({ lat: 44.03, lng: -107.99 }));
+  await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
+  await page.waitForFunction(() => /US-14A/.test(document.querySelector('.hm-drop-hint')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
+  await page.locator('.drop-pin .dp-act.confirm').click();
+  await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
   await page.locator('.hm-place-actions .btn', { hasText: 'Add to a trip' }).click();
   await page.waitForSelector('.hm-addto-row.lead', { timeout: 5000 });
   await page.locator('.hm-addto-row.lead').click();
@@ -270,12 +316,12 @@ async function run(width, label) {
   if (phone) { await page.locator('.panel-tab').click().catch(() => {}); await page.waitForTimeout(300); }
   await page.waitForFunction(() => window.__map?.isStyleLoaded?.(), null, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(600);
-  // 4. a plain tap with a day selected is the click-to-add (unchanged) — and it now stamps placed
+  // 6. a plain tap with a day selected is the click-to-add (unchanged) — and it now stamps placed
   const p4 = await emptyPoint(page, 'window.__map', 0.3, 0.75);
   if (phone) await page.touchscreen.tap(p4.x, p4.y); else await page.mouse.click(p4.x, p4.y);
   await page.waitForTimeout(500);
   const sheetUp = await page.locator('.sheet input').count();
-  check(sheetUp === 1 && !(await page.locator('.place-sheet').count()), 'a plain tap on the trip map still opens the naming sheet, never a pin card');
+  check(sheetUp === 1 && !(await page.locator('.place-sheet').count()), 'a plain tap on the trip map still opens the naming sheet, never a pin');
   await page.locator('.sheet input').fill('Pullout');
   await page.locator('.sheet .btn.gold').click();
   await page.waitForTimeout(600);
@@ -283,38 +329,48 @@ async function run(width, label) {
   const pullout = l4.trip.days[0].waypoints.find((w) => w.name === 'Pullout');
   check(pullout?.placed === 'rider', 'a tapped-and-named stop is a placed: \'rider\' pin too');
   check(await page.evaluate(() => window.__promptCalled) === false, 'window.prompt is not used');
-  // 5. a long press / right-click drops a pin → the PoiCard as a placed spot → Add to this day
+  // 7. a long press / right-click drops the needle with the wheel; ⓘ opens the card; ✓ adds the stop
   hits.geocode = 0;
   const p5 = await emptyPoint(page, 'window.__map', 0.55, 0.8);
   if (phone) await holdOn(page, 'window.__map', p5.x, p5.y, HOLD_MS + 200);
   else await page.mouse.click(p5.x, p5.y, { button: 'right' });
+  await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
+  await page.waitForFunction(() => /US-14A, Lovell/.test(document.querySelector('.map-hint')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
+  const s7 = await pinState();
+  check(s7.pin && !s7.sheet && s7.acts.length === 3 && s7.acts.every((a) => a.w >= 44 && a.h >= 44), 'the trip map drops the same needle with ✓ / ✕ / ⓘ, and no card yet');
+  check(/US-14A, Lovell/.test(s7.hint) && /✓ to add it/.test(s7.hint) && hits.geocode === 1, `the map's hint region carries the readout (${s7.hint})`);
+  await page.locator('.drop-pin .dp-act.info').click();
   await page.waitForSelector('.place-sheet', { timeout: 6000 });
-  await page.waitForFunction(() => /US-14A, Lovell/.test(document.querySelector('.place-sheet h3')?.textContent ?? ''), null, { timeout: 6000 }).catch(() => {});
-  const s5 = await page.evaluate(() => {
-    const el = document.querySelector('.place-sheet');
-    return { h3: el.querySelector('h3')?.textContent, text: el.innerText, tag: el.querySelector('.tag.placed')?.textContent ?? '', btn: el.querySelector('.ps-foot .btn.gold')?.textContent.trim(), disabled: el.querySelector('.ps-foot .btn.gold')?.disabled, pin: !!document.querySelector('.pl-pin[data-id="drop"]'), naming: document.querySelectorAll('.sheet input').length, google: /✓ Google/.test(el.innerText) };
+  const s7b = await page.evaluate(() => { const el = document.querySelector('.place-sheet'); return { h3: el.querySelector('h3')?.textContent, tag: el.querySelector('.tag.placed')?.textContent ?? '', google: /✓ Google/.test(el.innerText), btn: el.querySelector('.ps-foot .btn.gold')?.textContent.trim(), naming: document.querySelectorAll('.sheet input').length, pin: !!document.querySelector('.drop-pin') };
   });
-  check(s5.h3 === 'US-14A, Lovell' && s5.tag.includes('placed') && !s5.google && hits.geocode === 1, `the trip map's card is the same placed spot, named by the road (${s5.h3})`);
-  check(/Add to this day/.test(s5.btn ?? '') && s5.disabled === false && s5.naming === 0 && s5.pin, 'it offers Add to this day (enabled — the day is open), draws the pin, and the naming sheet did NOT open');
+  check(s7b.h3 === 'US-14A, Lovell' && s7b.tag.includes('placed') && !s7b.google && /Add to this day/.test(s7b.btn ?? '') && s7b.naming === 0 && s7b.pin, `ⓘ opens the placed card named by the road, with Add to this day, the pin still up (${s7b.h3})`);
   await page.screenshot({ path: SHOT(`pin-drop-trip-${width}`) });
-  await page.locator('.place-sheet .ps-foot .btn.gold').click();
+  await page.locator('.place-sheet .modal-head .btn').click();
+  await page.waitForTimeout(300);
+  check(await page.locator('.drop-pin').count() === 1 && await page.locator('.place-sheet').count() === 0, 'closing the card keeps the pin — nothing was decided yet');
+  await page.locator('.drop-pin .dp-act.confirm').click();
   await page.waitForTimeout(600);
   const l5 = await lib();
   const dropped = l5.trip.days[0].waypoints.filter((w) => w.name === 'US-14A, Lovell');
-  check(dropped.length === 2 && dropped[1].placed === 'rider' && !dropped[1].placeId, 'Add to this day lands it as a placed: \'rider\' stop');
-  check(await page.locator('.pl-pin[data-id="drop"]').count() === 0 && await page.locator('.place-sheet').count() === 0, 'the drop pin and its card are gone once it is a stop');
-  // 6. a plain tap on the trip map dismisses a dropped pin's card rather than adding
+  check(dropped.length === 2 && dropped[1].placed === 'rider' && !dropped[1].placeId, '✓ adds it to the day as a placed: \'rider\' stop');
+  check(await page.locator('.drop-pin').count() === 0, 'and the pin is gone once it is a stop');
+  // 8. a tap on open map dismisses a dropped pin rather than adding
   if (phone) await holdOn(page, 'window.__map', p5.x, p5.y, HOLD_MS + 200); else await page.mouse.click(p5.x, p5.y, { button: 'right' });
-  await page.waitForSelector('.place-sheet', { timeout: 6000 });
-  await page.locator('.place-sheet .modal-head .btn').click();
-  await page.waitForTimeout(300);
-  check(await page.locator('.place-sheet').count() === 0 && await page.locator('.pl-pin[data-id="drop"]').count() === 0, 'closing the card takes the pin with it');
+  await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
+  await page.waitForTimeout(800); // past the press's own click-swallow window (SWALLOW_MS)
+  const p8 = await emptyPoint(page, 'window.__map', 0.2, 0.55);
+  if (phone) await page.touchscreen.tap(p8.x, p8.y); else await page.mouse.click(p8.x, p8.y);
+  await page.waitForTimeout(400);
+  const s8 = await page.evaluate(() => ({ pin: document.querySelectorAll('.drop-pin').length, naming: document.querySelectorAll('.sheet input').length, hint: document.querySelector('.map-hint')?.innerText ?? '' }));
+  check(s8.pin === 0 && s8.naming === 0, `a tap on open map takes the pin away and never opens the naming sheet (${JSON.stringify(s8)})`);
 
   // ---------------- HOME again: Ride here from a dropped pin is a real quick ride to a PLACED destination
   await page.locator('.mast-back').click();
   await page.waitForSelector('.home-map', { timeout: 8000 });
   await page.waitForTimeout(800);
-  await page.evaluate(() => window.__homePress({ lat: 44.03, lng: -107.99 })); // the seam: the handler a real press reaches (the real gesture is asserted above)
+  await page.evaluate(() => window.__homePress({ lat: 44.03, lng: -107.99 }));
+  await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
+  await page.locator('.drop-pin .dp-act.confirm').click();
   await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
   await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
   await page.waitForSelector('.hm-ride-confirm .btn.gold', { timeout: 5000 });

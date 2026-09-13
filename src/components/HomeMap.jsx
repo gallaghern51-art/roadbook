@@ -3,6 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, hideNativeRoadShields, poiLayerIds } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
 import { attachLongPress } from '../engine/mapGestures.js';
+import DropPin from './DropPin.jsx';
 
 // The home screen's map (owner, Sep 13 2026: option A, "map first"). No trip
 // on it — this is the map you browse before there is a trip: Mapbox
@@ -15,7 +16,8 @@ import { attachLongPress } from '../engine/mapGestures.js';
 //   pins      PlacePins rows     the picker's candidates
 //   fitAt     number             bump → frame the pins, clear of the sheet
 //   sheetPx   number             how much of the bottom the sheet covers (fit padding)
-//   drop      {lat,lng,name} | null  the pin the rider dropped (a long press / right-click) — drawn hot
+//   drop      {key,lat,lng} | null  the pin the rider dropped (a long press / right-click): a draggable needle with the wheel
+//   onDropMove([lng,lat]) · onDropMoveEnd([lng,lat]) · onDropConfirm() · onDropCancel()
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
 //   onDrop({lat,lng})  a long press (touch) or right-click (mouse) on open map — never a tap
 const featureToPoi = (f) => {
@@ -25,7 +27,7 @@ const featureToPoi = (f) => {
   return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onDrop }) {
+export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -91,7 +93,9 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !focus) return;
-    map.easeTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 14), duration: 700, padding: { bottom: sheetPx } });
+    // top padding clears the pill + chips + readout, so a focused point (and a
+    // dropped pin's ✓ above it) lands in the open part of the map
+    map.easeTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 14), duration: 700, padding: { top: 260, bottom: sheetPx } });
   }, [focus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -105,8 +109,8 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
   return (
     <div className="hm-map" ref={divRef}>
       {mapObj && <PlacePins map={mapObj} pins={pins ?? []} onTap={onPinTap} />}
-      {/* the dropped pin: one hot pin, the placed glyph, its name as it resolves */}
-      {mapObj && drop && <PlacePins map={mapObj} pins={[{ id: 'drop', lat: drop.lat, lng: drop.lng, name: drop.name, glyph: '◎', hot: true }]} onTap={() => {}} />}
+      {/* the dropped pin: a needle on the exact spot, draggable, with ✓ / ✕ */}
+      {mapObj && drop && <DropPin map={mapObj} drop={drop} onMove={onDropMove} onMoveEnd={onDropMoveEnd} onConfirm={onDropConfirm} onCancel={onDropCancel} confirmLabel={dropLabel} />}
     </div>
   );
 }

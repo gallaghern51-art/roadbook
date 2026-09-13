@@ -10,6 +10,7 @@ import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
 import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, poiLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
 import StopSheet from './StopSheet.jsx';
+import DropPin from './DropPin.jsx';
 import { attachLongPress } from '../engine/mapGestures.js';
 import { reverseGeocode, coordLabel } from '../engine/places.js';
 import { routeDayRoads } from '../engine/routing.js';
@@ -83,7 +84,11 @@ export default function MapView() {
   const [basemap, setBasemap] = React.useState('sat');
   const [poi, setPoi] = React.useState(null); // a vector POI tapped on the composite satellite — or a dropped pin (poi.placed)
   const [stopSheet, setStopSheet] = React.useState(null); // {dayId, waypointId}: a stop marker tapped
+  const [drop, setDrop] = React.useState(null); // {key, lat, lng, name, detail}: the dropped pin, with its wheel
+  const dropStateRef = useRef(null);
+  dropStateRef.current = drop;
   const dropRef = useRef(null);
+  const geoTimerRef = useRef(null);
   const appliedStyleRef = useRef(null); // the style object the map currently wears
   const poiTapRef = useRef(null);
   const poiHoverRef = useRef(new Set());
@@ -203,6 +208,7 @@ export default function MapView() {
       if (press.recent()) return;
       if (dragRef.current) return; // the click that ends a drag is not an add
       if (wheelRef.current) { setWheel(null); paintDrag(); return; } // dismiss first
+      if (dropStateRef.current) { dropRef.current?.cancel(); return; } // a dropped pin: a tap on open map takes it away
       // a POI symbol under the finger is a place, not a spot on the map —
       // satellite-streets draws them as vector features, so this is a real
       // hit test, the thing a baked raster could never answer
@@ -379,17 +385,48 @@ export default function MapView() {
     setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] });
   };
   useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f) => poiTapRef.current?.(f); }, []);
-  // A dropped pin: the rider's coordinate, labelled by its road and town
-  // once they come back, placed: 'rider' from the first render.
-  dropRef.current = (pt) => {
-    setWheel(null); wheelRef.current = null; paintDrag();
-    setStopSheet(null);
-    setPoi({ name: coordLabel(pt), lat: pt.lat, lng: pt.lng, cls: '', subclass: '', detail: '', placed: 'rider' });
-    reverseGeocode(pt, { near: tRef.current('Near') }).then((g) => {
-      if (!g) return;
-      setPoi((cur) => (cur?.placed && cur.lat === pt.lat && cur.lng === pt.lng ? { ...cur, name: g.name, detail: g.detail ?? '' } : cur));
-    });
+  // A dropped pin: a needle on the exact spot with the wheel around it — the
+  // RouteWheel grammar, adjust and confirm as separate acts. Drag it onto
+  // the pullout you meant; the readout in the hint region carries the
+  // coordinate and, once named, the road; ✓ adds a placed: 'rider' stop to
+  // the open day by route order, ⓘ opens its card, ✕ (or a tap on open map)
+  // takes it away.
+  const nameDrop = (key, pt) => {
+    clearTimeout(geoTimerRef.current);
+    geoTimerRef.current = setTimeout(() => {
+      reverseGeocode(pt, { near: tRef.current('Near') }).then((g) => {
+        if (!g) return;
+        setDrop((d) => (d && d.key === key && d.lat === pt.lat && d.lng === pt.lng ? { ...d, name: g.name, detail: g.detail ?? '' } : d));
+        setPoi((cur) => (cur?.placed && cur.lat === pt.lat && cur.lng === pt.lng ? { ...cur, name: g.name, detail: g.detail ?? '' } : cur));
+      });
+    }, 350);
   };
+  const dropHandler = (pt) => {
+    setWheel(null); wheelRef.current = null; paintDrag();
+    setStopSheet(null); setPoi(null);
+    const key = Date.now();
+    setDrop({ key, lat: pt.lat, lng: pt.lng, name: null, detail: '' });
+    nameDrop(key, pt);
+  };
+  dropHandler.cancel = () => { clearTimeout(geoTimerRef.current); setDrop(null); setPoi((p) => (p?.placed ? null : p)); };
+  dropRef.current = dropHandler;
+  const moveDrop = ([lng, lat]) => setDrop((d) => (d ? { ...d, lat, lng, name: null, detail: '' } : d));
+  const settleDrop = ([lng, lat]) => setDrop((d) => { if (d) nameDrop(d.key, { lat, lng }); return d; });
+  const dropPlace = () => (drop ? { name: drop.name ?? coordLabel(drop), lat: drop.lat, lng: drop.lng, cls: '', subclass: '', detail: drop.detail ?? '', placed: 'rider' } : null);
+  const addDrop = (place, { fuel = false } = {}) => {
+    const day = trip.days.find((d) => d.id === selectedDayId);
+    if (!day || !place) return;
+    const pt = { lat: place.lat, lng: place.lng };
+    dispatch({
+      type: 'apply_ops',
+      ops: [{
+        op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
+        waypoint: { name: place.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '', placed: 'rider' },
+      }],
+    });
+    dropHandler.cancel();
+  };
+  const dropReadout = drop ? `${drop.name ?? coordLabel(drop, 5)}${drop.name ? ` · ${coordLabel(drop, 5)}` : ''}` : '';
 
   // 3D toggle — terrain + a tilted camera (drawAll re-asserts it after style switches)
   useEffect(() => {
@@ -985,8 +1022,18 @@ export default function MapView() {
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
       {/* The place picker's candidates: real pins, tap one to open its row */}
       <PlacePins map={mapObj} pins={state.pickerPins} mode="plan" onTap={(id) => dispatch({ type: 'picker_pin_tap', id })} />
-      {/* the dropped pin, while its card is open */}
-      {mapObj && poi?.placed && <PlacePins map={mapObj} pins={[{ id: 'drop', lat: poi.lat, lng: poi.lng, name: poi.name, glyph: '◎', hot: true }]} mode="plan" onTap={() => {}} />}
+      {/* the dropped pin: a needle on the exact spot, draggable, with ✓ add / ✕ / ⓘ */}
+      {mapObj && drop && (
+        <DropPin
+          map={mapObj} drop={drop}
+          onMove={moveDrop} onMoveEnd={settleDrop}
+          onConfirm={() => (selectedDay ? addDrop(dropPlace()) : setPoi(dropPlace()))}
+          onCancel={() => dropHandler.cancel()}
+          onDetails={() => setPoi(dropPlace())}
+          confirmLabel={selectedDay ? t('Add this spot to the day') : t('Use this spot')}
+          detailsLabel={t('Details')}
+        />
+      )}
       {state.pickerActive && areaMoved && (
         <button
           className="map-area-btn"
@@ -998,8 +1045,10 @@ export default function MapView() {
           }}
         >⟳ {t('Search this area')}</button>
       )}
-      <div className={`map-hint${wheel ? ' wheel' : ''}`}>
-        {wheel
+      <div className={`map-hint${wheel || drop ? ' wheel' : ''}`}>
+        {drop
+          ? <>◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {selectedDay ? t('✓ to add it') : t('✓ to use it')}</>
+          : wheel
           ? (wheel.movedMi > 0.03
             ? <><b>{u.mi(wheel.movedMi, wheel.movedMi < 10 ? 1 : 0)}</b> {t('off route')} · {t('✓ to place')}</>
             : <>{t('Drag onto the road you want')}</>)
@@ -1035,6 +1084,7 @@ export default function MapView() {
           onAdd={(place, { fuel }) => {
             const day = selectedDay;
             if (!day) return;
+            if (place.placed) { addDrop(place, { fuel }); setPoi(null); return; }
             const pt = { lat: place.lat, lng: place.lng };
             dispatch({
               type: 'apply_ops',

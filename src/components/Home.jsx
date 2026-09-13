@@ -125,19 +125,50 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };
   const rowToPoi = (r) => ({ name: r.name, lat: r.lat, lng: r.lng, cls: r.primaryType ?? '', subclass: r.primaryType ?? '' });
-  // A long press (or right-click) on open map drops a pin: a PLACED spot —
-  // the rider's own coordinate, never dressed up as a listing — that wears
-  // its coordinate until the road and town come back, and the same card
-  // offers Ride here / Add to a trip. A plain tap never gets here.
-  const dropPin = (pt) => {
-    const poi = { name: coordLabel(pt), lat: pt.lat, lng: pt.lng, cls: '', subclass: '', placed: 'rider', detail: '' };
-    setChip(null); setPins([]);
-    showPlace(poi);
-    reverseGeocode(pt, { near: t('Near') }).then((g) => {
-      if (!g) return;
-      setPlace((cur) => (cur?.poi?.placed && cur.poi.lat === pt.lat && cur.poi.lng === pt.lng ? { ...cur, poi: { ...cur.poi, name: g.name, detail: g.detail ?? '' } } : cur));
-    });
+  // A long press (or right-click) on open map drops a PIN — a needle on the
+  // exact spot with the wheel around it (the RouteWheel grammar: adjust and
+  // confirm are separate acts). The rider drags it onto the pullout they
+  // meant, reads the coordinate and the road as it resolves, and ✓ opens the
+  // same card as a tapped place, as a PLACED spot — the rider's own
+  // coordinate, never dressed up as a listing — with Ride here / Add to a
+  // trip. ✕, or a tap on open map, takes the pin away. A plain tap never
+  // drops one.
+  const [dropped, setDropped] = useState(null); // { key, lat, lng, name, detail }
+  const geoTimer = useRef(null);
+  const nameDrop = (key, pt) => {
+    clearTimeout(geoTimer.current);
+    geoTimer.current = setTimeout(() => {
+      reverseGeocode(pt, { near: t('Near') }).then((g) => {
+        if (!g) return;
+        setDropped((d) => (d && d.key === key && d.lat === pt.lat && d.lng === pt.lng ? { ...d, name: g.name, detail: g.detail ?? '' } : d));
+        // the card, if it is already up on this pin, learns the name too
+        setPlace((cur) => (cur?.poi?.placed && cur.poi.lat === pt.lat && cur.poi.lng === pt.lng ? { ...cur, poi: { ...cur.poi, name: g.name, detail: g.detail ?? '' } } : cur));
+      });
+    }, 350);
   };
+  const sheetBeforeDrop = useRef(null);
+  const dropPin = (pt) => {
+    const key = Date.now();
+    setChip(null); setPins([]); setPlace(null);
+    // the map is the screen while a pin is being placed: the sheet drops to
+    // its handle (a peeking sheet plus the readout plus the wheel do not fit
+    // one phone screen) and comes back where it was when the pin goes
+    setSheet((cur) => { if (sheetBeforeDrop.current == null) sheetBeforeDrop.current = cur; return 'min'; });
+    setDropped({ key, lat: pt.lat, lng: pt.lng, name: null, detail: '' });
+    setFocus({ lat: pt.lat, lng: pt.lng, at: key });
+    nameDrop(key, pt);
+  };
+  const moveDrop = ([lng, lat]) => setDropped((d) => (d ? { ...d, lat, lng, name: null, detail: '' } : d));
+  const settleDrop = ([lng, lat]) => setDropped((d) => { if (d) nameDrop(d.key, { lat, lng }); return d; });
+  const confirmDrop = () => {
+    if (!dropped) return;
+    showPlace({ name: dropped.name ?? coordLabel(dropped), lat: dropped.lat, lng: dropped.lng, cls: '', subclass: '', placed: 'rider', detail: dropped.detail ?? '' });
+  };
+  const cancelDrop = () => {
+    clearTimeout(geoTimer.current); setDropped(null); setPlace((p) => (p?.poi?.placed ? null : p));
+    if (sheetBeforeDrop.current != null) { setSheet(sheetBeforeDrop.current); sheetBeforeDrop.current = null; }
+  };
+  const dropReadout = dropped ? `${dropped.name ?? coordLabel(dropped, 5)}${dropped.name ? ` · ${coordLabel(dropped, 5)}` : ''}` : '';
 
   const rideTo = async (dest, prefs) => {
     const start = fix ?? (await locate());
@@ -153,11 +184,16 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         pins={pins}
         fitAt={fitAt}
         sheetPx={sheetPx}
-        drop={place?.poi?.placed ? place.poi : null}
+        drop={dropped}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={setCenter}
         onDrop={dropPin}
-        onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the card closes, or the sheet steps down
+        onDropMove={moveDrop}
+        onDropMoveEnd={settleDrop}
+        onDropConfirm={confirmDrop}
+        onDropCancel={cancelDrop}
+        dropLabel={t('Use this spot')}
+        onPoi={(poi) => { if (poi) showPlace(poi); else if (dropped) cancelDrop(); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the pin goes, or the card closes, or the sheet steps down
       />
 
       <div className="hm-top">
@@ -178,7 +214,9 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         </div>
       </div>
       <button className="hm-round hm-locate" onClick={async () => { const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
-      {fix && <div className="hm-near mono">{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</div>}
+      {dropped
+        ? <div className="hm-drop-hint mono" role="status" aria-live="polite">◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {t('✓ to use it')}</div>
+        : fix && <div className="hm-near mono">{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</div>}
 
       {searching && (
         <HomeSearch
@@ -197,7 +235,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               poi={place.poi} row={place.row} fix={fix} defaults={quickDefaults}
               onRide={rideTo}
               onAdd={(p) => setAddTo(p)}
-              onClose={() => setPlace(null)}
+              onClose={() => { setPlace(null); if (place.poi.placed) cancelDrop(); }}
             />
           ) : chip ? (
             <NearbyPicker

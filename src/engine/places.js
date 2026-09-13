@@ -37,7 +37,7 @@ const RG_FN = '/.netlify/functions/reverse-geocode';
 const rgCache = new Map();
 
 /** "44.0612, -107.9520" — the label a pin wears until (or unless) a name arrives. */
-export const coordLabel = ({ lat, lng }) => `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+export const coordLabel = ({ lat, lng }, dp = 4) => `${Number(lat).toFixed(dp)}, ${Number(lng).toFixed(dp)}`;
 
 /** { name, detail, road, locality, source } or null. `near` is the localised "Near" for a nearby-place label. */
 export async function reverseGeocode({ lat, lng }, { near = 'Near' } = {}) {
