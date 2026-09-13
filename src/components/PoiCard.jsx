@@ -19,16 +19,14 @@ import { useT, useUnits } from '../engine/settings.jsx';
 //   onClose()
 const MATCH_MI = 0.35;
 
-export default function PoiCard({ poi, day, onAdd, onClose }) {
-  const t = useT();
-  const u = useUnits();
-  const [match, setMatch] = useState(undefined); // undefined = looking, null = none, object = Google row
-  const cat = poiCategory(poi.cls, poi.subclass);
-  const glyph = poiGlyph(poi.cls, poi.subclass);
-
+/** The Google listing for a vector POI: undefined while looking, null when none, else the row. */
+export function usePoiMatch(poi) {
+  const [match, setMatch] = useState(undefined);
+  const cat = poiCategory(poi?.cls, poi?.subclass);
   useEffect(() => {
     let dead = false;
     setMatch(undefined);
+    if (!poi) return undefined;
     (async () => {
       try {
         const words = String(poi.name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
@@ -50,7 +48,16 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
       } catch { if (!dead) setMatch(null); }
     })();
     return () => { dead = true; };
-  }, [poi.name, poi.lat, poi.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [poi?.name, poi?.lat, poi?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  return match;
+}
+
+export default function PoiCard({ poi, day, onAdd, onClose }) {
+  const t = useT();
+  const u = useUnits();
+  const match = usePoiMatch(poi);
+  const cat = poiCategory(poi.cls, poi.subclass);
+  const glyph = poiGlyph(poi.cls, poi.subclass);
 
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, source: 'google', verified: 'google' }

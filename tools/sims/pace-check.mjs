@@ -1,7 +1,7 @@
 // Trip settings: the pace field dispatches set_meta and retimes the plan.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/opt/pw-browsers/chromium'), args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 await page.route('**/*', (route) => {
   const u = route.request().url();
@@ -26,6 +26,7 @@ await page.route('**/*', (route) => {
   return route.abort();
 });
 await page.goto('http://localhost:5199/');
+{ const guest = page.locator('.land-skip'); if (await guest.isVisible().catch(() => false)) await guest.click(); } // the signed-out landing gate on a checkout with Supabase keys
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });

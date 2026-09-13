@@ -101,9 +101,12 @@ await page.route('**/*', async (route) => {
 await page.goto('http://127.0.0.1:5199/');
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();
-await page.waitForSelector('.home-intake textarea', { timeout: 15000 });
-await page.fill('.home-intake textarea', 'Four riders, six days in the San Juans. Great roads, reliable fuel, one hot-springs night and memorable local food.');
-await page.locator('.home-intake .btn', { hasText: 'Plan with AI' }).click();
+// the home is the map now: the pill is both doors — a sentence leads with the AI row
+await page.waitForSelector('.hm-pill', { timeout: 15000 });
+await page.locator('.hm-pill').click();
+await page.fill('.hm-input', 'Four riders, six days in the San Juans. Great roads, reliable fuel, one hot-springs night and memorable local food.');
+await page.waitForSelector('.hm-ai.lead', { timeout: 5000 });
+await page.locator('.hm-ai').click();
 await page.waitForSelector('.trip-builder');
 check(await page.locator('.construction-chat').isVisible(), 'AI opens as a construction conversation');
 const fullScreen = await page.locator('.trip-builder').evaluate((el) => {
