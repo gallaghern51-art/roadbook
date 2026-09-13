@@ -7,7 +7,7 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle, cachedCompositeStyle, compositeStyle, poiLayerIds } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle, cachedCompositeStyle, compositeStyle, poiLayerIds, mapboxTransformRequest } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
@@ -135,6 +135,7 @@ export default function MapView() {
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: (appliedStyleRef.current = maps[basemapRef.current]?.style ?? satelliteStyle()),
+      transformRequest: mapboxTransformRequest, // mapbox:// → api.mapbox.com with the token; a no-op without one
       center: [-108.5, 45.9],
       zoom: 5.4,
       // No credit pill on the map at all. Esri and OpenMapTiles require the
@@ -399,7 +400,8 @@ export default function MapView() {
     const p = f?.properties ?? {};
     const c = f?.geometry?.coordinates ?? [];
     if (!Number.isFinite(c[0]) || !Number.isFinite(c[1])) return;
-    setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? '', lng: c[0], lat: c[1] });
+    // OpenMapTiles carries class/subclass; Mapbox Streets carries class/maki
+    setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] });
   };
   useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f) => poiTapRef.current?.(f); }, []);
 

@@ -16,7 +16,7 @@ import {
   createNav, syncNav, navTarget, navRemaining, navFix,
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
-import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY, cachedCompositeStyle, compositeStyle } from '../engine/basemaps.js';
+import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY, cachedCompositeStyle, compositeStyle, mapboxTransformRequest } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
@@ -534,6 +534,7 @@ export default function RideMode({ onClose }) {
     const map = new maplibregl.Map({
       container: mapDivRef.current,
       style: navStyleFor('hybrid'),
+      transformRequest: mapboxTransformRequest,
       center: start ? [start.lng, start.lat] : [-108, 45],
       zoom: 12,
       attributionControl: false, // shown in the hub instead — see below

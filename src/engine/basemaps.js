@@ -150,6 +150,67 @@ export async function googleStyle(kind) {
   return styleFromSession(kind, rec);
 }
 
+// ---- Mapbox (owner, Sep 13 2026: "i actually want to do mapbox") ----
+// Tesla's actual feed. A PUBLIC token (pk., default public scopes — nothing
+// secret) at build time as VITE_MAPBOX_TOKEN; in dev a localStorage override
+// (`moto.mapboxToken`) lets a phone or a sim try it without a rebuild. With a
+// token, Satellite is Mapbox's own satellite-streets style — their imagery
+// with their vector roads / labels / POIs on top, exactly the layering below,
+// authored by them — and its `poi_label` symbols are the tappable POIs.
+// Without one, the OpenFreeMap composite below carries on unchanged.
+//
+// MapLibre does not understand `mapbox://` URLs, so every request is
+// rewritten to api.mapbox.com and given the token (transformRequest).
+export const MAPBOX_TOKEN = (import.meta.env ?? {}).VITE_MAPBOX_TOKEN
+  || ((import.meta.env ?? {}).DEV ? (() => { try { return localStorage.getItem('moto.mapboxToken') || ''; } catch { return ''; } })() : '');
+export const MAPBOX_STYLE = 'mapbox/satellite-streets-v12';
+const MB_CACHE = 'moto.mapboxStyle.v1';
+const MB_TTL_MS = 7 * 86_400_000;
+
+/** MapLibre transformRequest: mapbox:// → api.mapbox.com, token on every Mapbox request. */
+export function mapboxTransformRequest(url, resourceType, token = MAPBOX_TOKEN) {
+  if (!token || typeof url !== 'string') return undefined;
+  const tok = `access_token=${encodeURIComponent(token)}`;
+  let out = url;
+  let m;
+  if ((m = url.match(/^mapbox:\/\/styles\/([^/]+)\/([^/?]+)/))) out = `https://api.mapbox.com/styles/v1/${m[1]}/${m[2]}?${tok}`;
+  else if ((m = url.match(/^mapbox:\/\/sprites\/([^/]+)\/([^/@.]+)(@2x)?\.(json|png)$/))) out = `https://api.mapbox.com/styles/v1/${m[1]}/${m[2]}/sprite${m[3] ?? ''}.${m[4]}?${tok}`;
+  else if ((m = url.match(/^mapbox:\/\/fonts\/([^/]+)\/(.+)$/))) out = `https://api.mapbox.com/fonts/v1/${m[1]}/${m[2]}?${tok}`;
+  else if ((m = url.match(/^mapbox:\/\/([^/?]+)$/))) out = `https://api.mapbox.com/v4/${m[1]}.json?secure&${tok}`; // a source url: tileset ids → TileJSON
+  else if (/^https:\/\/([a-z0-9-]+\.)?(api|tiles)\.mapbox\.com\//.test(url) && !/access_token=/.test(url)) out = `${url}${url.includes('?') ? '&' : '?'}${tok}`;
+  if (out === url) return undefined;
+  void resourceType;
+  return { url: out };
+}
+
+function loadMapboxCache() {
+  try {
+    const rec = JSON.parse(localStorage.getItem(MB_CACHE) || 'null');
+    return rec && rec.at + MB_TTL_MS > Date.now() && rec.id === MAPBOX_STYLE ? rec.style : null;
+  } catch { return null; }
+}
+let mapboxInflight = null;
+export async function fetchMapboxStyle() {
+  if (!MAPBOX_TOKEN) return null;
+  const hit = loadMapboxCache();
+  if (hit) return hit;
+  if (!mapboxInflight) {
+    mapboxInflight = fetch(`https://api.mapbox.com/styles/v1/${MAPBOX_STYLE}?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`).then(async (r) => {
+      if (!r.ok) throw new Error(`mapbox style ${r.status}`);
+      const style = await r.json();
+      try { localStorage.setItem(MB_CACHE, JSON.stringify({ at: Date.now(), id: MAPBOX_STYLE, style })); } catch { /* cache full */ }
+      return style;
+    }).finally(() => { mapboxInflight = null; });
+  }
+  return mapboxInflight;
+}
+/** Pure: Mapbox's satellite-streets style, tagged so the app can find its POI layers. */
+export function mapboxComposite(style) {
+  if (!style?.layers || !style.sources) return null;
+  const poiLayers = style.layers.filter((l) => l.type === 'symbol' && l['source-layer'] === 'poi_label').map((l) => l.id);
+  return { ...style, metadata: { ...(style.metadata ?? {}), roadbook: { composite: true, imagery: 'mapbox', poiLayers } } };
+}
+
 // ---- Satellite the way Tesla draws it: imagery UNDERNEATH, vector on TOP ----
 // Google's hybrid tiles are one flat picture — roads, labels and POI icons
 // baked into the pixels, nothing behind them to tap (owner, Sep 13 2026: "how
@@ -246,12 +307,16 @@ function googleImagery() {
 }
 /** Sync: the composite from cached pieces, or null until they are fetched. */
 export function cachedCompositeStyle() {
+  if (MAPBOX_TOKEN) { const mb = loadMapboxCache(); if (mb) return mapboxComposite(mb); }
   const liberty = loadLibertyCache();
   if (!liberty) return null;
   return compositeSatellite(liberty, googleImagery() ?? ESRI_IMAGERY);
 }
-/** Async: fetch what is missing (liberty style, a Google satellite session) and build it. */
+/** Async: fetch what is missing (Mapbox's style with a token; else liberty + a Google satellite session) and build it. */
 export async function compositeStyle() {
+  if (MAPBOX_TOKEN) {
+    try { const mb = mapboxComposite(await fetchMapboxStyle()); if (mb) return mb; } catch { /* fall through to the free composite */ }
+  }
   const [liberty] = await Promise.all([
     fetchLibertyStyle(),
     GOOGLE_KEY ? googleStyle('satellite').catch(() => null) : Promise.resolve(null),
@@ -329,8 +394,9 @@ function navWarmLayers() {
   const comp = cachedCompositeStyle();
   if (comp) {
     const src = comp.sources.imagery;
-    const tpl = src.tiles?.[0];
+    const tpl = src?.tiles?.[0];
     if (tpl) return [(z, x, y) => tpl.replace('{z}', z).replace('{x}', x).replace('{y}', y)];
+    return []; // Mapbox: tile URLs come from TileJSON; the browser cache warms itself as the map loads
   }
   const g = cachedGoogleStyle('hybrid');
   if (g) {

@@ -213,9 +213,14 @@ const POI_CLASS = {
   hospital: 'help', doctors: 'help', pharmacy: 'help', clinic: 'help',
   attraction: 'sights', park: 'sights', viewpoint: 'sights', museum: 'sights', monument: 'sights', castle: 'sights', zoo: 'sights', information: 'sights',
   car: 'moto', car_repair: 'moto', motorcycle: 'moto',
+  // Mapbox Streets v8 poi_label: `class` buckets and `maki` icon names
+  food_and_drink: 'food', 'fast-food': 'food', food_and_drink_stores: null,
+  medical: 'help', doctor: 'help',
+  park_like: 'sights', landmark: 'sights', arts_and_entertainment: 'sights', 'ice-cream': 'coffee',
+  'car-repair': 'moto', 'charging-station': 'fuel',
 };
 export function poiCategory(cls, subclass) {
-  return POI_CLASS[subclass] ?? POI_CLASS[cls] ?? null;
+  return POI_CLASS[subclass] ?? POI_CLASS[cls] ?? null; // the specific (subclass / maki) wins over the bucket (class)
 }
 export function poiGlyph(cls, subclass) {
   const cat = poiCategory(cls, subclass);
