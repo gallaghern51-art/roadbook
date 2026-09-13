@@ -4710,9 +4710,11 @@ input:focus, textarea:focus, select:focus {
 }
 .hm-chip i { font-style: normal; font-size: 13px; }
 .hm-chip.active { border-color: var(--rally); color: var(--rally); }
-.hm-locate { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 128px); z-index: 3; }
-.basemap-switch.hm-layers { top: calc(var(--viewport-safe-top) + 182px); right: 12px; left: auto; z-index: 3; }
+/* the right-edge column under the chips: layers pill, then locate, then North up (only while the map is turned) */
+.basemap-switch.hm-layers { top: calc(var(--viewport-safe-top) + 128px); right: 12px; left: auto; z-index: 4; }
 .basemap-switch.hm-layers.closed { left: auto; }
+.hm-locate { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 182px); z-index: 3; }
+.hm-north { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 236px); z-index: 3; }
 .hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 6px 10px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); }
 .hm-sheet {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; height: 42%;
@@ -4795,8 +4797,9 @@ input:focus, textarea:focus, select:focus {
   .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place { left: 16px; right: auto; top: 84px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); transition: transform 0.22s ease, opacity 0.22s ease; }
   .hm-sheet:not(.open) { transform: translateX(-24px); opacity: 0; pointer-events: none; }
   .hm-handle { display: none; }
-  .hm-locate { top: 100px; }
-  .basemap-switch.hm-layers { top: 154px; }
+  .basemap-switch.hm-layers { top: 100px; }
+  .hm-locate { top: 154px; }
+  .hm-north { top: 208px; }
   .hm-near { left: 16px; top: 108px; }
   .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
 }

@@ -230,6 +230,37 @@ async function run(width, label) {
   await page.locator('.mast-back').click();
   await page.waitForSelector('.home-map', { timeout: 8000 });
 
+  // 5b. a natural feature on the home map is a placed pin — no Google
+  {
+    const before = calls.length;
+    await page.evaluate(() => window.__homePoiTap({ properties: { name: 'Custer National Forest', class: 'park_like', maki: 'park' }, geometry: { type: 'Point', coordinates: [-107.9, 44.05] } }));
+    await page.waitForSelector('.hm-place', { timeout: 8000 });
+    await page.waitForTimeout(600);
+    const txt = await page.locator('.hm-place').innerText();
+    check(calls.length === before && /placed pin/.test(txt) && !/Checking with Google|unverified/.test(txt), 'a forest is a placed pin: no Places call, no "no listing"');
+    check(!(await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).isDisabled()) && (await page.locator('.hm-place .poi-glyph').textContent()) === '🌲', 'Ride here is live at once and it wears the park glyph');
+    await page.locator('.hm-place .mini-edit').click();
+    await page.waitForTimeout(300);
+  }
+  // the home map keeps Mapbox's road numbers (no route of ours here), and the
+  // right-edge column reads layers → locate
+  {
+    const geo = await page.evaluate(() => ({
+      shield: window.__homeMap?.getLayoutProperty?.('road-number-shield', 'visibility') ?? null,
+      layers: document.querySelector('.hm-layers')?.getBoundingClientRect().top, locate: document.querySelector('.hm-locate')?.getBoundingClientRect().top,
+      w: document.querySelector('.hm-locate')?.getBoundingClientRect().width,
+    }));
+    check(geo.shield !== 'none', 'the home map keeps the basemap\'s route-number shields');
+    check(geo.locate > geo.layers && geo.w >= 44, `the locate button sits under the layers pill (${Math.round(geo.layers)} → ${Math.round(geo.locate)})`);
+    check(await page.locator('.hm-north').count() === 0, 'no North-up button while the map is north-up');
+    await page.evaluate(() => { window.__homeMap.setBearing(40); window.__homeMap.fire('rotateend'); });
+    await page.waitForSelector('.hm-north', { timeout: 3000 });
+    check(true, 'a turned map offers North up');
+    await page.locator('.hm-north').click();
+    await page.waitForTimeout(600);
+    check(Math.abs(await page.evaluate(() => window.__homeMap.getBearing())) < 1 && await page.locator('.hm-north').count() === 0, 'North up straightens the map and goes away');
+  }
+
   // 6. the pill: a place searches the map; a sentence is a plan
   await page.locator('.hm-pill').click();
   await page.waitForSelector('.hm-input', { timeout: 5000 });

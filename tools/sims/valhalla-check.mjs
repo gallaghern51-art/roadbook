@@ -131,6 +131,7 @@ await page.goto('http://localhost:5199/');
 const guestEntry = page.locator('.land-skip');
 if (await guestEntry.isVisible().catch(() => false)) await guestEntry.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForTimeout(600);

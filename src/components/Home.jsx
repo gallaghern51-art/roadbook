@@ -10,7 +10,7 @@ import { RoadbookBrand, SettingsIcon } from './Chrome.jsx';
 import { useT, useUnits } from '../engine/settings.jsx';
 import { libraryTrips, libraryTemplates, libraryQuickRides } from '../engine/templates.js';
 import { locateOnce } from '../engine/quickRide.js';
-import { CATEGORIES, searchNearby, poiCategory, poiGlyph, cuisineLabel, priceGlyph } from '../engine/nearby.js';
+import { CATEGORIES, searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineLabel, priceGlyph } from '../engine/nearby.js';
 import { hoursOnly, todayIndex } from '../engine/places.js';
 import InstallPrompt from './InstallPrompt.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
@@ -86,6 +86,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const [basemap, setBasemap] = useState('sat');
   const [terrain3d, setTerrain3d] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
+  const [bearing, setBearing] = useState(0); // the map's rotation; North up shows only while it is turned
   const [fixTried, setFixTried] = useState(false); // the location note only after the rider ASKS (the locate button), not on every open
   const [drawer, setDrawer] = useState(false); // desktop: the library is a DRAWER off the nav bar, closed by default — the map owns the screen
   const dragRef = useRef(null);
@@ -148,6 +149,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         sheetPx={sheetPx}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={setCenter}
+        onBearing={setBearing}
         basemap={basemap}
         terrain3d={terrain3d}
         onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the card closes, or the sheet steps down
@@ -173,6 +175,14 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         </div>
       </div>
       <button className="hm-round hm-locate" onClick={async () => { setFixTried(true); const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
+      {Math.abs(bearing) > 1 && (
+        <button className="hm-round hm-north" onClick={() => { window.__homeMap?.resetNorth({ duration: 400 }); setBearing(0); }} aria-label={t('North up')} title={t('North up')}>
+          <svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true" style={{ transform: `rotate(${-bearing}deg)` }}>
+            <path d="M10 2 L13.5 11 L10 9.4 L6.5 11 Z" fill="#ff5a1f" />
+            <path d="M10 18 L6.5 9 L10 10.6 L13.5 9 Z" fill="currentColor" opacity="0.85" />
+          </svg>
+        </button>
+      )}
       {/* the same layers pill as the trip map, in the same corner */}
       <div className={`basemap-switch hm-layers${switchOpen ? '' : ' closed'}`}>
         <button className="bs-toggle" aria-expanded={switchOpen} title={t('Basemap')} onClick={() => setSwitchOpen((v) => !v)}>
@@ -353,13 +363,15 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
   const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
   const match = row ?? looked;
+  const natural = !row && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
   const cat = poiCategory(poi.cls, poi.subclass) ?? (match?.primaryType?.includes('gas') ? 'fuel' : null);
   const glyph = row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
   const [details, setDetails] = useState(false);
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: 'google', verified: 'google' }
-    : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm' };
-  const kicker = [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
+    : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };
+  const elev = poi.elevFt ? (u.metric ? `${Math.round(poi.elevFt / 3.28084)} m` : `${poi.elevFt.toLocaleString()} ft`) : '';
+  const kicker = [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', elev, poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
   const dist = fix ? `${u.miNum(haversineMiles(fix, poi))} ${u.miUnit} ${t('from you')}` : '';
   const hours = Array.isArray(match?.hours) && match.hours.length ? match.hours : null;
   return (
@@ -370,8 +382,9 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
         <button className="mini-edit" onClick={onClose} aria-label={t('Close')}>✕</button>
       </div>
       <div className="poi-facts">
-        {match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
-        {match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
+        {natural && <span className="nb-note">{t('A place on the map, not a listed business — it will be added as a placed pin.')}</span>}
+        {!natural && match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
+        {!natural && match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
         {match && (
           <>
             {Number.isFinite(match.rating) && <span className="nb-rate">★ {match.rating.toFixed(1)}{match.userRatingCount ? <small> ({match.userRatingCount})</small> : null}</span>}

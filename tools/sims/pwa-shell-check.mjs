@@ -91,6 +91,7 @@ const drag = async () => {
 check(await drag() === 0, 'the home screen cannot be dragged up');
 
 // ---- inside a trip, which is where all three reports came from -------------
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 20000 });
 await page.waitForTimeout(2500);

@@ -5,6 +5,7 @@ await page.route('**/*', (r) => (r.request().url().includes('localhost:5199') ? 
 await page.addInitScript(() => { localStorage.setItem('moto.settings.v1', JSON.stringify({ theme: 'light' })); });
 await page.goto('http://localhost:5199/');
 await page.waitForSelector('.trip-card', { timeout: 15000 });
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForTimeout(1200);

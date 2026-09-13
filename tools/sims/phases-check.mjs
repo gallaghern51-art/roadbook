@@ -32,6 +32,7 @@ async function run(width, label) {
   const meta = async () => { const l = await lib(); return l.trips.find((r) => r.id === l.activeId).trip.meta; };
 
   // 1. the seed trip: a rally day says Rally because THIS trip says so
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
   await page.click('.trip-card');
   await page.waitForSelector('.rchip', { timeout: 20000 });
   const seedMeta = await meta();

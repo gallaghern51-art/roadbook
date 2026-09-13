@@ -49,6 +49,8 @@ async function open(styleStatus) {
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();
   await page.waitForSelector('.trip-card', { timeout: 15000 });
+  const tripsBtn = page.locator('.hm-tripsbtn'); // the desktop home keeps the library in a closed drawer
+  if (await tripsBtn.isVisible().catch(() => false)) { await tripsBtn.click(); await page.waitForTimeout(400); }
   await page.click('.trip-card');
   await page.waitForSelector('.modebar', { timeout: 15000 });
   return { ctx, page, pageErrors };
@@ -66,6 +68,8 @@ async function open(styleStatus) {
   check(st.shield === 'none', "Mapbox's own route-number shields are hidden under ours");
   check(st.exit !== 'none', 'exit shields stay — the one number a rider acts on');
   check(st.ours, 'our route layers are on top of the style');
+  const rw = await page.evaluate(() => window.__map.getPaintProperty('road-primary', 'line-width'));
+  check(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9), 'satellite: primary roads carry our width floor (the Beartooth Highway hairline fix)');
   check(st.logo && /Mapbox/.test(st.attrib), 'the Mapbox wordmark and © credit are on the map (Product Terms attribution)');
   check(mbLog.some((u) => /api\.mapbox\.com\/styles\/v1\/mapbox\/satellite-streets-v12\?sdk=js-3.*access_token=pk\./.test(u)), 'the style was fetched from api.mapbox.com by the SDK with a public token');
   check(mbLog.some((u) => /api\.mapbox\.com\/v4\/mapbox\.mapbox-streets-v8.*access_token=/.test(u)) && mbLog.some((u) => /api\.mapbox\.com\/v4\/mapbox\.satellite\.json.*access_token=/.test(u)), 'both mapbox:// sources resolved to v4 TileJSON requests with the token');
@@ -114,10 +118,11 @@ async function open(styleStatus) {
 {
   mbLog.length = 0;
   const { ctx, page } = await open(401);
-  await page.waitForFunction(() => !!window.__map?.getSource?.('satellite') && !!window.__map.getLayer('leg-hi-line'), null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => !!window.__map?.getSource?.('satellite') && !!window.__map.getLayer('leg-hi-line') && window.__map.getStyle().layers.some((l) => /^route-/.test(l.id)), null, { timeout: 20000 }).catch(() => {});
   const fb = await page.evaluate(() => { const m = window.__map; const s = m.getStyle(); return { name: s.name, esri: !!m.getSource('satellite'), ours: !!m.getLayer('leg-hi-line'), routes: s.layers.filter((l) => /^route-/.test(l.id)).length }; });
   check(!fb.name && fb.esri, 'a 401 on the style lands the map on Esri imagery');
   check(fb.ours && fb.routes > 0, `and the trip is still drawn on it (${fb.routes} route layers)`);
+  if (!fb.routes) console.log('  layers:', await page.evaluate(() => window.__map.getStyle().layers.map((l) => l.id).join(' ')), '| routeCache:', await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('sturgis.routeCache.v5') || '{}')).length));
   const asks = mbLog.filter((u) => /styles\/v1\/mapbox\/satellite-streets-v12\?/.test(u)).length;
   check(asks <= 3, `the rejected style was not retried in a loop (${asks} requests — the home map, the plan map, at most one retry)`);
   await ctx.close();

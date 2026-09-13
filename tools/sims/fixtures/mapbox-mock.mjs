@@ -36,11 +36,16 @@ export const isMockTile = (u) => /__mock_(img|vec|dem)\//.test(u);
 /** A map-shaped stub over a style JSON, for the pure helpers (hideNativeRoadShields, poiLayerIds). */
 export function fakeMap(style) {
   const vis = {};
+  const paint = {}; // id → { prop: value } as set through the API
+  const zoom = {}; // id → [min, max]
   return {
     getStyle: () => style,
     getLayer: (id) => style.layers.find((l) => l.id === id),
     getLayoutProperty: (id, k) => (k === 'visibility' ? vis[id] : undefined),
     setLayoutProperty: (id, k, v) => { if (k === 'visibility') vis[id] = v; },
-    vis,
+    setPaintProperty: (id, k, v) => { (paint[id] ??= {})[k] = v; },
+    getPaintProperty: (id, k) => paint[id]?.[k] ?? style.layers.find((l) => l.id === id)?.paint?.[k],
+    setLayerZoomRange: (id, a, b) => { zoom[id] = [a, b]; },
+    vis, paint, zoom,
   };
 }

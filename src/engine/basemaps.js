@@ -98,6 +98,63 @@ export function poiLayerIds(map) {
   } catch { return []; }
 }
 
+/** Named natural features (peaks, passes, ranges, lakes, falls — Mapbox Streets' `natural_label`), or [] on raster. */
+export function naturalLayerIds(map) {
+  try {
+    return (map.getStyle()?.layers ?? [])
+      .filter((l) => l.type === 'symbol' && l['source-layer'] === 'natural_label' && !/continent/.test(l.id))
+      .map((l) => l.id);
+  } catch { return []; }
+}
+/** Everything a finger can name on the map: businesses AND the natural features a rider stops for. */
+export function tappableLayerIds(map) {
+  return [...poiLayerIds(map), ...naturalLayerIds(map)];
+}
+
+// ---- roads on satellite ----
+// Mapbox's satellite-streets is tuned for cities: its road lines are a
+// hairline of 80% grey at 0.8 alpha (about 1.2px at zoom 8 and no casing
+// below zoom 9), which vanishes into forest, rock and snow — the Beartooth
+// Highway was invisible on the Sturgis template (owner: "satellite view
+// doesn't carry roads like the beartooth highway, why is that?"). Streets
+// draws the same roads in solid white on a dark casing. This gives satellite
+// the same legibility: a brighter, opaque line with a floor on its width at
+// touring zooms, and the casing from zoom 6. Line paint changes are safe at
+// any time after load (the placement gotcha is symbol layers only); called
+// from the same idle handler as the shield pass so it survives setStyle.
+const ROAD_MAIN = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?$/;
+const ROAD_CASE = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?-case$/;
+const FADE = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 0]; // the style's own: at street zoom the imagery IS the road
+const MAJOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 3, 1, 6, 2, 9, 3.2, 12, 4.5, 18, 28, 22, 280];
+const MINOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 6, 0, 8, 1.6, 10, 2.4, 12, 3.4, 18, 26, 22, 260];
+export function emphasizeSatelliteRoads(map) {
+  let style;
+  try { style = map.getStyle(); } catch { return 0; }
+  if (!/satellite/i.test(style?.name ?? '')) return 0;
+  let touched = 0;
+  for (const layer of style.layers ?? []) {
+    if (layer.type !== 'line') continue;
+    const major = /motorway-trunk|primary/.test(layer.id);
+    try {
+      if (ROAD_MAIN.test(layer.id)) {
+        map.setPaintProperty(layer.id, 'line-color', 'hsl(40, 25%, 96%)');
+        map.setPaintProperty(layer.id, 'line-opacity', FADE);
+        map.setPaintProperty(layer.id, 'line-width', major ? MAJOR_W : MINOR_W);
+        touched += 1;
+      } else if (ROAD_CASE.test(layer.id)) {
+        // the casing is a HOLLOW line (gap = the road, width = the rim)
+        map.setLayerZoomRange(layer.id, major ? 5 : 8, 24);
+        map.setPaintProperty(layer.id, 'line-color', 'hsla(0, 0%, 0%, 0.8)');
+        map.setPaintProperty(layer.id, 'line-opacity', FADE);
+        map.setPaintProperty(layer.id, 'line-gap-width', major ? MAJOR_W : MINOR_W);
+        map.setPaintProperty(layer.id, 'line-width', ['interpolate', ['exponential', 1.5], ['zoom'], 5, 1, 12, 1.6, 22, 2.4]);
+        touched += 1;
+      }
+    } catch { /* the style moved on under us */ }
+  }
+  return touched;
+}
+
 // ---- the basemap's own route shields ----
 // We draw shields on the route (RouteShields.jsx) at OUR spacing, on the road
 // the rider is actually on. Mapbox posts its own on every numbered road at its

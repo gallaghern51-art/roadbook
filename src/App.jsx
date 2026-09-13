@@ -793,7 +793,7 @@ export default function App() {
               type: 'apply_ops',
               ops: [{
                 op: 'add_waypoint', dayId, index: bestInsertIndex(day.waypoints, pt),
-                waypoint: { name: place.name, ...pt, kind: 'via', note: place.detail ?? '', ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : {}) },
+                waypoint: { name: place.name, ...pt, kind: place.kind === 'photo' ? 'photo' : 'via', note: place.detail ?? '', ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : {}), ...(place.placed ? { placed: place.placed } : {}) },
               }],
             });
             dispatch({ type: 'select_day', dayId });

@@ -40,6 +40,7 @@ async function run(width, label) {
   const lib = () => page.evaluate(() => JSON.parse(localStorage.getItem('moto.trips.v1')));
 
   // 0. mark a bed as booked so we can prove a copy does not inherit the claim
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
   await page.click('.trip-card');
   await page.waitForSelector('.modebar', { timeout: 20000 });
   await page.waitForTimeout(800);

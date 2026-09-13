@@ -61,6 +61,7 @@ const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();
 await page.waitForSelector('.trip-card', { timeout: 15000 });
 await page.screenshot({ path: SHOT('light-home') });
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {

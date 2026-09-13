@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, hideNativeRoadShields, poiLayerIds, ensureTerrain } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, tappableLayerIds, emphasizeSatelliteRoads, ensureTerrain } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
 
 // The home screen's map (owner, Sep 13 2026: option A, "map first"). No trip
@@ -17,14 +17,18 @@ import PlacePins from './PlacePins.jsx';
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
 //   basemap   'sat' | 'streets' | 'dark' | 'light' — the same styles the trip map switches between
 //   terrain3d the 3D toggle (Mapbox's DEM), re-asserted after every style swap
-const featureToPoi = (f) => {
+// at: the tap itself, for a feature whose geometry is a line (a range, a
+// river — natural_label line labels) rather than a point
+const featureToPoi = (f, at) => {
   const p = f?.properties ?? {};
-  const c = f?.geometry?.coordinates ?? [];
+  const g = f?.geometry ?? {};
+  const c = /Line/.test(g.type ?? '') ? [at?.lng, at?.lat] : (g.coordinates ?? []);
   if (!Number.isFinite(c[0]) || !Number.isFinite(c[1])) return null;
-  return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] };
+  const elevFt = Number.isFinite(p.elevation_ft) ? p.elevation_ft : Number.isFinite(p.elevation_m) ? Math.round(p.elevation_m * 3.28084) : null;
+  return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1], ...(elevFt != null ? { elevFt } : {}) };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap, onPoi, onCenter, basemap = 'sat', terrain3d = false }) {
+export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap, onPoi, onCenter, onBearing, basemap = 'sat', terrain3d = false }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -32,6 +36,8 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   poiRef.current = onPoi;
   const centerRef = useRef(onCenter);
   centerRef.current = onCenter;
+  const bearingRef = useRef(onBearing);
+  bearingRef.current = onBearing;
   const landedRef = useRef(false);
   const appliedRef = useRef(null);
   const terrainRef = useRef(terrain3d);
@@ -57,21 +63,25 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
     });
     map.on('load', () => {
       setMapObj(map);
-      map.once('idle', () => { hideNativeRoadShields(map); ensureTerrain(map, terrainRef.current); });
-      for (const id of poiLayerIds(map)) {
+      // no route of ours on this map, so the basemap's road numbers stay —
+      // they are the only way a rider names US-212 from the home screen
+      map.once('idle', () => { emphasizeSatelliteRoads(map); ensureTerrain(map, terrainRef.current); });
+      for (const id of tappableLayerIds(map)) {
         map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
       }
     });
     // where the map is LOOKING is where the chips search — not where the rider is
     map.on('moveend', () => { const c = map.getCenter(); centerRef.current?.({ lat: c.lat, lng: c.lng }); });
+    // a two-finger twist rotates the map; a North-up button appears while it is turned
+    map.on('rotateend', () => bearingRef.current?.(map.getBearing()));
     map.on('click', (e) => {
       if (e.originalEvent?._wpHandled) return; // a pin tap is the pin's
-      const ids = poiLayerIds(map);
+      const ids = tappableLayerIds(map);
       const hits = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
-      poiRef.current?.(hits.length ? featureToPoi(hits[0]) : null);
+      poiRef.current?.(hits.length ? featureToPoi(hits[0], e.lngLat) : null);
     });
-    window.__homePoiTap = (f) => poiRef.current?.(f ? featureToPoi(f) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
+    window.__homePoiTap = (f, at) => poiRef.current?.(f ? featureToPoi(f, at) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
     return () => { map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -84,7 +94,7 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
     if (appliedRef.current === style) return;
     appliedRef.current = style;
     map.setStyle(style);
-    map.once('idle', () => { hideNativeRoadShields(map); ensureTerrain(map, terrainRef.current); });
+    map.once('idle', () => { emphasizeSatelliteRoads(map); ensureTerrain(map, terrainRef.current); });
   }, [basemap]);
   const terrainAppliedRef = useRef(false);
   useEffect(() => {

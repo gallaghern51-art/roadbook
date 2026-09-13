@@ -42,6 +42,7 @@ async function run(width, label) {
   const guest = page.locator('.land-skip'); // the signed-out landing gate on a checkout with Supabase keys
   if (await guest.isVisible().catch(() => false)) await guest.click();
   await page.waitForSelector('.trip-card', { timeout: 20000 });
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
   await page.click('.trip-card');
   await page.waitForSelector('.modebar', { timeout: 20000 });
   await page.waitForTimeout(800);
