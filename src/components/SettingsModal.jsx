@@ -87,7 +87,7 @@ function Seg({ label, value, options, onPick, note }) {
 
 const SECTION_LABEL = Object.fromEntries(SECTIONS);
 
-export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount, onHelp }) {
+export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount, onHelp, onLegal }) {
   const s = useSettings();
   const { lang, theme, units, shields, density, basemap, terrain, voice, speedSign, keepAwake, set } = s;
   const t = useT();
@@ -283,6 +283,14 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 <button className="btn gold" type="button" onClick={onHelp}>{t('How to use Roadbook')}</button>
               </div>
               <p className="set-note">{t('Step-by-step directions for every part of the app, with walkthrough videos.')}</p>
+              <div className="set-row">
+                <span className="set-label">{t('Legal')}</span>
+                <span className="set-legal">
+                  <button className="btn" type="button" onClick={() => onLegal?.('privacy')}>{t('Privacy Policy')}</button>
+                  <button className="btn" type="button" onClick={() => onLegal?.('terms')}>{t('Terms of Service')}</button>
+                </span>
+              </div>
+              <p className="set-note">{t('Roadbook is a product of Calaf, Inc.')}</p>
               <div className="set-credits">
                 <span className="set-label">{t('Credits')}</span>
                 <p>

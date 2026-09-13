@@ -169,6 +169,43 @@ async function run(width, theme) {
   check(home, 'Plan a trip with AI opens the app as a guest');
   check(pageErrors.length === 0, `zero page errors (${pageErrors.length})`);
   await ctx.close();
+
+  // legal: footer links, the deep links, the site files (desktop only — one pass is enough)
+  if (!phone) {
+    const ctx2 = await browser.newContext({ viewport: { width, height: 820 } });
+    const p2 = await ctx2.newPage();
+    await p2.route('**/*', (r) => { const u = r.request().url(); if (routeMapbox(r)) return undefined; if (isMockTile(u)) return r.fulfill({ status: 204 }); if (u.includes(`localhost:${PORT}`) || u.includes('supabase') || u.includes('fonts.g')) return r.continue(); return r.abort(); });
+    await p2.addInitScript(() => { localStorage.removeItem('moto.guest.v1'); });
+    await p2.goto(`http://localhost:${PORT}/#terms`);
+    await p2.waitForSelector('.legal-modal', { timeout: 15000 }).catch(() => {});
+    const l1 = await p2.evaluate(() => ({ title: document.querySelector('.legal-modal h3')?.textContent, calaf: /Calaf, Inc\./.test(document.querySelector('.legal-body')?.textContent ?? ''), addr: /169 Madison Ave/.test(document.querySelector('.legal-body')?.textContent ?? ''), law: /State of Delaware/.test(document.querySelector('.legal-body')?.textContent ?? ''), ride: /Ride at your own risk/.test(document.querySelector('.legal-body')?.textContent ?? '') }));
+    check(l1.title === 'Terms of Service' && l1.calaf && l1.addr && l1.law && l1.ride, '#terms opens the Terms cold on the door: Calaf, Inc., the postal address, Delaware law, the ride-at-your-own-risk clause');
+    await p2.locator('.legal-links button', { hasText: 'Privacy Policy' }).click();
+    await p2.waitForTimeout(300);
+    const l2 = await p2.evaluate(() => ({ title: document.querySelector('.legal-modal h3')?.textContent, body: document.querySelector('.legal-body')?.textContent ?? '' }));
+    check(l2.title === 'Privacy Policy' && /Anthropic/.test(l2.body) && /Mapbox/.test(l2.body) && /No advertising/.test(l2.body) && /support@calaf\.ai/.test(l2.body), 'the Privacy Policy names the real processors (Anthropic, Mapbox…), says no ads and no tracking, and gives the support address');
+    await p2.keyboard.press('Escape');
+    await p2.waitForTimeout(300);
+    const gone = await p2.evaluate(() => !document.querySelector('.legal-modal') && !/^#(privacy|terms)$/.test(location.hash));
+    check(gone, 'Escape closes the sheet and drops the hash');
+    const foot = await p2.evaluate(() => ({ calaf: /Roadbook is a product of Calaf, Inc\./.test(document.querySelector('.lf-legal')?.textContent ?? ''), links: document.querySelectorAll('.lf-legal button').length }));
+    check(foot.calaf && foot.links === 2, 'the footer says Roadbook is a product of Calaf, Inc. and links Privacy and Terms');
+    await p2.locator('.lf-legal button', { hasText: 'Privacy Policy' }).click();
+    await p2.waitForTimeout(300);
+    check(await p2.locator('.legal-modal h3').textContent() === 'Privacy Policy', 'the footer link opens the Privacy Policy');
+    await p2.keyboard.press('Escape');
+    // the account card's consent line
+    await p2.locator('.auth-alt button', { hasText: 'Create an account' }).first().click();
+    await p2.waitForTimeout(300);
+    check(await p2.locator('.auth-consent').count() === 1, 'the signup card carries the Terms + Privacy consent line');
+    // site files + OG
+    const files = {};
+    for (const f of ['robots.txt', 'sitemap.xml', 'og.png', '404.html']) { const r = await p2.request.get(`http://localhost:${PORT}/${f}`); files[f] = r.status(); }
+    check(Object.values(files).every((v) => v === 200), `robots.txt, sitemap.xml, og.png and 404.html are served (${JSON.stringify(files)})`);
+    const og = await p2.evaluate(() => ({ t: document.querySelector('meta[property="og:title"]')?.content, i: document.querySelector('meta[property="og:image"]')?.content, d: document.querySelector('meta[name="description"]')?.content?.length ?? 0, tw: document.querySelector('meta[name="twitter:card"]')?.content }));
+    check(/Plan the ride/.test(og.t) && /og\.png$/.test(og.i) && og.d > 80 && og.tw === 'summary_large_image', 'Open Graph + Twitter tags and a real description in the head');
+    await ctx2.close();
+  }
 }
 
 await run(1280, 'light');

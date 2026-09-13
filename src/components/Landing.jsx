@@ -29,7 +29,7 @@ import { EARLY_EXIT_TRIP } from '../data/earlyExitTemplate.js';
 
 const MIN_PW = 8;
 
-export default function Landing({ onGuest, onHelp, recovery, finishAccount, onRecovered, onFinished, children }) {
+export default function Landing({ onGuest, onHelp, onLegal, recovery, finishAccount, onRecovered, onFinished, children }) {
   const t = useT();
   const [mode, setMode] = useState(recovery ? 'recovery' : finishAccount ? 'finish' : 'signin');
   const [email, setEmail] = useState('');
@@ -168,6 +168,11 @@ export default function Landing({ onGuest, onHelp, recovery, finishAccount, onRe
         )}
 
         <button className="btn gold auth-go" type="submit" disabled={busy || !SYNC_ENABLED}>{cta}</button>
+        {mode === 'signup' && (
+          <p className="auth-consent">
+            {t('By creating an account you agree to the')} <button type="button" onClick={() => onLegal?.('terms')}>{t('Terms of Service')}</button> {t('and the')} <button type="button" onClick={() => onLegal?.('privacy')}>{t('Privacy Policy')}</button>.
+          </p>
+        )}
       </form>
 
       <div className="auth-alt">
@@ -309,6 +314,11 @@ export default function Landing({ onGuest, onHelp, recovery, finishAccount, onRe
       <footer className="land-foot">
         <span className="brand"><RoadbookBrand /></span>
         <span className="lf-note">{t('Real roads, real places, and a roadbook that stays on your phone until you decide it needs an account.')}</span>
+        <span className="lf-legal">
+          <span>{t('Roadbook is a product of Calaf, Inc.')}</span>
+          <button type="button" onClick={() => onLegal?.('privacy')}>{t('Privacy Policy')}</button>
+          <button type="button" onClick={() => onLegal?.('terms')}>{t('Terms of Service')}</button>
+        </span>
       </footer>
       {children}
     </div>

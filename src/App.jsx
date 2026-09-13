@@ -7,6 +7,7 @@ import { tripFeasibility } from './engine/timeline.js';
 import { useIsMobile } from './hooks/useMediaQuery.js';
 import Home from './components/Home.jsx';
 import Landing from './components/Landing.jsx';
+import LegalSheet from './components/LegalSheet.jsx';
 import Ribbon from './components/Ribbon.jsx';
 import MapView from './components/MapView.jsx';
 import DayPanel from './components/DayPanel.jsx';
@@ -105,6 +106,7 @@ export default function App() {
   // The guide on the signed-out door cannot ride the sheet stack: Landing
   // returns before it is rendered.
   const [helpOnLanding, setHelpOnLanding] = useState(false);
+  const [legal, setLegal] = useState(null); // 'privacy' | 'terms' — the legal sheet, on the door or in the app
   const [newTrip, setNewTrip] = useState(null); // { tab, prompt } while the modal is open
   const [rideOpen, setRideOpen] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false); // desktop: fold the side panel away, map takes the room
@@ -152,6 +154,7 @@ export default function App() {
   useEffect(() => {
     const read = () => {
       const hash = (window.location.hash || '').replace(/^#/, '');
+      if (hash === 'privacy' || hash === 'terms') { setLegal(hash); return; }
       if (!hash.startsWith('help')) return;
       const chapter = hash.includes('-') ? hash.slice(hash.indexOf('-') + 1) : undefined;
       setSheet({ type: 'help', chapter });
@@ -161,6 +164,13 @@ export default function App() {
     window.addEventListener('hashchange', read);
     return () => window.removeEventListener('hashchange', read);
   }, []);
+
+  const openLegal = (doc) => setLegal(doc);
+  const closeLegal = () => {
+    setLegal(null);
+    if (/^#(privacy|terms)$/.test(window.location.hash || '')) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  };
+  const legalSheet = legal ? <LegalSheet doc={legal} onClose={closeLegal} onSwitch={setLegal} /> : null;
 
   // Closing the guide drops the hash, or reopening the app would land back in it.
   const closeHelp = () => {
@@ -640,11 +650,13 @@ export default function App() {
       {sheet?.type === 'help' && (
         <HelpGuide initialChapter={sheet.chapter} onClose={closeHelp} />
       )}
+      {legalSheet}
       {sheet?.type === 'settings' && (
         <div className="modal-backdrop" onClick={() => setSheet(null)}>
           <div className="modal settings" onClick={(e) => e.stopPropagation()}>
             <button className="btn sheet-x" onClick={() => setSheet(null)}>✕</button>
             <SettingsModal
+              onLegal={openLegal}
               sync={sync}
               auth={auth}
               backup={backup}
@@ -741,6 +753,7 @@ export default function App() {
     return (
       <Landing
         onHelp={() => setHelpOnLanding(true)}
+        onLegal={openLegal}
         onGuest={continueAsGuest}
         recovery={auth.recovery}
         finishAccount={auth.finishAccount}
@@ -748,6 +761,7 @@ export default function App() {
         onFinished={auth.clearFinishAccount}
       >
         {helpOnLanding && <HelpGuide initialChapter={sheet?.type === 'help' ? sheet.chapter : undefined} onClose={closeHelp} />}
+        {legalSheet}
       </Landing>
     );
   }

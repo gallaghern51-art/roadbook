@@ -1136,6 +1136,15 @@ const ES = {
   'Start a trip from it': 'Empezar un viaje desde ella',
   'beartooth-bighorns-template.json → a friend’s Import': 'beartooth-bighorns-template.json → el Importar de un amigo',
 
+  // legal pages (Sep 13, 2026)
+  'Legal': 'Legal',
+  'Privacy Policy': 'Política de privacidad',
+  'Terms of Service': 'Términos del servicio',
+  'Effective and last updated': 'En vigor y actualizado por última vez el',
+  'Roadbook is a product of Calaf, Inc.': 'Roadbook es un producto de Calaf, Inc.',
+  'By creating an account you agree to the': 'Al crear una cuenta aceptas los',
+  'and the': 'y la',
+
   'Account': 'Cuenta',
   'Sign in': 'Iniciar sesión',
   'Signing in…': 'Iniciando sesión…',
