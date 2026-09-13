@@ -169,10 +169,9 @@ if (await page.locator('.main').getAttribute('data-panel') === 'closed') {
   await page.locator('.modebar button', { hasText: 'Plan' }).evaluate((el) => el.click());
   await page.waitForFunction(() => document.querySelector('.main')?.dataset.panel === 'open');
 }
-await page.locator('.side-inner').evaluate((el) => {
-  const pref = el.querySelector('.route-pref');
-  el.scrollTop = Math.max(0, (pref?.offsetTop ?? 0) - 20);
-});
+// Trip settings live behind one door on the overview now
+await page.locator('.trip-settings-btn').click();
+await page.waitForSelector('.route-pref', { timeout: 8000 });
 const routeBox = await page.locator('.route-style-grid').boundingBox();
 check(Boolean(routeBox && routeBox.x >= 0 && routeBox.x + routeBox.width <= 375 && routeBox.y >= 0 && routeBox.y < 750),
   'route character is reachable inside the open phone panel');
@@ -264,6 +263,8 @@ await page.screenshot({ path: SHOT('valhalla-route-character-desktop-light') });
 await page.screenshot({ path: REVIEW('desktop-light') });
 await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
 await page.locator('.route-preview-actions .btn', { hasText: 'Cancel' }).click();
+// Trip settings is a sheet now; its backdrop would sit over the mode bar on a phone
+await page.locator('.modal.sheet .modal-head .btn').last().click().catch(() => {});
 await page.setViewportSize({ width: 375, height: 750 });
 await page.waitForTimeout(400);
 

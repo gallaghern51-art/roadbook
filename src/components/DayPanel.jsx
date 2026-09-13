@@ -3,11 +3,12 @@ import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSens
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
-import { PHASES } from '../data/seedTrip.js';
+import { PHASES, phaseLabel } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
 import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute, summaryIsStale } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur, to24h, from24h, parseTime } from '../engine/timeline.js';
 import NearbyPicker from './NearbyPicker.jsx';
+import { Sheet } from './Sheets.jsx';
 import { gateSlack } from '../engine/nearby.js';
 import { tripRoutePrefs, alongOnRoute, tripRange } from '../engine/tripEngine.js';
 import ConditionsCard from './ConditionsCard.jsx';
@@ -53,6 +54,7 @@ export default function DayPanel({ day }) {
   const longestGap = gaps.reduce((m, g) => Math.max(m, g.miles), 0);
   const timeline = dayTimeline(day, routedLegsByDay[day.id]);
   const [swapId, setSwapId] = useState(null); // the stop row with the swap picker open
+  const [dayMenu, setDayMenu] = useState(false); // the ⋯ sheet
   const t = useT();
   const tt = useTT();
   const u = useUnits();
@@ -77,22 +79,12 @@ export default function DayPanel({ day }) {
       <div className="day-head">
         <div className="eyebrow">{day.dow} · {fmtLongDate(day.date)} · {t('Day')} {state.trip.days.indexOf(day) + 1} {t('of')} {state.trip.days.length}</div>
         <h2>{tt(day.title)}</h2>
-        <div className="datebar">
-          {/* the phase and the anchor flag are inputs, not just paint */}
-          <label className="chip phase" style={{ background: phase?.color }}>
-            <select
-              className="phase-select"
-              value={day.phase}
-              onChange={(e) => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'phase', value: e.target.value }] })}
-            >
-              {Object.entries(PHASES).map(([k, p]) => <option key={k} value={k}>{t(p.label)}</option>)}
-            </select>
-          </label>
-          <button
-            className={`chip anchor-toggle${day.anchor ? ' anchor' : ''}`}
-            title={t('Anchor days are protected — the AI trims elsewhere first')}
-            onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'anchor', value: !day.anchor }] })}
-          >{day.anchor ? `★ ${t('Anchor')}` : `☆ ${t('Anchor')}`}</button>
+        {/* The header carries what a rider reads at a glance — when we leave,
+            when we arrive — and ONE more button. Phase, anchor, GPX, the two
+            Copilot asks and the day's other verbs live behind ⋯: they are
+            each used once a trip, and eight chips above the stops made the
+            panel read as a control room rather than a day. */}
+        <div className="datebar day-bar">
           <label className="chip depart-edit">{t('Depart')}
             {/* a real time field — the native picker beats typing "AM/PM" on
                 a phone, and storage keeps the readable 12-hour string */}
@@ -108,27 +100,45 @@ export default function DayPanel({ day }) {
             />
           </label>
           <span className="chip">{t('End')} ~{fmtTime(timeline.endMin)}</span>
-          <button
-            className="chip gpx-btn"
-            title="Download this day as a GPX route for Garmin / phone nav"
-            onClick={() => downloadFile(`trip-${day.date}-${day.dow.toLowerCase()}.gpx`, tripToGpx(state.trip, routes, routedLegsByDay, day.id), 'application/gpx+xml')}
-          >↓ GPX</button>
-          {/* the AI's one door, reachable from the day it would be asked about */}
-          <button
-            className="chip ask-ai"
-            onClick={() => dispatch({
-              type: 'ask_optimizer',
-              text: `${t('Review this day in detail — where is it tight, what breaks, and what would you change?')} (${day.dow} ${day.date} — ${day.title})`,
-            })}
-          >✦ {t('Ask Copilot')}</button>
-          <button
-            className="chip ask-ai"
-            onClick={() => dispatch({
-              type: 'ask_optimizer',
-              text: `${t('Research this day as route-and-stop opportunities. Use verified places and Valhalla to compare 2–3 bundles of roads, fuel, food, lodging, and attractions. Show the measured time, distance, fuel-gap, and group trade-offs. Do not change the trip yet — let me choose or combine pieces first.')} (${day.dow} ${day.date} — ${day.title})`,
-            })}
-          >⌁ {t('Find route opportunities')}</button>
+          <span className="chip phase-chip" style={{ '--seg-color': phase?.color }} title={t(phaseLabel(state.trip, day.phase))}>
+            <i className="phase-dot" /> {t(phaseLabel(state.trip, day.phase))}{day.anchor ? ' ★' : ''}
+          </span>
+          <button className="chip day-more" aria-label={t('Day options')} title={t('Day options')} aria-haspopup="dialog" onClick={() => setDayMenu(true)}>⋯</button>
         </div>
+        {dayMenu && (
+          <Sheet eyebrow={`${day.dow} · ${fmtLongDate(day.date)}`} title={t('Day options')} onClose={() => setDayMenu(false)}>
+            <div className="day-menu">
+              <div className="dm-group">
+                <span className="dm-label">{t('Phase')}</span>
+                <div className="dm-seg" role="radiogroup" aria-label={t('Phase')}>
+                  {Object.entries(PHASES).map(([k, p]) => (
+                    <button key={k} role="radio" aria-checked={day.phase === k} className={`phase-select${day.phase === k ? ' active' : ''}`} style={{ '--seg-color': p.color }}
+                      onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'phase', value: k }] })}
+                    ><i className="phase-dot" /> {t(phaseLabel(state.trip, k))}</button>
+                  ))}
+                </div>
+              </div>
+              <button
+                className={`dm-row anchor-toggle${day.anchor ? ' anchor' : ''}`}
+                title={t('Anchor days are protected — the AI trims elsewhere first')}
+                onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'set_day_field', dayId: day.id, field: 'anchor', value: !day.anchor }] })}
+              ><b>{day.anchor ? '★' : '☆'} {t('Anchor')}</b><small>{t('Anchor days are protected — the AI trims elsewhere first')}</small></button>
+              {/* the AI's one door, reachable from the day it would be asked about */}
+              <button className="dm-row ask-ai" onClick={() => { setDayMenu(false); dispatch({
+                type: 'ask_optimizer',
+                text: `${t('Review this day in detail — where is it tight, what breaks, and what would you change?')} (${day.dow} ${day.date} — ${day.title})`,
+              }); }}><b>✦ {t('Ask Copilot')}</b><small>{t('Where this day is tight, what breaks, what to change')}</small></button>
+              <button className="dm-row ask-ai" onClick={() => { setDayMenu(false); dispatch({
+                type: 'ask_optimizer',
+                text: `${t('Research this day as route-and-stop opportunities. Use verified places and Valhalla to compare 2–3 bundles of roads, fuel, food, lodging, and attractions. Show the measured time, distance, fuel-gap, and group trade-offs. Do not change the trip yet — let me choose or combine pieces first.')} (${day.dow} ${day.date} — ${day.title})`,
+              }); }}><b>⌁ {t('Find route opportunities')}</b><small>{t('Compare 2–3 bundles of roads and stops, measured')}</small></button>
+              <button
+                className="dm-row gpx-btn"
+                onClick={() => { setDayMenu(false); downloadFile(`trip-${day.date}-${day.dow.toLowerCase()}.gpx`, tripToGpx(state.trip, routes, routedLegsByDay, day.id), 'application/gpx+xml'); }}
+              ><b>↓ {t('Download GPX')}</b><small>{t('This day as a route for a Garmin or another nav app')}</small></button>
+            </div>
+          </Sheet>
+        )}
         {(day.phase === 'rally' || parks.length > 0) && (
           <div className="day-badges">
             {/* the rally patch belongs to the Sturgis trip, not to every trip

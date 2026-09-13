@@ -3,13 +3,14 @@ import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, us
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
-import { PHASES } from '../data/seedTrip.js';
+import { PHASES, phaseLabel } from '../data/seedTrip.js';
 import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
 import { tripPace, tripRoutePrefs } from '../engine/tripEngine.js';
 import { to24h, from24h } from '../engine/timeline.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
+import { Sheet } from './Sheets.jsx';
 import { libraryTemplates, daysFromTemplate, insertDaysOp } from '../engine/templates.js';
 
 // Suggestions only — riders type whatever they actually ride. (The list began
@@ -48,6 +49,7 @@ export default function OverviewPanel() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const reorderHint = 'grab ⠿ to reorder';
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const onDragEnd = (e) => {
     const { active, over } = e;
@@ -92,6 +94,16 @@ export default function OverviewPanel() {
         </div>
       </div>
 
+      {/* Everything that configures the trip — name, roads, dates, range, the
+          rider roster, the after-dark hour, the calendar's UTC offset — is one
+          door. It used to be a long form under the day list, so the overview
+          scrolled through settings a rider touches once. */}
+      <div className="trip-settings-row">
+        <button className="btn trip-settings-btn" onClick={() => setSettingsOpen(true)}>⚙ {t('Trip settings')}</button>
+        <small>{ROUTE_STYLE_UI.find((x) => x.id === tripRoutePrefs(trip).style)?.label ?? ''} · {trip.meta.riders} {t('riders')} · {fmtLongDate(trip.meta.startDate)}</small>
+      </div>
+      {settingsOpen && (
+        <Sheet eyebrow={tt(trip.meta.title)} title={t('Trip settings')} onClose={() => setSettingsOpen(false)}>
       <TripSettings trip={trip} dispatch={dispatch} ui={ui} />
 
       {trip.fieldNotes && <div className="section fieldnotes">
@@ -109,6 +121,8 @@ export default function OverviewPanel() {
       </div>}
 
       <RiderRoster trip={trip} dispatch={dispatch} />
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -311,13 +325,31 @@ function TripSettings({ trip, dispatch, ui }) {
           <input type="number" min="1" value={trip.meta.riders}
             onChange={(e) => set({ riders: Math.max(1, Number(e.target.value) || 1) })} />
         </label>
+        <label className="fld settings-third">{t('Range: comfort mi')}
+          <input type="number" min="40" value={range.comfort} onChange={(e) => setRange('comfort', e.target.value)} />
+        </label>
+      </div>
+      {/* Touched once a trip, if ever: folded away so the settings a rider
+          actually returns to — roads, date, riders, range — stand alone. */}
+      <details className="settings-adv">
+        <summary>{t('Advanced')} <span>{t('phase names · pace · absolute range · MPG · dusk · calendar UTC offset')}</span></summary>
+        {/* What THIS trip calls its four phases. The keys are storage; the
+            words are the rider's — a rally trip says Rally, a Blue Ridge
+            week says Loop days, and nobody else's trip inherits either. */}
+        <div className="budget-grid trip-settings-grid">
+          {Object.keys(PHASES).map((k) => (
+            <label key={k} className="fld settings-third" style={{ '--seg-color': PHASES[k].color }}>
+              <span className="phase-dot" /> {t('Phase')} · {t(PHASES[k].label)}
+              <input defaultValue={phaseLabel(trip, k)} key={`${k}:${phaseLabel(trip, k)}`}
+                onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== phaseLabel(trip, k)) set({ phaseLabels: { ...(trip.meta.phaseLabels ?? {}), [k]: v } }); }} />
+            </label>
+          ))}
+        </div>
+        <div className="budget-grid trip-settings-grid">
         <label className="fld settings-third">{t('Group pace buffer %')}
           <input type="number" min="0" max="50" step="1"
             value={Math.round((tripPace(trip) - 1) * 100)}
             onChange={(e) => set({ pace: 1 + Math.max(0, Math.min(50, Number(e.target.value) || 0)) / 100 })} />
-        </label>
-        <label className="fld settings-third">{t('Range: comfort mi')}
-          <input type="number" min="40" value={range.comfort} onChange={(e) => setRange('comfort', e.target.value)} />
         </label>
         <label className="fld settings-third">{t('Range: absolute mi')}
           <input type="number" min="50" value={range.absolute} onChange={(e) => setRange('absolute', e.target.value)} />
@@ -336,7 +368,8 @@ function TripSettings({ trip, dispatch, ui }) {
           <input type="number" min="-12" max="14" step="0.5" value={Number.isFinite(trip.meta.utcOffset) ? trip.meta.utcOffset : -6}
             onChange={(e) => set({ utcOffset: Number(e.target.value) })} />
         </label>
-      </div>
+        </div>
+      </details>
       <p className="trip-settings-note">
         {t('Changing the start date re-pins every day to the new calendar. Fuel warnings and feasibility use the bike range set here.')}{' '}
         {t('Dusk drives the after-dark warnings; the UTC offset places .ics calendar times in the trip’s zone.')}{' '}

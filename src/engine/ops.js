@@ -131,7 +131,7 @@ function applyOp(t, op) {
       // dusk: "8:30 PM" — after-dark warnings; utcOffset: hours for .ics export
       // pace: riding-duration multiplier (1.0 solo … ~1.15 big group)
       // routePrefs: { style: quick|touring|backroads, avoidTolls: boolean }
-      const allowed = ['title', 'subtitle', 'summary', 'riders', 'startDate', 'fuelRule', 'range', 'roster', 'dusk', 'utcOffset', 'pace', 'routePrefs'];
+      const allowed = ['title', 'subtitle', 'summary', 'riders', 'startDate', 'fuelRule', 'range', 'roster', 'dusk', 'utcOffset', 'pace', 'routePrefs', 'phaseLabels'];
       for (const k of Object.keys(op.patch ?? {})) {
         if (!allowed.includes(k)) throw new Error(`meta field ${k} not editable`);
       }

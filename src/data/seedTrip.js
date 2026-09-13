@@ -1,15 +1,28 @@
 // Sturgis 2026 — La Expedición Chilena. Seed data transcribed from the field guide.
 // Coordinates are approximate (road-snapped by the routing engine at render time).
 
+// The four phases of a tour, agnostic of what the tour is FOR. The keys are
+// storage — every trip, plan, template and AI proposal carries them — so they
+// stay as they were minted on the Sturgis build; only the WORDS are generic:
+//   prep      arrival / pickup / staging days
+//   outbound  the way out
+//   rally     the days spent AT the destination — an event, a base town, a
+//             loop area. "Rally" was that trip's word for it; the default is
+//             not, and a trip can name it (meta.phaseLabels).
+//   return    the way home
 export const PHASES = {
-  prep:     { label: 'Prep',     color: '#7a7a7a' },
-  outbound: { label: 'Outbound', color: '#f48322' },
-  rally:    { label: 'Rally',    color: '#f53f1f' },
-  return:   { label: 'Return',   color: '#cecece' },
+  prep:     { label: 'Prep',        color: '#7a7a7a' },
+  outbound: { label: 'Outbound',    color: '#f48322' },
+  rally:    { label: 'Destination', color: '#f53f1f' },
+  return:   { label: 'Return',      color: '#cecece' },
 };
+
+/** The trip's own word for a phase, falling back to the generic one. */
+export const phaseLabel = (trip, key) => trip?.meta?.phaseLabels?.[key] || PHASES[key]?.label || key;
 
 export const SEED_TRIP = {
   meta: {
+    phaseLabels: { rally: 'Rally' },
     title: 'STURGIS 2026',
     subtitle: 'La Expedición Chilena',
     summary: 'Eleven days and roughly 2,700 routed miles out of Missoula: the Gallatin Canyon down to Island Park, Yellowstone end to end and over Sylvan Pass to Cody, the Bighorns to four nights in the Black Hills for the rally, then home the long way over Little Bighorn, the Beartooth, and Going-to-the-Sun. Seven riders on rented Harleys.',

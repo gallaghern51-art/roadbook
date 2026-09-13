@@ -31,7 +31,7 @@ const LIST = [
       { id: 'passport', en: 'Passport (Chilean riders) / ID', es: 'Pasaporte (motociclistas chilenos) / identificación' },
       { id: 'reservation', en: 'EagleRider reservation + insurance docs', es: 'Reserva EagleRider + documentos del seguro' },
       { id: 'parkpass', en: 'America the Beautiful pass (parks entry)', es: 'Pase America the Beautiful (entrada a parques)' },
-      { id: 'cash', en: 'Cash, small bills — rally vendors and rural fuel', es: 'Efectivo en billetes chicos — vendedores del rally y bencina rural' },
+      { id: 'cash', en: 'Cash, small bills — rural fuel, cash-only cafés, park gates', es: 'Efectivo en billetes chicos — bencina rural, cafés solo efectivo, entradas de parques' },
       { id: 'cards', en: 'Two cards, carried separately', es: 'Dos tarjetas, guardadas por separado' },
     ],
   },
@@ -68,7 +68,7 @@ const LIST = [
     id: 'bike', en: 'On the bike', es: 'En la moto',
     items: [
       { id: 'drybag', en: 'Dry bag + bungee net', es: 'Bolsa seca + pulpo elástico' },
-      { id: 'lock', en: 'Cable lock (rally crowds)', es: 'Candado de cable (multitudes del rally)' },
+      { id: 'lock', en: 'Cable lock for crowded stops and overnight parking', es: 'Candado de cable para paradas concurridas y estacionamiento nocturno' },
       { id: 'headlamp', en: 'Headlamp — Wapiti cabin and pre-dawn departures', es: 'Linterna frontal — cabaña Wapiti y salidas antes del amanecer' },
       { id: 'tape', en: 'Zip ties + small roll of duct tape', es: 'Amarras plásticas + rollo chico de cinta americana' },
       { id: 'rag', en: 'Visor rag + cleaner', es: 'Paño y limpiador de visor' },

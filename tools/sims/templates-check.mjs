@@ -52,13 +52,16 @@ async function run(width, label) {
 
   // 1. save the current trip as a template, from the trip overview
   await page.locator('.rchip.trip-seat').first().click();
+  await page.locator('.trip-settings-btn').click();
   await page.waitForSelector('.tpl-save .btn', { timeout: 10000 });
   const tripsBefore = (await lib()).trips.length;
   const screenBefore = await page.locator('.modebar').count();
   await page.locator('.tpl-save .btn').click();
-  await page.waitForSelector('.sheet input, .modal input', { timeout: 6000 });
-  await page.fill('.sheet input, .modal input', 'Early exit from Red Lodge');
-  await page.locator('.btn.gold', { hasText: 'Save template' }).click();
+  // the name prompt is the TOPMOST sheet (Trip settings is a sheet underneath now)
+  const prompt = page.locator('.modal.sheet').last();
+  await prompt.locator('input').first().waitFor({ timeout: 6000 });
+  await prompt.locator('input').first().fill('Early exit from Red Lodge');
+  await prompt.locator('.btn.gold', { hasText: 'Save template' }).click();
   await page.waitForTimeout(600);
   const afterSave = await lib();
   const tpl = afterSave.trips.find((r) => r.trip?.meta?.template);
@@ -66,6 +69,7 @@ async function run(width, label) {
   check(afterSave.trips.length === tripsBefore + 1 && afterSave.activeId !== tpl.id,
     'saving a template does not switch you out of the trip');
   check(await page.locator('.modebar').count() === screenBefore, 'you stay in the trip you were in');
+  await page.locator('.modal.sheet .modal-head .btn').first().click().catch(() => {}); // close Trip settings
   const bookedInTpl = tpl.trip.days.some((d) => d.lodging?.status === 'booked');
   check(!bookedInTpl, 'the template carries no confirmed bookings');
 

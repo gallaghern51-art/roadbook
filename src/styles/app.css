@@ -1636,7 +1636,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .fld input, .fld textarea, .fld select,
   .place-search input, .chat-input textarea,
   .scen-select, .chip.depart-edit input { font-size: 16px; }
-  .chip.depart-edit input { width: 108px; }
+  .chip.depart-edit input { width: 15ch; /* "09:00 AM" + clock glyph at 14px mono — 108px clipped the M */ }
   .fld-row { gap: 10px; }
 
   .day-head h2 { font-size: 23px; }
@@ -4502,3 +4502,30 @@ input:focus, textarea:focus, select:focus {
 .rqa-dist small.bad { color: #ff6b57; }
 .rqa-add { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 96px; min-height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #f53f1f; color: #fff; font-family: var(--display); font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
 @media (min-width: 821px) { .rqa { align-items: center; } .rqa-panel { border-radius: 18px; } }
+
+
+/* ---------- minimal day header + day options sheet ----------
+   Depart · End · phase · ⋯. Everything else about a day lives in the sheet. */
+.day-bar { align-items: center; }
+.phase-chip { display: inline-flex; align-items: center; gap: 6px; }
+.phase-dot { display: inline-block; width: 9px; height: 9px; border-radius: 999px; background: var(--seg-color, var(--ink-faint)); }
+.chip.day-more { font-size: 16px; line-height: 1; padding: 2px 10px; min-width: 40px; text-align: center; }
+.day-menu { display: flex; flex-direction: column; gap: 8px; }
+.dm-group { padding: 4px 0 8px; border-bottom: 1px solid var(--line); }
+.dm-label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
+.dm-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dm-seg .phase-select { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-dim); font-size: 13.5px; }
+.dm-seg .phase-select.active { border-color: var(--seg-color); color: var(--ink); background: var(--asphalt-2); }
+.dm-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; width: 100%; min-height: 52px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-2); }
+.dm-row b { font-family: var(--display); font-size: 15px; font-weight: 650; }
+.dm-row small { color: var(--ink-faint); font-size: 12px; line-height: 1.35; }
+.dm-row.anchor { border-color: var(--rally); }
+.dm-row.ask-ai b { color: var(--rally); }
+/* trip settings behind one door */
+.trip-settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 6px; }
+.trip-settings-row small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+.settings-adv { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; }
+.settings-adv summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+.settings-adv summary span { text-transform: none; letter-spacing: 0; color: var(--ink-faint); font-size: 11px; }
+.settings-adv > .trip-settings-grid { padding: 4px 0 12px; }
+.modal.sheet .section { margin-top: 18px; }
