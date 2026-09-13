@@ -215,6 +215,8 @@ function applyOp(t, op) {
       // stamp is no longer evidence of anything — clear it unless the edit
       // carries its own verdict, which is how a verified re-pick keeps its ✓.
       if (moved && !('verified' in (op.patch ?? {}))) delete w.verified;
+      // and a re-pick that PROVES a listing is no longer a placed pin
+      if (op.patch?.verified === 'google' && !('placed' in (op.patch ?? {}))) delete w.placed;
       return t;
     }
     case 'set_day_field': {

@@ -4786,3 +4786,16 @@ input:focus, textarea:focus, select:focus {
 .tag.unverified.act:hover { color: var(--ink); border-color: var(--danger); }
 .hm-ride-confirm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-0); display: flex; flex-direction: column; gap: 10px; }
 .hm-ride-confirm .qk-prefs { margin: 0; }
+
+/* ---- dropped pin + the stop card (Sep 13, 2026) ----
+   A long press / right-click on open map drops a PLACED pin: the placed
+   glyph (◎) in the hot roundel, turquoise like every placed tag, so a
+   rider's own coordinate never reads as a listing. The stop card's facts
+   are the schedule strip the editor already draws, plus the honest tag. */
+.pl-pin[data-id="drop"] .pl-glyph { background: var(--route, #2dd4bf); color: #04201c; }
+.hm-place.placed .poi-facts .tag.placed { margin-right: 4px; }
+.ss-facts { display: grid; gap: 8px; }
+.ss-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ss-coord { font-size: 12px; opacity: 0.7; }
+.ss-strip { margin: 0; }
+.ss-note { margin: 0; font-size: 14px; color: var(--ink, inherit); opacity: 0.85; }

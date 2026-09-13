@@ -544,6 +544,10 @@ const ES = {
   'Drag onto the road you want': 'Arrastra hasta la carretera que quieres',
   'Add a stop — search any real place (e.g. \'Wall Drug, SD\')…': 'Agregar una parada — busca cualquier lugar real (p. ej. \'Wall Drug, SD\')…',
   'Click for details': 'Clic para ver detalles',
+  'Click for the stop card': 'Clic para ver la ficha de la parada',
+  'Edit stop': 'Editar parada',
+  'A spot you placed on the map — not a listed business. It rides as a deliberate pin.': 'Un punto que ubicaste en el mapa — no es un negocio registrado. Viaja como un pin deliberado.',
+  'Dropped pin': 'Pin colocado',
   // day panel details
   'Tonight': 'Esta noche',
   'lodging': 'alojamiento',

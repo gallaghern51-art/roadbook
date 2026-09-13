@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, hideNativeRoadShields, poiLayerIds } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
+import { attachLongPress } from '../engine/mapGestures.js';
 
 // The home screen's map (owner, Sep 13 2026: option A, "map first"). No trip
 // on it — this is the map you browse before there is a trip: Mapbox
@@ -14,7 +15,9 @@ import PlacePins from './PlacePins.jsx';
 //   pins      PlacePins rows     the picker's candidates
 //   fitAt     number             bump → frame the pins, clear of the sheet
 //   sheetPx   number             how much of the bottom the sheet covers (fit padding)
+//   drop      {lat,lng,name} | null  the pin the rider dropped (a long press / right-click) — drawn hot
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
+//   onDrop({lat,lng})  a long press (touch) or right-click (mouse) on open map — never a tap
 const featureToPoi = (f) => {
   const p = f?.properties ?? {};
   const c = f?.geometry?.coordinates ?? [];
@@ -22,7 +25,7 @@ const featureToPoi = (f) => {
   return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap, onPoi, onCenter }) {
+export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onDrop }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -30,6 +33,8 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   poiRef.current = onPoi;
   const centerRef = useRef(onCenter);
   centerRef.current = onCenter;
+  const dropRef = useRef(onDrop);
+  dropRef.current = onDrop;
   const landedRef = useRef(false);
 
   useEffect(() => {
@@ -60,14 +65,19 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
     });
     // where the map is LOOKING is where the chips search — not where the rider is
     map.on('moveend', () => { const c = map.getCenter(); centerRef.current?.({ lat: c.lat, lng: c.lng }); });
+    // a long press / right-click on open map drops a pin; the click that can
+    // trail a press is swallowed so it never doubles as a dismiss
+    const press = attachLongPress(map, (pt) => dropRef.current?.(pt));
+    window.__homePress = (pt) => dropRef.current?.(pt); // sim seam: the same handler a real press reaches
     map.on('click', (e) => {
       if (e.originalEvent?._wpHandled) return; // a pin tap is the pin's
+      if (press.recent()) return;
       const ids = poiLayerIds(map);
       const hits = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
       poiRef.current?.(hits.length ? featureToPoi(hits[0]) : null);
     });
     window.__homePoiTap = (f) => poiRef.current?.(f ? featureToPoi(f) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
-    return () => { map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
+    return () => { press.detach(); map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the first fix lands the camera on the rider; later fixes do not yank it
@@ -95,6 +105,8 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   return (
     <div className="hm-map" ref={divRef}>
       {mapObj && <PlacePins map={mapObj} pins={pins ?? []} onTap={onPinTap} />}
+      {/* the dropped pin: one hot pin, the placed glyph, its name as it resolves */}
+      {mapObj && drop && <PlacePins map={mapObj} pins={[{ id: 'drop', lat: drop.lat, lng: drop.lng, name: drop.name, glyph: '◎', hot: true }]} onTap={() => {}} />}
     </div>
   );
 }

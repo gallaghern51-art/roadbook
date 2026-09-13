@@ -11,7 +11,7 @@ import { useT, useUnits } from '../engine/settings.jsx';
 import { libraryTrips, libraryTemplates, libraryQuickRides } from '../engine/templates.js';
 import { locateOnce } from '../engine/quickRide.js';
 import { CATEGORIES, searchNearby, poiCategory, poiGlyph, cuisineLabel, priceGlyph } from '../engine/nearby.js';
-import { hoursOnly, todayIndex } from '../engine/places.js';
+import { hoursOnly, todayIndex, reverseGeocode, coordLabel } from '../engine/places.js';
 import InstallPrompt from './InstallPrompt.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
 import HomeMap from './HomeMap.jsx';
@@ -125,6 +125,19 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };
   const rowToPoi = (r) => ({ name: r.name, lat: r.lat, lng: r.lng, cls: r.primaryType ?? '', subclass: r.primaryType ?? '' });
+  // A long press (or right-click) on open map drops a pin: a PLACED spot —
+  // the rider's own coordinate, never dressed up as a listing — that wears
+  // its coordinate until the road and town come back, and the same card
+  // offers Ride here / Add to a trip. A plain tap never gets here.
+  const dropPin = (pt) => {
+    const poi = { name: coordLabel(pt), lat: pt.lat, lng: pt.lng, cls: '', subclass: '', placed: 'rider', detail: '' };
+    setChip(null); setPins([]);
+    showPlace(poi);
+    reverseGeocode(pt, { near: t('Near') }).then((g) => {
+      if (!g) return;
+      setPlace((cur) => (cur?.poi?.placed && cur.poi.lat === pt.lat && cur.poi.lng === pt.lng ? { ...cur, poi: { ...cur.poi, name: g.name, detail: g.detail ?? '' } } : cur));
+    });
+  };
 
   const rideTo = async (dest, prefs) => {
     const start = fix ?? (await locate());
@@ -140,8 +153,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         pins={pins}
         fitAt={fitAt}
         sheetPx={sheetPx}
+        drop={place?.poi?.placed ? place.poi : null}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={setCenter}
+        onDrop={dropPin}
         onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the card closes, or the sheet steps down
       />
 
@@ -317,32 +332,39 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const t = useT();
   const u = useUnits();
-  const looked = usePoiMatch(row ? null : poi);
+  const placed = poi.placed ?? null; // a dropped pin: nothing to look up, nothing to verify
+  const looked = usePoiMatch(row || placed ? null : poi);
   // Ride here opens the one thing a map app will not offer a motorcyclist —
   // the Roads choice — as a one-line strip, then Go
   const [confirm, setConfirm] = useState(false);
   const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
   const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
-  const match = row ?? looked;
+  const match = placed ? null : (row ?? looked);
   const cat = poiCategory(poi.cls, poi.subclass) ?? (match?.primaryType?.includes('gas') ? 'fuel' : null);
-  const glyph = row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
+  const glyph = placed ? '◎' : row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
   const [details, setDetails] = useState(false);
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: 'google', verified: 'google' }
+    : placed
+    ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
     : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm' };
-  const kicker = [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
+  const kicker = placed
+    ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi))
+    : [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
   const dist = fix ? `${u.miNum(haversineMiles(fix, poi))} ${u.miUnit} ${t('from you')}` : '';
   const hours = Array.isArray(match?.hours) && match.hours.length ? match.hours : null;
   return (
-    <div className="hm-place" role="dialog" aria-label={place.name}>
+    <div className={`hm-place${placed ? ' placed' : ''}`} role="dialog" aria-label={place.name}>
       <div className="hm-place-head">
         <span className="poi-glyph" aria-hidden="true">{glyph}</span>
         <div className="poi-title"><b>{place.name}</b><small><span className="hm-kicker">{kicker}</span>{kicker && dist ? ' · ' : ''}<span className="hm-dist">{dist}</span></small></div>
         <button className="mini-edit" onClick={onClose} aria-label={t('Close')}>✕</button>
       </div>
       <div className="poi-facts">
-        {match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
-        {match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
+        {placed && <span className="tag placed" title={t('A spot placed on the map on purpose — not a listed business.')}>◎ {t('placed')}</span>}
+        {placed && <span className="nb-note">{t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.')}</span>}
+        {!placed && match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
+        {!placed && match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
         {match && (
           <>
             {Number.isFinite(match.rating) && <span className="nb-rate">★ {match.rating.toFixed(1)}{match.userRatingCount ? <small> ({match.userRatingCount})</small> : null}</span>}
