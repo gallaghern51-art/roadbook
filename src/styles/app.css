@@ -4711,6 +4711,8 @@ input:focus, textarea:focus, select:focus {
 .hm-chip i { font-style: normal; font-size: 13px; }
 .hm-chip.active { border-color: var(--rally); color: var(--rally); }
 .hm-locate { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 128px); z-index: 3; }
+.basemap-switch.hm-layers { top: calc(var(--viewport-safe-top) + 182px); right: 12px; left: auto; z-index: 3; }
+.basemap-switch.hm-layers.closed { left: auto; }
 .hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 6px 10px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); }
 .hm-sheet {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; height: 42%;
@@ -4718,15 +4720,16 @@ input:focus, textarea:focus, select:focus {
   box-shadow: var(--shadow-float); display: flex; flex-direction: column; transition: height 0.25s ease;
 }
 .hm-sheet[data-state='up'] { height: 86%; }
-.hm-sheet[data-state='min'] { height: calc(34px + var(--viewport-safe-bottom)); }
+.hm-sheet[data-state='min'] { height: calc(50px + var(--viewport-safe-bottom)); }
 .hm-sheet.dragging { transition: none; }
 .hm-handle { touch-action: none; cursor: grab; }
 .hm-verbs .btn.hm-more { flex: 0 0 48px; width: 48px; padding: 0; }
 .hm-sheet[data-state='min'] .hm-body { overflow: hidden; }
 .hm-sheet.pick { height: 62%; }
 .hm-sheet.place { height: auto; max-height: 60%; }
-.hm-handle { height: 24px; display: grid; place-items: center; background: transparent; border: 0; padding: 0; flex: 0 0 auto; }
+.hm-handle { min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 0; padding: 4px 0 2px; flex: 0 0 auto; color: var(--ink-dim); font-family: var(--body); font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; }
 .hm-handle i { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.hm-handle .cnt { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-weight: 400; margin-left: 4px; }
 .hm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 2px 16px calc(24px + var(--viewport-safe-bottom)); }
 .hm-body .section { margin-top: 22px; }
 .hm-body .section h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -4793,6 +4796,7 @@ input:focus, textarea:focus, select:focus {
   .hm-sheet:not(.open) { transform: translateX(-24px); opacity: 0; pointer-events: none; }
   .hm-handle { display: none; }
   .hm-locate { top: 100px; }
+  .basemap-switch.hm-layers { top: 154px; }
   .hm-near { left: 16px; top: 108px; }
   .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
 }
@@ -4804,3 +4808,23 @@ input:focus, textarea:focus, select:focus {
 .tag.unverified.act:hover { color: var(--ink); border-color: var(--danger); }
 .hm-ride-confirm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-0); display: flex; flex-direction: column; gap: 10px; }
 .hm-ride-confirm .qk-prefs { margin: 0; }
+
+/* ---------- Settings: one page, scrolled (owner, Sep 13 2026) ----------
+   The tab strip is sticky and its buttons are jump links; every section is on
+   the page with its own heading, so the thumb just scrolls. */
+/* the sticky strip needs a parent as tall as the page — the settings panel
+   used to be pinned to the modal's height and the strip ran out of parent */
+.modal.settings .panel-view, .modal.settings .panel-view-inner { height: auto; min-height: 0; max-height: none; flex: none; overflow: visible; }
+.modal.settings .set-tabs { position: sticky; top: 0; z-index: 3; margin: -16px -18px 8px; padding: 12px 18px; background: var(--asphalt-1); border-bottom: 1px solid var(--line-soft, var(--line)); }
+.set-block { padding: 10px 0 18px; border-bottom: 1px solid var(--line-soft, var(--line)); scroll-margin-top: 72px; }
+.set-block:last-child { border-bottom: 0; }
+.set-h { margin: 0 0 10px; font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: 0.02em; }
+.set-block .set-section { display: contents; }
+/* Big enough for a glove (owner: "make the buttons big enough for someone on
+   a bike, like the X button"): every sheet's close and head buttons are 48pt
+   on a touch layout; the settings jump links too. */
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .modal .sheet-x, .modal-head .btn, .ps-head .btn, .hm-place-head .mini-edit, .poi-head .mini-edit, .hm-round { min-width: 48px; min-height: 48px; width: 48px; height: 48px; font-size: 20px; }
+  .set-tabs button { min-height: 48px; padding: 10px 14px; }
+  .set-seg button { min-height: 48px; }
+}

@@ -15,6 +15,7 @@ import { hoursOnly, todayIndex } from '../engine/places.js';
 import InstallPrompt from './InstallPrompt.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
 import HomeMap from './HomeMap.jsx';
+import { BASEMAPS } from '../engine/basemaps.js';
 import PlaceSheet from './PlaceSheet.jsx';
 import { usePoiMatch } from './PoiCard.jsx';
 import { Sheet } from './Sheets.jsx';
@@ -82,6 +83,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 
   const [sheet, setSheet] = useState('peek'); // min | peek | up
   const [dragH, setDragH] = useState(null);   // the sheet's height while the handle is being dragged
+  const [basemap, setBasemap] = useState('sat');
+  const [terrain3d, setTerrain3d] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [fixTried, setFixTried] = useState(false); // the location note only after the rider ASKS (the locate button), not on every open
   const [drawer, setDrawer] = useState(false); // desktop: the library is a DRAWER off the nav bar, closed by default — the map owns the screen
   const dragRef = useRef(null);
   const stepDown = () => setSheet((s) => (s === 'up' ? 'peek' : 'min'));
@@ -143,6 +148,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         sheetPx={sheetPx}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={setCenter}
+        basemap={basemap}
+        terrain3d={terrain3d}
         onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the card closes, or the sheet steps down
       />
 
@@ -165,7 +172,26 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           ))}
         </div>
       </div>
-      <button className="hm-round hm-locate" onClick={async () => { const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
+      <button className="hm-round hm-locate" onClick={async () => { setFixTried(true); const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
+      {/* the same layers pill as the trip map, in the same corner */}
+      <div className={`basemap-switch hm-layers${switchOpen ? '' : ' closed'}`}>
+        <button className="bs-toggle" aria-expanded={switchOpen} title={t('Basemap')} onClick={() => setSwitchOpen((v) => !v)}>
+          <svg viewBox="0 0 20 20" className="bs-ic" aria-hidden="true">
+            <path d="M10 2.5 L17.5 7 L10 11.5 L2.5 7 Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M3.6 10.4 L10 14.2 L16.4 10.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.65" />
+            <path d="M3.6 13.6 L10 17.4 L16.4 13.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.35" />
+          </svg>
+          {!switchOpen && <span className="bs-cur">{BASEMAPS[basemap]?.label ?? '…'}{terrain3d ? ' · 3D' : ''}</span>}
+        </button>
+        {switchOpen && (
+          <>
+            {Object.entries(BASEMAPS).map(([key, b]) => (
+              <button key={key} className={basemap === key ? 'active' : ''} onClick={() => { setBasemap(key); setSwitchOpen(false); }}>{b.label}</button>
+            ))}
+            <button className={terrain3d ? 'active' : ''} title="3D terrain" onClick={() => setTerrain3d((v) => !v)}>3D</button>
+          </>
+        )}
+      </div>
       {fix && <div className="hm-near mono">{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</div>}
 
       {searching && (
@@ -178,7 +204,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       )}
 
       <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
-        <button className="hm-handle" aria-label={sheet === 'up' ? t('Show the map') : t('Show more')} onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><i /></button>
+        <button className="hm-handle" aria-label={sheet === 'up' ? t('Show the map') : t('Show more')} onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><i /><span className="hm-handle-txt">{sheet === 'up' ? t('Show the map') : <>{t('Your trips')}<span className="cnt">{cards.length}</span></>}</span></button>
         <div className="hm-body">
           {place ? (
             <HomePlaceCard
@@ -201,7 +227,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
             />
           ) : (
             <>
-              {fixErr && <p className="nb-note hm-fixnote">{fixErr}</p>}
+              {fixErr && fixTried && <p className="nb-note hm-fixnote">{fixErr}</p>}
               {cards.length > 0 && (
                 <section className="section hm-trips">
                   <h3>{t('Your trips')} <span className="cnt">{cards.length}</span></h3>

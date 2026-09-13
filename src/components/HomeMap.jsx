@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, hideNativeRoadShields, poiLayerIds } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, hideNativeRoadShields, poiLayerIds, ensureTerrain } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
 
 // The home screen's map (owner, Sep 13 2026: option A, "map first"). No trip
@@ -15,6 +15,8 @@ import PlacePins from './PlacePins.jsx';
 //   fitAt     number             bump → frame the pins, clear of the sheet
 //   sheetPx   number             how much of the bottom the sheet covers (fit padding)
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
+//   basemap   'sat' | 'streets' | 'dark' | 'light' — the same styles the trip map switches between
+//   terrain3d the 3D toggle (Mapbox's DEM), re-asserted after every style swap
 const featureToPoi = (f) => {
   const p = f?.properties ?? {};
   const c = f?.geometry?.coordinates ?? [];
@@ -22,7 +24,7 @@ const featureToPoi = (f) => {
   return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap, onPoi, onCenter }) {
+export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap, onPoi, onCenter, basemap = 'sat', terrain3d = false }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -31,12 +33,15 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
   const centerRef = useRef(onCenter);
   centerRef.current = onCenter;
   const landedRef = useRef(false);
+  const appliedRef = useRef(null);
+  const terrainRef = useRef(terrain3d);
+  terrainRef.current = terrain3d;
 
   useEffect(() => {
     const map = new mapboxgl.Map({
       container: divRef.current,
       accessToken: MAPBOX_TOKEN,
-      style: basemapStyle('sat'),
+      style: (appliedRef.current = basemapStyle(basemap)),
       center: fix ? [fix.lng, fix.lat] : [-108.5, 45.9],
       zoom: fix ? 12.5 : 5.2,
       attributionControl: { compact: true },
@@ -52,7 +57,7 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
     });
     map.on('load', () => {
       setMapObj(map);
-      map.once('idle', () => hideNativeRoadShields(map));
+      map.once('idle', () => { hideNativeRoadShields(map); ensureTerrain(map, terrainRef.current); });
       for (const id of poiLayerIds(map)) {
         map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -69,6 +74,26 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
     window.__homePoiTap = (f) => poiRef.current?.(f ? featureToPoi(f) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
     return () => { map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the layers pill: setStyle, then our shield-hiding and terrain once the new
+  // style is idle (the mapbox-gl placement gotcha, see MapView)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const style = basemapStyle(basemap);
+    if (appliedRef.current === style) return;
+    appliedRef.current = style;
+    map.setStyle(style);
+    map.once('idle', () => { hideNativeRoadShields(map); ensureTerrain(map, terrainRef.current); });
+  }, [basemap]);
+  const terrainAppliedRef = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapObj || terrainAppliedRef.current === terrain3d) return; // never on mount: an easeTo here cancels the fix landing
+    terrainAppliedRef.current = terrain3d;
+    const apply = () => { ensureTerrain(map, terrain3d); map.easeTo({ pitch: terrain3d ? 55 : 0, duration: 800 }); };
+    if (map.isStyleLoaded()) apply(); else map.once('idle', apply);
+  }, [terrain3d, mapObj]);
 
   // the first fix lands the camera on the rider; later fixes do not yank it
   useEffect(() => {

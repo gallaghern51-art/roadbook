@@ -128,6 +128,17 @@ async function run(width, label) {
   }
   check((!phone || s1.under16 === 0) && !s1.wider, phone ? 'no field under 16px (no iOS focus zoom), nothing scrolls sideways' : 'nothing scrolls sideways');
   check(s1.logo, 'the Mapbox wordmark is on the map');
+  // the layers pill, same as the trip map
+  check(/Satellite/.test(await page.locator('.hm-layers .bs-cur').textContent()), 'the layers pill names the basemap');
+  await page.locator('.hm-layers .bs-toggle').click();
+  const pills = await page.locator('.hm-layers button').allTextContents();
+  check(['Satellite', 'Streets', 'Dark', 'Light', '3D'].every((k) => pills.some((x) => x.trim() === k)), `Satellite · Streets · Dark · Light · 3D (${pills.map((x) => x.trim()).filter(Boolean).join(' · ')})`);
+  await page.locator('.hm-layers button', { hasText: /^Streets$/ }).click();
+  await page.waitForFunction(() => /streets-v12/.test(window.__homeMap?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
+  check(/streets-v12/.test(await page.evaluate(() => window.__homeMap.getStyle().name)), 'picking Streets swaps the home map style');
+  await page.locator('.hm-layers .bs-toggle').click();
+  await page.locator('.hm-layers button', { hasText: /^Satellite$/ }).click();
+  await page.waitForFunction(() => /satellite-streets/.test(window.__homeMap?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
   await page.screenshot({ path: SHOT(`home-map-${width}`) });
 
   // 2. the sheet handle (phone)
