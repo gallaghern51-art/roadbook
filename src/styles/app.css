@@ -3426,7 +3426,6 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   input, textarea, select { font-size: 16px; }
   .fld input, .fld textarea, .fld select { font-size: 16px; }
   .gate-row input, .gate-row select, .booking-add input { font-size: 16px; }
-  .chip.depart-edit input { font-size: 14px; } /* short field, zoom is tolerable over a broken chip */
 }
 
 /* ---------- Apple HIG touch targets (44pt) on touch layouts ---------- */
@@ -4648,4 +4647,15 @@ input:focus, textarea:focus, select:focus {
   .poi-card { bottom: calc(var(--chrome-h, 0px) + 14px); }
   .main[data-panel="open"] > .map-wrap .poi-card { display: none; } /* under the full panel it is unreachable; the half sheet leaves it */
   .main[data-panel="half"] > .map-wrap .poi-card { bottom: auto; top: 56px; } /* above the half sheet, not under it */
+}
+
+/* ---------- No focus zoom on iOS (owner, Sep 13 2026: "whenever someone
+   selects a text box do NOT have it zoom in") ----------
+   Safari zooms the page on focus whenever a field's font is under 16px — it
+   is not a setting, it is the rule. Every input, textarea and select on a
+   touch layout is 16px, after the design pass so nothing above can shrink
+   one back. The depart chip is 15ch, so 16px still fits "09:00 AM". Desktop
+   keeps its sizes: pointers do not zoom. */
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea, select { font-size: 16px; }
 }
