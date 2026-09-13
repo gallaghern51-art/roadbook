@@ -4693,6 +4693,7 @@ input:focus, textarea:focus, select:focus {
 .hm-map .mapboxgl-ctrl-bottom-left { margin-bottom: 0; }
 .hm-top { position: absolute; left: 12px; right: 12px; top: calc(var(--viewport-safe-top) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; }
 .hm-pillrow { display: flex; align-items: center; gap: 10px; }
+.hm-brand, .hm-tripsbtn { display: none; }
 .hm-pill {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
   border-radius: 999px; background: rgba(8, 10, 11, 0.9); border: 1px solid var(--line-strong); color: var(--ink-dim);
@@ -4771,12 +4772,29 @@ input:focus, textarea:focus, select:focus {
 .hm-addto-main b { display: block; font-family: var(--display); font-size: 17px; font-weight: 700; }
 .hm-addto-main small { display: block; color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; margin-top: 2px; }
 @media (min-width: 821px) {
-  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place { left: 16px; right: auto; top: 16px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); }
+  /* Desktop (owner, Sep 13 2026: "I don't want the map screen crowded by
+     the trips… some kind of nav bar… or it needs to be collapsible like
+     mobile is"): a NAV BAR across the top — wordmark · the pill · the chips ·
+     Your trips · settings — and the map owns everything under it. The
+     library is a drawer that opens from Your trips (or a place card / a
+     chip's picker), collapsed by default, and closes from its own ✕ / the
+     same button. */
+  .hm-top { left: 0; right: 0; top: 0; padding: 10px 16px; gap: 8px; flex-direction: row; align-items: center; flex-wrap: wrap; background: rgba(8, 10, 11, 0.86); backdrop-filter: blur(14px) saturate(1.2); border-bottom: 1px solid var(--line-soft); }
+  .hm-pillrow { flex: 1 1 520px; min-width: 0; }
+  .hm-brand { display: block; flex: 0 0 auto; margin-right: 6px; }
+  .hm-brand .roadbook-wordmark { font-size: 20px; }
+  .hm-pill { max-width: 520px; height: 44px; }
+  .hm-chips { flex: 0 1 auto; padding-bottom: 0; }
+  .hm-chip { background: transparent; }
+  .hm-tripsbtn { display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font-family: var(--body); font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+  .hm-tripsbtn .cnt { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-weight: 400; }
+  .hm-tripsbtn.active { border-color: var(--rally); color: var(--rally); }
+  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place { left: 16px; right: auto; top: 84px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); transition: transform 0.22s ease, opacity 0.22s ease; }
+  .hm-sheet:not(.open) { transform: translateX(-24px); opacity: 0; pointer-events: none; }
   .hm-handle { display: none; }
-  .hm-top { left: 480px; }
-  .hm-locate { top: 130px; }
-  .hm-near { left: 480px; top: 138px; }
-  .hm-search { left: 16px; top: 16px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
+  .hm-locate { top: 100px; }
+  .hm-near { left: 16px; top: 108px; }
+  .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
 }
 
 /* The pin's honesty tags: a placed spot is quiet (turquoise ring, the map's

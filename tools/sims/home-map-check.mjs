@@ -114,7 +114,18 @@ async function run(width, label) {
   check(s1.verbs === 0, 'no verb buttons: the pill is the one door');
   check(s1.cards >= 1, 'your trips ride in the sheet');
   if (phone) check(s1.sheet.h > 300 && s1.sheet.h < 380 && s1.sheet.top > 400, `on a phone the sheet PEEKS (${Math.round(s1.sheet.h)}px of 820) and the map owns the rest`);
-  else check(s1.sheet.left < 40 && s1.sheet.w < 500 && s1.sheet.h > 600, `on a desktop the sheet is a column (${Math.round(s1.sheet.w)}×${Math.round(s1.sheet.h)}) and the map takes the rest`);
+  else {
+    const nav = await page.evaluate(() => { const top = document.querySelector('.hm-top').getBoundingClientRect(); const sh = document.querySelector('.hm-sheet'); const cs = getComputedStyle(sh); return { navW: top.width, navH: top.height, brand: !!document.querySelector('.hm-brand .roadbook-lockup'), trips: document.querySelector('.hm-tripsbtn')?.textContent ?? '', sheetOpen: sh.classList.contains('open'), sheetOpacity: cs.opacity, sheetEvents: cs.pointerEvents }; });
+    check(nav.navW >= 1200 && nav.navH < 120 && nav.brand && /Your trips/.test(nav.trips), `on a desktop the top is a NAV BAR (${Math.round(nav.navW)}×${Math.round(nav.navH)}: wordmark, pill, chips, Your trips, settings)`);
+    check(!nav.sheetOpen && nav.sheetOpacity === '0' && nav.sheetEvents === 'none', 'and the library is a closed drawer — the map owns the screen');
+    await page.locator('.hm-tripsbtn').click();
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').classList.contains('open') && getComputedStyle(document.querySelector('.hm-sheet')).opacity === '1', null, { timeout: 3000 }).catch(() => {});
+    const dr = await page.evaluate(() => { const b = document.querySelector('.hm-sheet').getBoundingClientRect(); return { open: document.querySelector('.hm-sheet').classList.contains('open'), left: b.left, w: b.width, top: b.top, cards: document.querySelectorAll('.hm-sheet .trip-card').length }; });
+    check(dr.open && dr.left < 40 && dr.w < 500 && dr.top >= 80 && dr.cards >= 1, `Your trips opens the drawer under the bar with the trips (${Math.round(dr.w)}px wide, top ${Math.round(dr.top)})`);
+    await page.locator('.hm-tripsbtn').click();
+    await page.waitForFunction(() => !document.querySelector('.hm-sheet').classList.contains('open'), null, { timeout: 3000 }).catch(() => {});
+    check(!(await page.evaluate(() => document.querySelector('.hm-sheet').classList.contains('open'))), 'and closes it again');
+  }
   check((!phone || s1.under16 === 0) && !s1.wider, phone ? 'no field under 16px (no iOS focus zoom), nothing scrolls sideways' : 'nothing scrolls sideways');
   check(s1.logo, 'the Mapbox wordmark is on the map');
   await page.screenshot({ path: SHOT(`home-map-${width}`) });

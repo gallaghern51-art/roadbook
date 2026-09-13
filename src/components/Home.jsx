@@ -6,7 +6,7 @@ import { fmtLongDate } from '../engine/dates.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
 import { EARLY_EXIT_TRIP } from '../data/earlyExitTemplate.js';
 import RouteSilhouette from './RouteSilhouette.jsx';
-import { SettingsIcon } from './Chrome.jsx';
+import { RoadbookBrand, SettingsIcon } from './Chrome.jsx';
 import { useT, useUnits } from '../engine/settings.jsx';
 import { libraryTrips, libraryTemplates, libraryQuickRides } from '../engine/templates.js';
 import { locateOnce } from '../engine/quickRide.js';
@@ -82,6 +82,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 
   const [sheet, setSheet] = useState('peek'); // min | peek | up
   const [dragH, setDragH] = useState(null);   // the sheet's height while the handle is being dragged
+  const [drawer, setDrawer] = useState(false); // desktop: the library is a DRAWER off the nav bar, closed by default — the map owns the screen
   const dragRef = useRef(null);
   const stepDown = () => setSheet((s) => (s === 'up' ? 'peek' : 'min'));
   const stepUp = () => setSheet((s) => (s === 'min' ? 'peek' : 'up'));
@@ -147,10 +148,12 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 
       <div className="hm-top">
         <div className="hm-pillrow">
+          <div className="hm-brand" aria-hidden="true"><RoadbookBrand /></div>
           <button className="hm-pill" onClick={() => setSearching(true)} aria-label={t('Search a place, or describe a ride')}>
             <SearchGlyph />
             <span>{t('Where do you want to ride?')}</span>
           </button>
+          <button className={`hm-tripsbtn${drawer ? ' active' : ''}`} onClick={() => { setDrawer(!drawer); setPlace(null); setChip(null); }} aria-pressed={drawer}>{t('Your trips')} <span className="cnt">{cards.length}</span></button>
           <button className="hm-round" onClick={onSettings} aria-label={t('Settings')}><SettingsIcon /></button>
         </div>
         <div className="hm-chips" role="tablist">
@@ -174,7 +177,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         />
       )}
 
-      <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
+      <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
         <button className="hm-handle" aria-label={sheet === 'up' ? t('Show the map') : t('Show more')} onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><i /></button>
         <div className="hm-body">
           {place ? (
@@ -202,7 +205,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               {cards.length > 0 && (
                 <section className="section hm-trips">
                   <h3>{t('Your trips')} <span className="cnt">{cards.length}</span></h3>
-                  <div className={sheet === 'up' ? 'trip-grid' : 'hm-trips-row'}>
+                  <div className={sheet === 'up' || drawer ? 'trip-grid' : 'hm-trips-row'}>
                     {cards.map(({ rec, grade, score, miles, dayCount, from, to, riders }) => (
                       <div key={rec.id} className={`trip-card${rec.id === lib.activeId ? ' active' : ''}`} role="button" tabIndex={0} aria-label={rec.name}
                         onClick={() => onOpenTrip(rec.id)} onKeyDown={(e) => { if (e.key === 'Enter') onOpenTrip(rec.id); }}>
