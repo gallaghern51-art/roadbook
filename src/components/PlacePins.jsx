@@ -62,6 +62,9 @@ export default function PlacePins({ map, pins, onTap, mode = 'plan' }) {
       if (rec.name !== name) { rec.el.querySelector('.pl-label').textContent = name.length > 22 ? `${name.slice(0, 21)}…` : name; rec.name = name; }
       const glyph = p.glyph ?? '📍';
       if (rec.glyph !== glyph) { rec.el.querySelector('.pl-glyph').textContent = glyph; rec.glyph = glyph; }
+      // the category colours the roundel (Google's grammar: food orange, coffee brown, fuel blue…)
+      const cat = `pl-cat-${p.cat ?? 'place'}`;
+      if (rec.cat !== cat) { if (rec.cat) rec.el.classList.remove(rec.cat); rec.el.classList.add(cat); rec.cat = cat; }
       rec.el.classList.toggle('hot', !!p.hot);
       rec.el.setAttribute('aria-label', name);
       rec.el.setAttribute('aria-pressed', p.hot ? 'true' : 'false');

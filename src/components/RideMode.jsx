@@ -16,7 +16,7 @@ import {
   createNav, syncNav, navTarget, navRemaining, navFix,
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
-import { STYLE_FALLBACK, MAPBOX_TOKEN, warmTilesAhead, hideNativeRoadShields, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, warmTilesAhead, hideNativeRoadShields, emphasizeSatelliteRoads, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
@@ -553,7 +553,7 @@ export default function RideMode({ onClose }) {
       // one set of shields on this screen, ours — see hideNativeRoadShields.
       // Once IDLE, not at load: mapbox-gl's symbol placement is still running
       // then, and flipping a symbol layer's visibility under it throws.
-      map.once('idle', () => hideNativeRoadShields(map));
+      map.once('idle', () => { hideNativeRoadShields(map); emphasizeSatelliteRoads(map); });
       setMapObj(map);
     });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
@@ -641,7 +641,7 @@ export default function RideMode({ onClose }) {
     const map = mapRef.current;
     if (!map) return;
     ensureNavLayers(map);
-    map.once('idle', () => hideNativeRoadShields(map)); // the new style arrived with its own set
+    map.once('idle', () => { hideNativeRoadShields(map); emphasizeSatelliteRoads(map); }); // the new style arrived with its own set
 
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });

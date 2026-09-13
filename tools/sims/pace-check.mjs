@@ -28,6 +28,7 @@ await page.route('**/*', (route) => {
 await page.goto('http://localhost:5199/');
 { const guest = page.locator('.land-skip'); if (await guest.isVisible().catch(() => false)) await guest.click(); } // the signed-out landing gate on a checkout with Supabase keys
 await page.waitForSelector('.trip-card', { timeout: 15000 });
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {

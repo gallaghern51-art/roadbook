@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, hideNativeRoadShields, poiLayerIds } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, tappableLayerIds, emphasizeSatelliteRoads, ensureTerrain } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
 import { attachLongPress } from '../engine/mapGestures.js';
 import DropPin from './DropPin.jsx';
@@ -19,15 +19,21 @@ import DropPin from './DropPin.jsx';
 //   drop      {key,lat,lng} | null  the pin the rider dropped (a long press / right-click): a draggable needle with the wheel
 //   onDropMove([lng,lat]) · onDropMoveEnd([lng,lat]) · onDropConfirm() · onDropCancel()
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
+//   basemap   'sat' | 'streets' | 'dark' | 'light' — the same styles the trip map switches between
+//   terrain3d the 3D toggle (Mapbox's DEM), re-asserted after every style swap
 //   onDrop({lat,lng})  a long press (touch) or right-click (mouse) on open map — never a tap
-const featureToPoi = (f) => {
+// at: the tap itself, for a feature whose geometry is a line (a range, a
+// river — natural_label line labels) rather than a point
+const featureToPoi = (f, at) => {
   const p = f?.properties ?? {};
-  const c = f?.geometry?.coordinates ?? [];
+  const g = f?.geometry ?? {};
+  const c = /Line/.test(g.type ?? '') ? [at?.lng, at?.lat] : (g.coordinates ?? []);
   if (!Number.isFinite(c[0]) || !Number.isFinite(c[1])) return null;
-  return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] };
+  const elevFt = Number.isFinite(p.elevation_ft) ? p.elevation_ft : Number.isFinite(p.elevation_m) ? Math.round(p.elevation_m * 3.28084) : null;
+  return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1], ...(elevFt != null ? { elevFt } : {}) };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel }) {
+export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -35,15 +41,20 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
   poiRef.current = onPoi;
   const centerRef = useRef(onCenter);
   centerRef.current = onCenter;
+  const bearingRef = useRef(onBearing);
+  bearingRef.current = onBearing;
   const dropRef = useRef(onDrop);
   dropRef.current = onDrop;
   const landedRef = useRef(false);
+  const appliedRef = useRef(null);
+  const terrainRef = useRef(terrain3d);
+  terrainRef.current = terrain3d;
 
   useEffect(() => {
     const map = new mapboxgl.Map({
       container: divRef.current,
       accessToken: MAPBOX_TOKEN,
-      style: basemapStyle('sat'),
+      style: (appliedRef.current = basemapStyle(basemap)),
       center: fix ? [fix.lng, fix.lat] : [-108.5, 45.9],
       zoom: fix ? 12.5 : 5.2,
       attributionControl: { compact: true },
@@ -59,14 +70,20 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
     });
     map.on('load', () => {
       setMapObj(map);
-      map.once('idle', () => hideNativeRoadShields(map));
-      for (const id of poiLayerIds(map)) {
+      // no route of ours on this map, so the basemap's road numbers stay —
+      // they are the only way a rider names US-212 from the home screen
+      map.once('idle', () => { emphasizeSatelliteRoads(map); ensureTerrain(map, terrainRef.current); });
+      for (const id of tappableLayerIds(map)) {
         map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
       }
     });
     // where the map is LOOKING is where the chips search — not where the rider is
-    map.on('moveend', () => { const c = map.getCenter(); centerRef.current?.({ lat: c.lat, lng: c.lng }); });
+    map.on('moveend', (e) => { const c = map.getCenter(); centerRef.current?.({ lat: c.lat, lng: c.lng }, { bounds: map.getBounds().toArray(), hand: !!e.originalEvent }); });
+    // a HAND pan (dragstart, not dragend — a pan that ends over a pin never gets its dragend) offers "Search this area"
+    map.on('dragstart', () => centerRef.current?.(null, { hand: true }));
+    // a two-finger twist rotates the map; a North-up button appears while it is turned
+    map.on('rotateend', () => bearingRef.current?.(map.getBearing()));
     // a long press / right-click on open map drops a pin; the click that can
     // trail a press is swallowed so it never doubles as a dismiss
     const press = attachLongPress(map, (pt) => dropRef.current?.(pt));
@@ -74,13 +91,33 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
     map.on('click', (e) => {
       if (e.originalEvent?._wpHandled) return; // a pin tap is the pin's
       if (press.recent()) return;
-      const ids = poiLayerIds(map);
+      const ids = tappableLayerIds(map);
       const hits = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
-      poiRef.current?.(hits.length ? featureToPoi(hits[0]) : null);
+      poiRef.current?.(hits.length ? featureToPoi(hits[0], e.lngLat) : null);
     });
-    window.__homePoiTap = (f) => poiRef.current?.(f ? featureToPoi(f) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
+    window.__homePoiTap = (f, at) => poiRef.current?.(f ? featureToPoi(f, at) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
     return () => { press.detach(); map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the layers pill: setStyle, then our shield-hiding and terrain once the new
+  // style is idle (the mapbox-gl placement gotcha, see MapView)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const style = basemapStyle(basemap);
+    if (appliedRef.current === style) return;
+    appliedRef.current = style;
+    map.setStyle(style);
+    map.once('idle', () => { emphasizeSatelliteRoads(map); ensureTerrain(map, terrainRef.current); });
+  }, [basemap]);
+  const terrainAppliedRef = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapObj || terrainAppliedRef.current === terrain3d) return; // never on mount: an easeTo here cancels the fix landing
+    terrainAppliedRef.current = terrain3d;
+    const apply = () => { ensureTerrain(map, terrain3d); map.easeTo({ pitch: terrain3d ? 55 : 0, duration: 800 }); };
+    if (map.isStyleLoaded()) apply(); else map.once('idle', apply);
+  }, [terrain3d, mapObj]);
 
   // the first fix lands the camera on the rider; later fixes do not yank it
   useEffect(() => {

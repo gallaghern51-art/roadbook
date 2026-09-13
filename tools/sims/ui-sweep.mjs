@@ -105,6 +105,7 @@ await page.screenshot({ path: SHOT('home-desktop-light') });
 await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
 await page.setViewportSize({ width: 375, height: 750 });
 await page.waitForTimeout(250);
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.click('.trip-card');
 await page.waitForSelector('.modebar', { timeout: 15000 });
 await page.waitForFunction(() => {

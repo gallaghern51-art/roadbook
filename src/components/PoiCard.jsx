@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import PlaceSheet from './PlaceSheet.jsx';
-import { searchNearby, poiCategory, poiGlyph, cuisineLabel } from '../engine/nearby.js';
+import { searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineLabel } from '../engine/nearby.js';
 import { haversineMiles } from '../engine/tripEngine.js';
 import { coordLabel } from '../engine/places.js';
 import { useT, useUnits } from '../engine/settings.jsx';
@@ -20,14 +20,21 @@ import { useT, useUnits } from '../engine/settings.jsx';
 //   onClose()
 const MATCH_MI = 0.35;
 
-/** The Google listing for a vector POI: undefined while looking, null when none, else the row. */
+/**
+ * The Google listing for a vector POI: undefined while looking, null when none, else the row.
+ * A NATURAL feature (peak, pass, forest, lake — `poiIsNatural`) is never
+ * looked up: Google does not list a mountain the way it lists a diner, and
+ * "no listing" would be the wrong answer about a real place. It resolves to
+ * null at once, and the card treats it as a placed pin, not a failed lookup.
+ */
 export function usePoiMatch(poi) {
   const [match, setMatch] = useState(undefined);
   const cat = poiCategory(poi?.cls, poi?.subclass);
+  const natural = !!poi && poiIsNatural(poi.cls, poi.subclass);
   useEffect(() => {
     let dead = false;
-    setMatch(undefined);
-    if (!poi) return undefined;
+    setMatch(natural ? null : undefined);
+    if (!poi || natural) return undefined;
     (async () => {
       try {
         const words = String(poi.name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
@@ -63,12 +70,14 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
   const match = placed ? null : looked;
   const cat = poiCategory(poi.cls, poi.subclass);
   const glyph = placed ? '◎' : poiGlyph(poi.cls, poi.subclass);
+  const natural = !placed && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
 
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, source: 'google', verified: 'google' }
     : placed
     ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
-    : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm' };
+    : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };
+  const elev = poi.elevFt ? `${u.metric ? `${Math.round(poi.elevFt / 3.28084)} m` : `${poi.elevFt.toLocaleString()} ft`}` : '';
   const cuisine = match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '';
 
   const dist = match ? `${u.miNum(haversineMiles(poi, match))} ${u.miUnit}` : '';
@@ -76,14 +85,14 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
     <PlaceSheet
       place={place}
       glyph={glyph}
-      kicker={placed ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi)) : [cuisine, poi.subclass || poi.cls].filter(Boolean).join(' · ')}
-      note={placed ? t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.') : match === undefined ? t('Checking with Google…') : match === null ? t('No Google listing found here — it will be added as an unverified stop.') : null}
+      kicker={placed ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi)) : [cuisine, elev, (poi.subclass || poi.cls).replace(/_/g, ' ')].filter(Boolean).join(' · ')}
+      note={placed ? t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.') : natural ? t('A place on the map, not a listed business — it will be added as a placed pin.') : match === undefined ? t('Checking with Google…') : match === null ? t('No Google listing found here — it will be added as an unverified stop.') : null}
       facts={placed ? <span className="tag placed">◎ {t('placed')}</span> : match && dist ? <span className="nb-note">{t('Listing')} {dist} {t('from the pin')}</span> : null}
       onClose={onClose}
       actions={(
         <>
           <button className="btn gold" disabled={!day || match === undefined} onClick={() => onAdd(place, { fuel: cat === 'fuel' })}>
-            {cat === 'fuel' ? `⛽ ${t('Add as fuel stop')}` : `＋ ${t('Add to this day')}`}
+            {cat === 'fuel' ? `⛽ ${t('Add as fuel stop')}` : natural ? `📷 ${t('Add as photo stop')}` : `＋ ${t('Add to this day')}`}
           </button>
           {!day && <small className="poi-hint">{t('Pick a day to add it')}</small>}
         </>

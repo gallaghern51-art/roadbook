@@ -219,10 +219,30 @@ const POI_CLASS = {
   park_like: 'sights', landmark: 'sights', arts_and_entertainment: 'sights', 'ice-cream': 'coffee',
   'car-repair': 'moto', 'charging-station': 'fuel',
 };
+// Places that are not BUSINESSES: a peak, a pass, a national forest, a lake,
+// a waterfall, a viewpoint. Mapbox names them (poi_label `park_like`, the
+// natural_label landforms and water), Google does not list them the way it
+// lists a diner — asking Places for "Beartooth Pass" within two miles answers
+// "No Google listing found" and dressed a real place up as a failed lookup
+// (owner: "mountains and forests and other things mapbox brings up are
+// checked against google. this shouldn't be the case"). These are the scenic
+// exception by definition: a deliberate PLACED pin, never verified, never
+// unverified. The park_like bucket also holds zoos, golf courses, campsites
+// and cemeteries — listed businesses with hours — so those maki stay Google's.
+const NATURAL_CLASS = new Set(['park_like', 'landform', 'glacier', 'water_feature', 'wetland', 'water', 'reservoir', 'river', 'stream', 'canal', 'bay', 'cape', 'cliff', 'natural', 'sea', 'ocean', 'lake']);
+const NATURAL_MAKI = new Set(['mountain', 'volcano', 'park', 'park-alt1', 'garden', 'viewpoint', 'waterfall', 'beach', 'picnic-site', 'natural', 'forest', 'wood', 'peak', 'saddle', 'cave', 'hot-spring', 'water', 'lake', 'river']);
+const LISTED_MAKI = new Set(['zoo', 'golf', 'campsite', 'cemetery', 'aquarium', 'amusement-park', 'stadium', 'playground', 'dog-park', 'swimming', 'attraction', 'museum', 'monument', 'castle', 'information']);
+export function poiIsNatural(cls, subclass) {
+  const m = String(subclass ?? '').toLowerCase();
+  if (LISTED_MAKI.has(m)) return false;
+  if (NATURAL_MAKI.has(m)) return true;
+  return NATURAL_CLASS.has(String(cls ?? '').toLowerCase());
+}
 export function poiCategory(cls, subclass) {
   return POI_CLASS[subclass] ?? POI_CLASS[cls] ?? null; // the specific (subclass / maki) wins over the bucket (class)
 }
 export function poiGlyph(cls, subclass) {
+  if (poiIsNatural(cls, subclass)) return /water|lake|river|bay|sea|ocean|reservoir|wetland|stream|canal|beach/.test(`${cls} ${subclass}`) ? '🌊' : /park|forest|wood|garden/.test(`${cls} ${subclass}`) ? '🌲' : '⛰';
   const cat = poiCategory(cls, subclass);
   return CATEGORIES.find((c) => c.id === cat)?.glyph ?? '📍';
 }

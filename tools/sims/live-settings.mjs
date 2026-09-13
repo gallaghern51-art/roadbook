@@ -58,6 +58,7 @@ check(true, 'signed in to the real account');
 // Remember what was there so this run leaves no trace.
 const before = await profile();
 
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
 await page.locator('.trip-card').first().click();
 await page.waitForSelector('.modebar', { timeout: 20000 });
 await page.waitForTimeout(1000);

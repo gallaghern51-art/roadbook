@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useSettings, useT } from '../engine/settings.jsx';
 import { useTrip } from '../engine/store.js';
 import { translationCoverage } from '../i18n/collect.js';
@@ -85,12 +85,26 @@ function Seg({ label, value, options, onPick, note }) {
   );
 }
 
+const SECTION_LABEL = Object.fromEntries(SECTIONS);
+
 export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount, onHelp }) {
   const s = useSettings();
   const { lang, theme, units, shields, density, basemap, terrain, voice, speedSign, keepAwake, set } = s;
   const t = useT();
   const { state } = useTrip();
   const [tab, setTab] = useState('account');
+  const bodyRef = useRef(null);
+  useEffect(() => {
+    const root = bodyRef.current?.closest('.modal') ?? null;
+    const blocks = [...(bodyRef.current?.querySelectorAll('.set-block') ?? [])];
+    if (!blocks.length || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver((entries) => {
+      const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (top) setTab(top.target.dataset.set);
+    }, { root, rootMargin: '-56px 0px -60% 0px', threshold: 0 });
+    blocks.forEach((b) => io.observe(b));
+    return () => io.disconnect();
+  }, []);
   const [cache, setCache] = useState(null);
   const [shell, setShell] = useState(null);
   const coverage = translationCoverage(state.trip, lang === 'en' ? 'es' : lang);
@@ -108,23 +122,29 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
       <div className="panel-view-inner">
         <div className="modal-head"><h3>{t('Settings')}</h3></div>
 
+        {/* One page, scrolled — not nine tabs (owner, Sep 13 2026: "having to hit
+            buttons for each is annoying"). The strip stays as jump links that
+            scroll to a section, and it follows the scroll. */}
         <div className="set-tabs" role="tablist" aria-label={t('Settings')}>
           {SECTIONS.map(([id, label]) => (
             <button
               key={id} type="button" role="tab" aria-selected={tab === id}
-              className={tab === id ? 'active' : ''} onClick={() => setTab(id)}
+              className={tab === id ? 'active' : ''}
+              onClick={() => { setTab(id); document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
             >{t(label)}</button>
           ))}
         </div>
 
-        <div className="modal-body">
-          {tab === 'account' && (
+        <div className="modal-body" ref={bodyRef}>
+          <section id="set-account" className="set-block" data-set="account">
+            <h4 className="set-h">{t(SECTION_LABEL['account'])}</h4>
             <div className="set-section">
               <AccountPanel auth={auth} backup={backup} onCreateAccount={onCreateAccount} />
             </div>
-          )}
+          </section>
 
-          {tab === 'places' && (
+          <section id="set-places" className="set-block" data-set="places">
+            <h4 className="set-h">{t(SECTION_LABEL['places'])}</h4>
             <>
               <PlacesPanel
                 profile={profile?.profile}
@@ -133,9 +153,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
               />
               <p className="set-note">{backupNote}</p>
             </>
-          )}
+          </section>
 
-          {tab === 'riding' && (
+          <section id="set-riding" className="set-block" data-set="riding">
+            <h4 className="set-h">{t(SECTION_LABEL['riding'])}</h4>
             <>
               <RiderPanel
                 profile={profile?.profile}
@@ -145,9 +166,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
               />
               <p className="set-note">{backupNote}</p>
             </>
-          )}
+          </section>
 
-          {tab === 'display' && (
+          <section id="set-display" className="set-block" data-set="display">
+            <h4 className="set-h">{t(SECTION_LABEL['display'])}</h4>
             <div className="set-section">
               <Seg
                 label={t('Language')} value={lang} onPick={(v) => set({ lang: v })}
@@ -165,9 +187,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 {t('Applies on this device only. Trip text and AI answers stay in the language they were written in — ask the optimizer in Spanish and it answers in Spanish.')}
               </p>
             </div>
-          )}
+          </section>
 
-          {tab === 'map' && (
+          <section id="set-map" className="set-block" data-set="map">
+            <h4 className="set-h">{t(SECTION_LABEL['map'])}</h4>
             <div className="set-section">
               <Seg
                 label={t('Default basemap')} value={basemap} onPick={(v) => set({ basemap: v })}
@@ -185,9 +208,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 note={t('Real route signage drawn on the road you are on, over the basemap.')}
               />
             </div>
-          )}
+          </section>
 
-          {tab === 'ride' && (
+          <section id="set-ride" className="set-block" data-set="ride">
+            <h4 className="set-h">{t(SECTION_LABEL['ride'])}</h4>
             <div className="set-section">
               <Seg
                 label={t('Spoken directions')} value={voice} onPick={(v) => set({ voice: v })}
@@ -209,17 +233,19 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 options={[[true, t('On')], [false, t('Off')]]}
               />
             </div>
-          )}
+          </section>
 
-          {tab === 'crew' && (
+          <section id="set-crew" className="set-block" data-set="crew">
+            <h4 className="set-h">{t(SECTION_LABEL['crew'])}</h4>
             <div className="set-section">
               {sync
                 ? <SyncPanel sync={sync} />
                 : <p className="set-note">{t('Sharing is not configured on this build.')}</p>}
             </div>
-          )}
+          </section>
 
-          {tab === 'data' && (
+          <section id="set-data" className="set-block" data-set="data">
+            <h4 className="set-h">{t(SECTION_LABEL['data'])}</h4>
             <div className="set-section">
               <span className="set-label">{t('What this app has learned')}</span>
               <p className="set-note">
@@ -247,9 +273,10 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 {t('Clear cached routes')}
               </button>
             </div>
-          )}
+          </section>
 
-          {tab === 'about' && (
+          <section id="set-about" className="set-block" data-set="about">
+            <h4 className="set-h">{t(SECTION_LABEL['about'])}</h4>
             <div className="set-section">
               <div className="set-row">
                 <span className="set-label">{t('Guide')}</span>
@@ -307,7 +334,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 </code>
               </div>
             </div>
-          )}
+          </section>
         </div>
       </div>
     </div>

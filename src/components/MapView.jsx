@@ -7,7 +7,7 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, poiLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, emphasizeSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
 import StopSheet from './StopSheet.jsx';
 import DropPin from './DropPin.jsx';
@@ -212,10 +212,10 @@ export default function MapView() {
       // a POI symbol under the finger is a place, not a spot on the map —
       // satellite-streets draws them as vector features, so this is a real
       // hit test, the thing a baked raster could never answer
-      const poiIds = poiLayerIds(map);
+      const poiIds = tappableLayerIds(map);
       if (poiIds.length) {
         const hits = map.queryRenderedFeatures(e.point, { layers: poiIds });
-        if (hits.length) { poiTapRef.current?.(hits[0]); return; }
+        if (hits.length) { poiTapRef.current?.(hits[0], e.lngLat); return; }
       }
       setPoi(null);
       if (!dayId) return;
@@ -377,14 +377,16 @@ export default function MapView() {
 
   // A tapped POI: OSM's name/class/point from the feature. The dev seam lets
   // the sims drive the exact handler the click uses without vector tiles.
-  poiTapRef.current = (f) => {
+  poiTapRef.current = (f, at) => {
     const p = f?.properties ?? {};
-    const c = f?.geometry?.coordinates ?? [];
+    // a line label (a range, a river) has no point: the tap itself is the place
+    const c = f?.geometry?.type === 'LineString' || f?.geometry?.type === 'MultiLineString' ? [at?.lng, at?.lat] : (f?.geometry?.coordinates ?? []);
     if (!Number.isFinite(c[0]) || !Number.isFinite(c[1])) return;
+    const elevFt = Number.isFinite(p.elevation_ft) ? p.elevation_ft : Number.isFinite(p.elevation_m) ? Math.round(p.elevation_m * 3.28084) : null;
     // OpenMapTiles carries class/subclass; Mapbox Streets carries class/maki
-    setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] });
+    setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1], ...(elevFt != null ? { elevFt } : {}) });
   };
-  useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f) => poiTapRef.current?.(f); }, []);
+  useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f, at) => poiTapRef.current?.(f, at); }, []);
   // A dropped pin: a needle on the exact spot with the wheel around it — the
   // RouteWheel grammar, adjust and confirm as separate acts. Drag it onto
   // the pullout you meant; the readout in the hint region carries the
@@ -421,7 +423,7 @@ export default function MapView() {
       type: 'apply_ops',
       ops: [{
         op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
-        waypoint: { name: place.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '', placed: 'rider' },
+        waypoint: { name: place.name, ...pt, kind: fuel ? 'fuel' : place.kind === 'photo' ? 'photo' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '', placed: place.placed ?? 'rider' },
       }],
     });
     dropHandler.cancel();
@@ -479,10 +481,10 @@ export default function MapView() {
     // back. Once IDLE: mapbox-gl's placement pass is still running at load and
     // right after a style swap, and flipping a symbol layer's visibility under
     // it throws (an uncaught TypeError in continuePlacement).
-    map.once('idle', () => hideNativeRoadShields(map));
+    map.once('idle', () => { hideNativeRoadShields(map); emphasizeSatelliteRoads(map); });
     // POI symbols are tappable: say so with the cursor (delegated listeners
     // survive setStyle; register each layer id once)
-    for (const id of poiLayerIds(map)) {
+    for (const id of tappableLayerIds(map)) {
       if (poiHoverRef.current.has(id)) continue;
       poiHoverRef.current.add(id);
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -1091,7 +1093,7 @@ export default function MapView() {
               ops: [{
                 op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
                 waypoint: {
-                  name: place.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
+                  name: place.name, ...pt, kind: fuel ? 'fuel' : place.kind === 'photo' ? 'photo' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
                   ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : place.placed ? { placed: place.placed } : {}),
                 },
               }],

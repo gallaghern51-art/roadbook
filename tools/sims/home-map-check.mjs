@@ -114,9 +114,31 @@ async function run(width, label) {
   check(s1.verbs === 0, 'no verb buttons: the pill is the one door');
   check(s1.cards >= 1, 'your trips ride in the sheet');
   if (phone) check(s1.sheet.h > 300 && s1.sheet.h < 380 && s1.sheet.top > 400, `on a phone the sheet PEEKS (${Math.round(s1.sheet.h)}px of 820) and the map owns the rest`);
-  else check(s1.sheet.left < 40 && s1.sheet.w < 500 && s1.sheet.h > 600, `on a desktop the sheet is a column (${Math.round(s1.sheet.w)}×${Math.round(s1.sheet.h)}) and the map takes the rest`);
+  else {
+    const nav = await page.evaluate(() => { const top = document.querySelector('.hm-top').getBoundingClientRect(); const sh = document.querySelector('.hm-sheet'); const cs = getComputedStyle(sh); return { navW: top.width, navH: top.height, brand: !!document.querySelector('.hm-brand .roadbook-lockup'), trips: document.querySelector('.hm-tripsbtn')?.textContent ?? '', sheetOpen: sh.classList.contains('open'), sheetOpacity: cs.opacity, sheetEvents: cs.pointerEvents }; });
+    check(nav.navW >= 1200 && nav.navH < 120 && nav.brand && /Your trips/.test(nav.trips), `on a desktop the top is a NAV BAR (${Math.round(nav.navW)}×${Math.round(nav.navH)}: wordmark, pill, chips, Your trips, settings)`);
+    check(!nav.sheetOpen && nav.sheetOpacity === '0' && nav.sheetEvents === 'none', 'and the library is a closed drawer — the map owns the screen');
+    await page.locator('.hm-tripsbtn').click();
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').classList.contains('open') && getComputedStyle(document.querySelector('.hm-sheet')).opacity === '1', null, { timeout: 3000 }).catch(() => {});
+    const dr = await page.evaluate(() => { const b = document.querySelector('.hm-sheet').getBoundingClientRect(); return { open: document.querySelector('.hm-sheet').classList.contains('open'), left: b.left, w: b.width, top: b.top, cards: document.querySelectorAll('.hm-sheet .trip-card').length }; });
+    check(dr.open && dr.left < 40 && dr.w < 500 && dr.top >= 80 && dr.cards >= 1, `Your trips opens the drawer under the bar with the trips (${Math.round(dr.w)}px wide, top ${Math.round(dr.top)})`);
+    await page.locator('.hm-tripsbtn').click();
+    await page.waitForFunction(() => !document.querySelector('.hm-sheet').classList.contains('open'), null, { timeout: 3000 }).catch(() => {});
+    check(!(await page.evaluate(() => document.querySelector('.hm-sheet').classList.contains('open'))), 'and closes it again');
+  }
   check((!phone || s1.under16 === 0) && !s1.wider, phone ? 'no field under 16px (no iOS focus zoom), nothing scrolls sideways' : 'nothing scrolls sideways');
   check(s1.logo, 'the Mapbox wordmark is on the map');
+  // the layers pill, same as the trip map
+  check(/Satellite/.test(await page.locator('.hm-layers .bs-cur').textContent()), 'the layers pill names the basemap');
+  await page.locator('.hm-layers .bs-toggle').click();
+  const pills = await page.locator('.hm-layers button').allTextContents();
+  check(['Satellite', 'Streets', 'Dark', 'Light', '3D'].every((k) => pills.some((x) => x.trim() === k)), `Satellite · Streets · Dark · Light · 3D (${pills.map((x) => x.trim()).filter(Boolean).join(' · ')})`);
+  await page.locator('.hm-layers button', { hasText: /^Streets$/ }).click();
+  await page.waitForFunction(() => /streets-v12/.test(window.__homeMap?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
+  check(/streets-v12/.test(await page.evaluate(() => window.__homeMap.getStyle().name)), 'picking Streets swaps the home map style');
+  await page.locator('.hm-layers .bs-toggle').click();
+  await page.locator('.hm-layers button', { hasText: /^Satellite$/ }).click();
+  await page.waitForFunction(() => /satellite-streets/.test(window.__homeMap?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
   await page.screenshot({ path: SHOT(`home-map-${width}`) });
 
   // 2. the sheet handle (phone)
@@ -207,6 +229,67 @@ async function run(width, label) {
   await page.waitForTimeout(500);
   await page.locator('.mast-back').click();
   await page.waitForSelector('.home-map', { timeout: 8000 });
+
+  // 5b. a natural feature on the home map is a placed pin — no Google
+  {
+    const before = calls.length;
+    await page.evaluate(() => window.__homePoiTap({ properties: { name: 'Custer National Forest', class: 'park_like', maki: 'park' }, geometry: { type: 'Point', coordinates: [-107.9, 44.05] } }));
+    await page.waitForSelector('.hm-place', { timeout: 8000 });
+    await page.waitForTimeout(600);
+    const txt = await page.locator('.hm-place').innerText();
+    check(calls.length === before && /placed pin/.test(txt) && !/Checking with Google|unverified/.test(txt), 'a forest is a placed pin: no Places call, no "no listing"');
+    check(!(await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).isDisabled()) && (await page.locator('.hm-place .poi-glyph').textContent()) === '🌲', 'Ride here is live at once and it wears the park glyph');
+    await page.locator('.hm-place .mini-edit').click();
+    await page.waitForTimeout(300);
+  }
+  // "Search this area": a hand pan while the picker is open offers a re-search at the map centre
+  {
+    await page.locator('.hm-chip', { hasText: /Food/i }).first().click();
+    await page.waitForSelector('.pl-pin', { timeout: 8000 });
+    check(await page.locator('.pl-pin.pl-cat-food').count() >= 1, 'food pins wear the food colour class');
+    check(await page.locator('.hm-area').count() === 0, 'no area chip before a hand pan');
+    await page.evaluate(() => { const m = window.__homeMap; m.fire('dragstart'); m.jumpTo({ center: [-108.6, 44.6] }); });
+    await page.waitForSelector('.hm-area', { timeout: 4000 });
+    const before = calls.length;
+    await page.locator('.hm-area').click();
+    await page.waitForTimeout(1200);
+    const last = calls[calls.length - 1];
+    check(calls.length > before && Math.abs(last.near.lat - 44.6) < 0.05 && Math.abs(last.near.lng + 108.6) < 0.05, `the chip re-searches at the map centre (${last?.near?.lat?.toFixed(2)}, ${last?.near?.lng?.toFixed(2)})`);
+    check(await page.locator('.hm-area').count() === 0, 'and the chip goes away with the new results');
+    await page.locator('.hm-sheet .nearby button[aria-label="Cancel"], .hm-sheet button[aria-label="Cancel"]').first().click().catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  // the home map keeps Mapbox's road numbers (no route of ours here), and the
+  // right-edge column reads layers → locate
+  {
+    const geo = await page.evaluate(() => ({
+      shield: window.__homeMap?.getLayoutProperty?.('road-number-shield', 'visibility') ?? null,
+      layers: document.querySelector('.hm-layers')?.getBoundingClientRect().top, locate: document.querySelector('.hm-locate')?.getBoundingClientRect().top,
+      w: document.querySelector('.hm-locate')?.getBoundingClientRect().width,
+    }));
+    check(geo.shield !== 'none', 'the home map keeps the basemap\'s route-number shields');
+    const vh = await page.evaluate(() => innerHeight);
+    const sheetTop = await page.evaluate(() => document.querySelector('.hm-sheet').getBoundingClientRect().top);
+    const locBottom = await page.evaluate(() => document.querySelector('.hm-locate').getBoundingClientRect().bottom);
+    check(geo.w >= 44 && (phone ? (locBottom <= sheetTop + 2 && locBottom > sheetTop - 80) : locBottom > vh - 80), `the locate button sits at the bottom right, just above the sheet (bottom ${Math.round(locBottom)}, sheet top ${Math.round(sheetTop)})`);
+    // frame my trips: only while no trip is in view, and it brings them back
+    check(await page.locator('.hm-frame').count() === 0, 'no Frame-my-trips button while a trip is in view');
+    await page.evaluate(() => window.__homeMap.jumpTo({ center: [-74, 40.7], zoom: 9 }));
+    await page.waitForSelector('.hm-frame', { timeout: 4000 });
+    await page.locator('.hm-frame').click();
+    await page.waitForFunction(() => window.__homeMap.getBounds().getWest() < -100 && !window.__homeMap.isMoving() && !document.querySelector('.hm-frame'), null, { timeout: 6000 }).catch(() => {}); await page.waitForTimeout(300);
+    const fb = await page.evaluate(() => window.__homeMap.getBounds().toArray());
+    // projected, not getBounds(): the style is a globe at low zoom, where bounds are approximate
+    const out = await page.evaluate(() => { const m = window.__homeMap; const { clientWidth: W, clientHeight: H } = m.getContainer(); const lib = JSON.parse(localStorage.getItem('moto.trips.v1')); return lib.trips.filter((r) => !r.trip.meta.template && !r.trip.meta.quick).flatMap((r) => r.trip.days.flatMap((d) => d.waypoints)).filter((p) => { const q = m.project([p.lng, p.lat]); return q.x < 0 || q.x > W || q.y < 0 || q.y > H; }).map((p) => p.name); });
+    check(out.length === 0 && await page.locator('.hm-frame').count() === 0, `Frame my trips flies to the library — every stop on screen — and the button steps aside (${out.length ? `off: ${out.slice(0, 3).join(', ')}` : fb.map((c) => c.map((n) => n.toFixed(1)).join(',')).join(' → ')})`);
+    check(await page.locator('.hm-north').count() === 0, 'no North-up button while the map is north-up');
+    await page.evaluate(() => { window.__homeMap.setBearing(40); window.__homeMap.fire('rotateend'); });
+    await page.waitForSelector('.hm-north', { timeout: 3000 });
+    check(true, 'a turned map offers North up');
+    await page.locator('.hm-north').click();
+    await page.waitForTimeout(600);
+    check(Math.abs(await page.evaluate(() => window.__homeMap.getBearing())) < 1 && await page.locator('.hm-north').count() === 0, 'North up straightens the map and goes away');
+  }
 
   // 6. the pill: a place searches the map; a sentence is a plan
   await page.locator('.hm-pill').click();

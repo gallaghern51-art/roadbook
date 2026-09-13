@@ -15,7 +15,8 @@
 //   npm run dev    # :5199
 //   node tools/sims/poi-tap-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
-import { poiLayerIds, hideNativeRoadShields } from '../../src/engine/basemaps.js';
+import { poiLayerIds, tappableLayerIds, hideNativeRoadShields, emphasizeSatelliteRoads } from '../../src/engine/basemaps.js';
+import { poiIsNatural, poiGlyph } from '../../src/engine/nearby.js';
 import { MAPBOX_MINI } from './fixtures/mapbox-mini.mjs';
 import { routeMapbox, isMockTile, fakeMap } from './fixtures/mapbox-mock.mjs';
 
@@ -32,6 +33,18 @@ const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); 
   check(fm.vis['road-exit-shield'] === undefined && fm.vis['road-label'] === undefined && fm.vis['poi-label'] === undefined, 'exit shields, road names and POIs are left alone');
   check(hideNativeRoadShields(fm) === 0, 'idempotent: a second pass hides nothing new');
   check(poiLayerIds(fakeMap({ version: 8, sources: {}, layers: [{ id: 'satellite', type: 'raster', source: 's' }] })).length === 0, 'a raster fallback has no POI layers');
+  check(tappableLayerIds(fm).join() === 'poi-label,natural-point-label', 'named natural features (natural_label, not the continent label) are tappable too');
+  // natural features are placed pins, never Google lookups
+  check(poiIsNatural('landform', 'mountain') && poiIsNatural('park_like', 'park') && poiIsNatural('water', '') && poiIsNatural('natural', 'peak'), 'a peak, a park, a lake and a summit are natural');
+  check(!poiIsNatural('park_like', 'zoo') && !poiIsNatural('park_like', 'campsite') && !poiIsNatural('food_and_drink', 'restaurant') && !poiIsNatural('lodging', 'lodging'), 'a zoo, a campsite, a diner and a motel are listed businesses');
+  check(poiGlyph('landform', 'mountain') === '⛰' && poiGlyph('park_like', 'park') === '🌲' && poiGlyph('water', 'lake') === '🌊', 'natural glyphs: peak, park, water');
+  // satellite roads: the hairline becomes a lit, cased line
+  const n2 = emphasizeSatelliteRoads(fm);
+  const w = fm.paint['road-primary']?.['line-width'];
+  check(n2 === 2 && Array.isArray(w) && w[0] === 'interpolate' && w[w.indexOf(9) + 1] >= 3, `satellite: primary roads get a width floor at touring zooms (${n2} layers, ${w?.[w.indexOf(9) + 1]}px at z9)`);
+  check(fm.zoom['road-primary-case']?.[0] === 5 && Array.isArray(fm.paint['road-primary-case']?.['line-gap-width']) && /hsla\(0, 0%, 0%/.test(fm.paint['road-primary-case']['line-color']), 'and a dark hollow casing from zoom 5');
+  check(fm.paint['road-simple'] === undefined && fm.paint['road-label'] === undefined, 'nothing else in the style is touched');
+  check(emphasizeSatelliteRoads(fakeMap({ ...MAPBOX_MINI, name: 'Mapbox Streets' })) === 0, 'Streets is left as Mapbox drew it');
 }
 
 const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -93,6 +106,7 @@ async function run(width, label) {
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();
   await page.waitForSelector('.trip-card', { timeout: 15000 });
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer
   await page.click('.trip-card');
   await page.waitForSelector('.modebar', { timeout: 15000 });
   await page.waitForTimeout(400);
@@ -166,6 +180,31 @@ async function run(width, label) {
 
   // 5. a POI tap never doubles as click-to-add
   check(await page.locator('.modal.sheet').count() === 0, 'no "Add a stop" naming sheet opened alongside');
+
+  // 5b. a natural feature — a pass on the satellite view — is never checked
+  // with Google: it is a placed pin, a photo stop, from the first frame
+  const before = calls.length;
+  await page.evaluate(([lng, lat]) => window.__poiTap({ properties: { name: 'Beartooth Pass', class: 'landform', maki: 'mountain', elevation_ft: 10947 }, geometry: { type: 'Point', coordinates: [lng, lat + 0.02] } }), on1);
+  await page.waitForSelector('.place-sheet', { timeout: 5000 });
+  await page.waitForTimeout(700);
+  const body = await page.locator('.place-sheet').innerText();
+  check(calls.length === before, 'no Places request went out for a pass');
+  check(/placed pin/.test(body) && !/Checking with Google|unverified/.test(body), 'the card says it is a place on the map, not a failed lookup');
+  const pg = await page.locator('.place-sheet .poi-glyph').textContent();
+  const pk = await page.locator('.place-sheet .ps-kicker').textContent().catch(() => '');
+  check(pg === '⛰' && /10,947 ft/.test(pk), `a peak wears the mountain glyph and its elevation (${pg} · ${pk})`);
+  check(/Add as photo stop/.test(await page.locator('.place-sheet .ps-foot .btn.gold').textContent()), 'the add is a photo stop');
+  await page.locator('.place-sheet .ps-foot .btn.gold').click();
+  await page.waitForTimeout(600);
+  trip = await lib(); wps = trip.days[0].waypoints;
+  const pass_ = wps.find((w) => w.name === 'Beartooth Pass');
+  check(!!pass_ && pass_.kind === 'photo' && pass_.placed === 'rider' && !pass_.placeId && pass_.verified === undefined, `it landed as a PLACED photo stop — not verified, not unverified (${JSON.stringify(pass_ && { kind: pass_.kind, placed: pass_.placed, placeId: pass_.placeId, verified: pass_.verified })})`);
+  // a line label (a range) has no point: the tap itself is the place
+  await page.evaluate(([lng, lat]) => window.__poiTap({ properties: { name: 'Beartooth Mountains', class: 'landform' }, geometry: { type: 'LineString', coordinates: [[lng, lat], [lng + 0.1, lat]] } }, { lng, lat: lat + 0.03 }), on1);
+  await page.waitForSelector('.place-sheet', { timeout: 5000 });
+  check(/Beartooth Mountains/.test(await page.locator('.place-sheet').innerText()), 'a range (a line label) opens at the tap point');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
 
   // 6. the nav map is on satellite-streets too
   await page.locator('.modebar button', { hasText: /ride/i }).click();
