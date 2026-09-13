@@ -155,6 +155,22 @@ const ES = {
   'Or open the browser menu and choose “Install Roadbook”': 'O abre el menú del navegador y elige “Instalar Roadbook”',
   'Install': 'Instalar',
   'Not now': 'Ahora no',
+  // ride quick-add
+  'Nothing ahead on this road.': 'No hay nada adelante en esta carretera.',
+  'One option ahead': 'Una opción adelante',
+  'options ahead': 'opciones adelante',
+  'More options…': 'Más opciones…',
+  'Looking ahead…': 'Buscando adelante…',
+  'Added': 'Agregado',
+  // quick ride
+  'Ride somewhere now': 'Rodar a algún lugar ahora',
+  'One destination from where you are — turn-by-turn on the roads you actually want.': 'Un destino desde donde estás, con guía paso a paso por las carreteras que realmente quieres.',
+  'Finding you…': 'Buscándote…',
+  'Where to?': '¿A dónde?',
+  'Could not get your location. Allow location access, or set a home place in Settings → Places.': 'No se pudo obtener tu ubicación. Permite el acceso a la ubicación o define un lugar de casa en Ajustes → Lugares.',
+  'Quick rides': 'Rodadas rápidas',
+  'one-day rides from where you were — ride again, or make one a trip': 'rodadas de un día desde donde estabas: repítelas o convierte una en viaje',
+  'Make it a trip': 'Convertir en viaje',
   // nearby picker
   'Kind of food': 'Tipo de comida',
   'Any': 'Cualquiera',

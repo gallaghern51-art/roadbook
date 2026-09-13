@@ -49,6 +49,20 @@ export const CHAPTERS = [
     ],
   },
   {
+    id: 'quick',
+    title: 'Quick Ride — just go somewhere',
+    icon: '▶',
+    blurb: 'One destination from where you are, on the roads you actually want, straight into navigation.',
+    video: { src: '/guide/quick.mp4', poster: '/guide/quick.jpg', length: '0:45' },
+    steps: [
+      { t: 'On the home screen, "Ride somewhere now"', b: 'Pick the roads first — Quick, Touring or Back roads, and whether to avoid tolls. That choice is the thing a map app will not offer a motorcyclist, so it is on the front.' },
+      { t: 'Press Ride, choose a destination', b: 'The phone finds you, then the place picker opens: search a name, or use the Fuel / Food / Sights chips. Every row shows rating, distance and whether it is open.' },
+      { t: 'You are navigating', b: 'A quick ride is a real one-day trip, so everything in Ride Mode works: fuel range, the speed sign, reroutes, adding a stop ahead.' },
+      { t: 'Afterwards', b: 'It sits under Quick rides on the home screen. Ride it again, delete it, or "Make it a trip" to keep planning on it like any other day.' },
+    ],
+    tips: ['No GPS fix? Set a home place in Settings → Places and Quick Ride starts from there.'],
+  },
+  {
     id: 'build-ai',
     title: 'Build a trip with the AI builder',
     icon: '✦',
@@ -337,8 +351,8 @@ export const CHAPTERS = [
         b: 'Off route by about a tenth of a mile for three fixes and it re-routes from where you are, to the stops you have left, with your trip\'s own road preferences. Traffic is used to correct the ETA, never to quietly re-cut your route.',
       },
       {
-        t: 'Add a stop mid-ride',
-        b: 'The magnifier searches near the bike. Adding slots the stop geographically among the stops you have left, re-routes, and says so.',
+        t: 'Need fuel, food, coffee or help — now',
+        b: 'The magnifier opens four big buttons. Tap one and you get the three best places AHEAD on the road you are riding — how far ahead, how far off the road, open or not — read out loud, each with one big Add. One tap adds it, reroutes, and confirms by voice. "More options" opens the full browse with cuisines, hours and a text box for when you are parked.',
       },
       {
         t: 'Know the limits',

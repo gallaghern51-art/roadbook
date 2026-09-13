@@ -9,6 +9,7 @@ import {
 import { viewGate } from '../engine/mapVis.js';
 import { routeDaySteps, routeFrom, trafficEta } from '../engine/routing.js';
 import NearbyPicker from './NearbyPicker.jsx';
+import RideQuickAdd from './RideQuickAdd.jsx';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
@@ -355,6 +356,7 @@ export default function RideMode({ onClose }) {
   const [follow, setFollow] = useState(true);
   const [muted, setMuted] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false); // the ride sheet — everything that isn't glanceable
+  const [quickAdd, setQuickAdd] = useState(false); // the glove-sized add-ahead overlay
   const [navStyle, setNavStyle] = useState('hybrid');
   // Camera grammar, Google-style: track-up is the tilted chase view; north-up
   // is flat overhead with the puck arrow carrying the heading. The compass
@@ -1655,6 +1657,16 @@ export default function RideMode({ onClose }) {
         )}
       </div>
 
+      {quickAdd && (
+        <RideQuickAdd
+          fix={fix ? { lat: fix.lat, lng: fix.lng } : (nextWp ?? day.waypoints[0])}
+          chain={hasRealRoute && geomInfo.chain.length > 1 ? geomInfo.chain : null}
+          fromAlong={geoProj?.along ?? 0}
+          speak={speak}
+          onAdd={(r, { fuel }) => { setQuickAdd(false); addStop(r, fuel); speak(`${t('Added')} ${r.name}.`); }}
+          onClose={(why) => { setQuickAdd(false); if (why === 'sheet') { setSheetOpen(true); setTimeout(() => document.querySelector('.ride-sheet .nb-q')?.focus(), 350); } }}
+        />
+      )}
       {/* ---- right edge: one-tap controls, glove-sized ---- */}
       {!sheetOpen && (
       <div className="ride-fabs">
@@ -1679,7 +1691,7 @@ export default function RideMode({ onClose }) {
         {/* add a destination mid-ride — opens the sheet with the search ready */}
         <button
           className="ride-fab"
-          onClick={() => { setSheetOpen(true); setTimeout(() => document.querySelector('.ride-sheet .nb-q')?.focus(), 350); }}
+          onClick={() => setQuickAdd(true)}
           aria-label={t('Add a stop ahead')}
           title={t('Add a stop ahead')}
         >

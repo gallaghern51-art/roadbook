@@ -70,6 +70,10 @@ await page.route('**/*', (r) => {
   return r.abort();
 });
 await page.addInitScript(() => {
+  window.__spoken = [];
+  const fakeSynth = { speak: (u) => window.__spoken.push(u.text), cancel() {}, resume() {}, getVoices: () => [], speaking: false, pending: false, paused: false, addEventListener() {}, removeEventListener() {} };
+  Object.defineProperty(window, 'speechSynthesis', { value: fakeSynth, configurable: true });
+  window.SpeechSynthesisUtterance = function (text) { this.text = text; };
   const stub = { watchPosition: (cb) => { window.__geoCb = cb; return 1; }, clearWatch: () => {}, getCurrentPosition: (cb) => { if (window.__lastFix) cb(window.__lastFix); } };
   Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
   window.__feed = (lat, lng, heading, mps) => { window.__lastFix = { coords: { latitude: lat, longitude: lng, accuracy: 5, speed: mps, heading }, timestamp: Date.now() }; window.__geoCb?.(window.__lastFix); };
@@ -188,27 +192,63 @@ trip = await lib();
 const lunch = trip.days[0].meals.find((m) => m.meal === 'lunch');
 check(lunch.name === 'Basecamp Grill' && lunch.placeId === 'f2' && lunch.verified === 'google', 'lunch swapped to a verified place');
 
-// ---- 4. Ride Mode: add ahead, from the bike, fuel by default ----
+// ---- 4. Ride Mode, at speed: the glove-sized quick add ----
 await page.locator('.modebar button', { hasText: /ride/i }).click();
 await page.waitForSelector('.ride-bar', { timeout: 15000 });
 await page.waitForTimeout(600);
-const [lng0, lat0] = lerp(A, B, 0.1);
-await page.evaluate(([a, b]) => window.__feed(a, b, 40, 18), [lat0, lng0]);
-await page.waitForTimeout(500);
-nearbyCalls = [];
-await page.locator('.ride-fab[aria-label="Add a stop ahead"]').click();
-await page.waitForSelector('.ride-sheet .nearby', { timeout: 5000 });
+{
+  const [lng0, lat0] = lerp(A, B, 0.1);
+  await page.evaluate(([a, b]) => window.__feed(a, b, 40, 18), [lat0, lng0]);
+  await page.waitForTimeout(500);
+  nearbyCalls = [];
+  await page.locator('.ride-fab[aria-label="Add a stop ahead"]').click();
+  await page.waitForSelector('.rqa', { timeout: 5000 });
+  const bigs = await page.locator('.rqa-big').allTextContents();
+  check(bigs.length === 4 && /Fuel/.test(bigs[0]), `four giant choices, fuel first (${bigs.map((b) => b.replace(/\s+/g, ' ').trim()).join(' · ')})`);
+  const bb = await page.locator('.rqa-big').first().boundingBox();
+  check(bb.height >= 90 && bb.width >= 140, `each choice is a glove target (${Math.round(bb.width)}×${Math.round(bb.height)})`);
+  await page.locator('.rqa-big', { hasText: 'Fuel' }).click();
+  await page.waitForSelector('.rqa-card', { timeout: 6000 });
+  const cards = await page.locator('.rqa-card').allTextContents();
+  check(cards.length <= 3 && cards.length >= 2, `at most three cards, only places AHEAD (${cards.length})`);
+  check(cards.every((c) => /ahead/.test(c)), 'every card says how far ahead');
+  check(!cards.some((c) => /Maverik North/.test(c)) || /off route/.test(cards.find((c) => /Maverik/.test(c))), 'an off-road station either drops out or says so');
+  const cb = await page.locator('.rqa-card').first().boundingBox();
+  check(cb.height >= 80, `cards are big enough to hit at a stop light (${Math.round(cb.height)}px)`);
+  const spoken = await page.evaluate(() => window.__spoken.join(' | '));
+  check(/options ahead|option ahead/.test(spoken) && /Sinclair/.test(spoken), `voice read the options out ("${spoken.slice(-90)}")`);
+  await page.screenshot({ path: SHOT('ride-quick-add') });
+  await page.locator('.rqa-card').first().click();
+  await page.waitForTimeout(700);
+  check(await page.locator('.rqa').count() === 0, 'one tap adds and closes');
+  trip = await lib();
+  const quick = trip.days[0].waypoints.find((w) => w.name === 'Sinclair Granite');
+  check(quick && quick.fuel === true && quick.kind === 'fuel', 'the quick pick landed as a fuel stop');
+  // nav may announce the new stop right after — the confirmation only has to be IN the stream
+  const spoken2 = await page.evaluate(() => window.__spoken.slice(-3).join(' | '));
+  check(/Added Sinclair/.test(spoken2), `and was confirmed by voice ("${spoken2.slice(0, 80)}")`);
+  // the detailed picker is one tap away, in the sheet
+  await page.locator('.ride-fab[aria-label="Add a stop ahead"]').click();
+  await page.waitForSelector('.rqa', { timeout: 5000 });
+  await page.locator('.rqa-more', { hasText: 'More options' }).click();
+  await page.waitForSelector('.ride-sheet .nearby', { timeout: 5000 });
+  check(true, '"More options" opens the full picker in the sheet');
+  await page.keyboard.press('Escape');
+}
+
+// ---- 5. Ride Mode sheet: the full picker, from the bike, fuel by default ----
+if (!(await page.locator('.ride-sheet .nearby').count())) { await page.locator('.ride-bar').click(); await page.waitForSelector('.ride-sheet .nearby', { timeout: 5000 }); }
 await page.waitForSelector('.ride-sheet .nb-item', { timeout: 6000 });
-const rideReq = nearbyCalls.at(-1);
-check(rideReq.category === 'fuel' && Math.abs(rideReq.near.lat - lat0) < 0.01, 'Ride opens on Fuel, searching from the bike');
+const rideReq = nearbyCalls.filter((c) => c.category === 'fuel').at(-1);
+const [, lat0] = lerp(A, B, 0.1);
+check(rideReq.category === 'fuel' && Math.abs(rideReq.near.lat - lat0) < 0.01, 'the sheet picker opens on Fuel, searching from the bike');
 const rideRows = await page.locator('.ride-sheet .nb-item').allTextContents();
 check(rideRows.some((r) => /ahead/.test(r)), 'ride rows say how far ahead each place is');
-await page.locator('.ride-sheet .nb-item', { hasText: 'Sinclair' }).locator('.nb-main').click();
+await page.locator('.ride-sheet .nb-item', { hasText: 'Exxon' }).locator('.nb-main').click();
 await page.locator('.ride-sheet .nb-actions .btn.gold').click();
 await page.waitForTimeout(700);
 trip = await lib();
-const sinclair = trip.days[0].waypoints.find((w) => w.name === 'Sinclair Granite');
-check(sinclair && sinclair.fuel === true && sinclair.kind === 'fuel', 'mid-ride pick landed as a fuel stop');
+check(trip.days[0].waypoints.filter((w) => w.name === 'Exxon Ridge').length >= 1, 'a sheet pick lands too');
 await page.screenshot({ path: SHOT('nearby-ride') });
 
 console.log(`\n${pass}/${pass + fail} passed`);

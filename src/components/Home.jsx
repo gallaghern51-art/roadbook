@@ -7,8 +7,10 @@ import { SEED_TRIP } from '../data/seedTrip.js';
 import RouteSilhouette from './RouteSilhouette.jsx';
 import { RoadbookBrand, SettingsIcon, ThemeToggle } from './Chrome.jsx';
 import { useT, useUnits } from '../engine/settings.jsx';
-import { libraryTrips, libraryTemplates } from '../engine/templates.js';
+import { libraryTrips, libraryTemplates, libraryQuickRides } from '../engine/templates.js';
+import { locateOnce } from '../engine/quickRide.js';
 import InstallPrompt from './InstallPrompt.jsx';
+import NearbyPicker from './NearbyPicker.jsx';
 
 // The front door. Not a map: nothing is on the map until there is a trip.
 // The intake box is the product's opening move — describe the ride, get a
@@ -16,7 +18,7 @@ import InstallPrompt from './InstallPrompt.jsx';
 // trip card wears the trip's own shape: the silhouette is how a rider tells
 // their trips apart the way they'd tell routes apart on paper roadbooks.
 
-export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate }) {
+export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, quickDefaults }) {
   const { state, routedLegsByDay } = useTrip();
   const { lib } = state;
   const t = useT();
@@ -28,6 +30,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   // Templates live in the same list (see src/engine/templates.js) but they are
   // not trips — they get their own row further down.
   const templates = useMemo(() => libraryTemplates(lib), [lib]);
+  const quickRides = useMemo(() => libraryQuickRides(lib).slice(0, 4), [lib]);
   const cards = useMemo(() => libraryTrips(lib).map((rec) => {
     const legs = rec.id === lib.activeId ? routedLegsByDay : {};
     const feas = tripFeasibility(rec.trip, legs);
@@ -82,6 +85,24 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
             </div>
           </div>
         </section>
+
+        <QuickRide onGo={onQuickRide} defaults={quickDefaults} />
+
+        {quickRides.length > 0 && (
+          <section className="section">
+            <h3>{t('Quick rides')} <span className="cnt">{t('one-day rides from where you were — ride again, or make one a trip')}</span></h3>
+            <div className="quick-list">
+              {quickRides.map((rec) => (
+                <div key={rec.id} className="quick-row">
+                  <div className="qr-name">{rec.name}<small>{rec.trip.days[0]?.date}</small></div>
+                  <button className="btn" onClick={() => onRideAgain(rec.id)}>▶ {t('Ride')}</button>
+                  <button className="btn" onClick={() => onPromoteQuick(rec.id)}>{t('Make it a trip')}</button>
+                  <button className="tc-del" title={t('Delete')} onClick={() => onDeleteQuick(rec)}>✕</button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {cards.length > 0 && (
           <section className="section">
@@ -188,5 +209,73 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         </section>
       </div>
     </div>
+  );
+}
+
+
+// "Take me there, the fun way." One tap from the home screen into Ride Mode.
+// The Roads choice sits on the front of it because that is the one thing a
+// map app will not offer a motorcyclist; everything else — the picker, the
+// fuel chip, reroutes — is the same machinery a planned day rides on.
+function QuickRide({ onGo, defaults }) {
+  const t = useT();
+  const [phase, setPhase] = useState('idle'); // idle | locating | pick | error
+  const [fix, setFix] = useState(null);
+  const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
+  const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
+  const [err, setErr] = useState('');
+
+  const start = async () => {
+    setPhase('locating'); setErr('');
+    try {
+      const f = await locateOnce();
+      setFix(f);
+      setPhase('pick');
+    } catch {
+      // no fix: the profile's home place still makes a start
+      if (defaults?.home && Number.isFinite(defaults.home.lat)) {
+        setFix({ lat: defaults.home.lat, lng: defaults.home.lng, name: defaults.home.name || 'Home' });
+        setPhase('pick');
+      } else {
+        setErr(t('Could not get your location. Allow location access, or set a home place in Settings → Places.'));
+        setPhase('error');
+      }
+    }
+  };
+
+  return (
+    <section className="quick-ride">
+      <div className="qk-head">
+        <div>
+          <h3>{t('Ride somewhere now')}</h3>
+          <p>{t('One destination from where you are — turn-by-turn on the roads you actually want.')}</p>
+        </div>
+        {phase !== 'pick' && (
+          <button className="btn gold" onClick={start} disabled={phase === 'locating'}>
+            {phase === 'locating' ? t('Finding you…') : `▶ ${t('Ride')}`}
+          </button>
+        )}
+      </div>
+      <div className="qk-prefs">
+        <div className="qk-roads" role="radiogroup" aria-label={t('Roads')}>
+          {[['quick', t('Quick')], ['touring', t('Touring')], ['backroads', t('Back roads')]].map(([id, label]) => (
+            <button key={id} role="radio" aria-checked={style === id} className={style === id ? 'active' : ''} onClick={() => setStyle(id)}>{label}</button>
+          ))}
+        </div>
+        <label className="qk-tolls"><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /> {t('Avoid tolls')}</label>
+      </div>
+      {err && <p className="qk-err">{err}</p>}
+      {phase === 'pick' && fix && (
+        <NearbyPicker
+          mode="add"
+          near={fix}
+          routePrefs={{ style, avoidTolls }}
+          initialCategory={null}
+          title={t('Where to?')}
+          onPick={(dest) => onGo({ start: fix, dest, routePrefs: { style, avoidTolls } })}
+          onClose={() => setPhase('idle')}
+        />
+      )}
+    </section>
   );
 }

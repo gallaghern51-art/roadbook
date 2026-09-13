@@ -19,6 +19,8 @@ import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import HelpGuide from './components/HelpGuide.jsx';
 import { isTemplateTrip, tripFromTemplate, daysFromTemplate, insertDaysOp } from './engine/templates.js';
+import { buildQuickTrip, promoteQuickTrip } from './engine/quickRide.js';
+import { tripDefaults, homePlace } from './engine/profile.js';
 import { RoadbookBrand, SettingsIcon, ThemeToggle } from './components/Chrome.jsx';
 import { ConfirmSheet, InputSheet } from './components/Sheets.jsx';
 import { useTripSync } from './engine/useTripSync.js';
@@ -734,6 +736,23 @@ export default function App() {
           onSettings={() => setSheet({ type: 'settings' })}
           onHelp={() => setSheet({ type: 'help' })}
           onUseTemplate={(id) => setNewTrip({ tab: 'template', templateId: id })}
+          quickDefaults={{ ...tripDefaults(profile.profile), home: homePlace(profile.profile) }}
+          onQuickRide={({ start, dest, routePrefs }) => {
+            // a real one-day trip, then straight into Ride Mode
+            const trip = buildQuickTrip({ start, dest, routePrefs, defaults: tripDefaults(profile.profile) });
+            dispatch({ type: 'create_trip', trip });
+            setScreen('trip'); setMode('plan'); setPanelOpen(false);
+            setRideOpen(true);
+          }}
+          onRideAgain={(id) => { if (id !== state.lib.activeId) dispatch({ type: 'switch_trip', id }); setScreen('trip'); setMode('plan'); setPanelOpen(false); setRideOpen(true); }}
+          onPromoteQuick={(id) => {
+            const rec = state.lib.trips.find((r) => r.id === id);
+            if (!rec) return;
+            if (id !== state.lib.activeId) dispatch({ type: 'switch_trip', id });
+            dispatch({ type: 'import', trip: promoteQuickTrip(rec.trip) });
+            setScreen('trip'); setMode('plan'); setPanelOpen(true);
+          }}
+          onDeleteQuick={(rec) => setSheet({ type: 'delete-trip', rec })}
           onShareTemplate={shareTemplate}
           onDeleteTemplate={(rec) => setSheet({ type: 'delete-template', rec })}
         />
