@@ -187,6 +187,13 @@ export function reducer(state, action) {
       return { ...state, trip: action.trip, outbox: [], opLog: [], history: [], selectedDayId: null };
     }
     case 'set_remote': {
+      // Unbinding (remote → null, "Leave this trip") also drops the outbox:
+      // those batches were addressed to a trip this device no longer belongs
+      // to, and would otherwise be pushed into it on the next drain.
+      if (!action.remote) {
+        syncMeta(state, { remote: null, outbox: [] });
+        return { ...state, remote: null, outbox: [] };
+      }
       syncMeta(state, { remote: action.remote });
       return { ...state, remote: action.remote };
     }

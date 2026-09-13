@@ -7,7 +7,7 @@ import {
   chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
 } from '../engine/tripEngine.js';
 import { viewGate } from '../engine/mapVis.js';
-import { routeDaySteps, routeFrom } from '../engine/routing.js';
+import { routeDaySteps, routeFrom, trafficEta } from '../engine/routing.js';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
@@ -1218,9 +1218,13 @@ export default function RideMode({ onClose }) {
     liveRouteAtRef.current = now;
     const remaining = remainingNav; // latched + skip-aware
     if (!remaining.length) return;
-    routeFrom(navOrigin(), remaining, pace, routePrefs)
+    // trafficEta, NOT routeFrom: routeFrom is Valhalla-first and Valhalla has
+    // no traffic, so reading `r.traffic` off it left this overlay dark from
+    // the day Valhalla became authoritative (#68) — the ETA on the bar was the
+    // static plan the whole time. Google answers the clock; the road stays.
+    trafficEta(navOrigin(), remaining, pace)
       .then((r) => { if (r.traffic) setLiveEta({ min: r.seconds / 60, at: Date.now() }); })
-      .catch(() => { /* next cycle retries */ });
+      .catch(() => { /* not configured or backing off — the static ETA stands; next cycle retries */ });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The next stop nav is actually taking you to — latched and skip-aware.

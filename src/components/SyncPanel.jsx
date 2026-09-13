@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTrip } from '../engine/store.js';
 import { useT } from '../engine/settings.jsx';
 import {
-  SYNC_ENABLED, signOut,
+  SYNC_ENABLED, leaveTrip,
   publishTrip, joinTrip, fetchTrip, fetchMembers,
 } from '../engine/supabase.js';
 
@@ -81,7 +81,18 @@ export default function SyncPanel({ sync }) {
         <p className="set-note">{t('Keep this code. It is how you get back in on a new phone.')}</p>
 
         {note && <p className="set-note">{note}</p>}
-        <button className="btn set-signout" onClick={() => signOut()}>{t('Leave this trip')}</button>
+        {/* Leaving unbinds THIS device from the shared trip. It is not a
+            sign-out: an account holder keeps their session, backup and
+            profile — leaving one trip used to log them out of everything. */}
+        <button
+          className="btn set-signout"
+          disabled={busy}
+          onClick={() => run(async () => {
+            await leaveTrip(remote.tripId);
+            dispatch({ type: 'set_remote', remote: null }); // also drops the outbox
+            setMembers([]);
+          }, t('You have left the shared trip. Your copy stays on this device.'))}
+        >{t('Leave this trip')}</button>
       </div>
     );
   }

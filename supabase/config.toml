@@ -232,20 +232,45 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# Production SMTP: Resend, sending from the calaf.ai domain (verified there;
+# Roadbook has no sending domain of its own yet). The built-in Supabase sender
+# is capped at a couple of emails an hour and is the reason a friend's
+# confirmation link may never arrive. The Resend key is "Roadbook — Supabase
+# auth SMTP (calaf.ai sender)", sending-only, restricted to calaf.ai.
+#
+# The HOSTED project reads these from the dashboard (Authentication → SMTP),
+# not from this file — `supabase config push` applies them; otherwise copy the
+# values across by hand. The templates below apply the same way.
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_SMTP_KEY)"
+admin_email = "roadbook@calaf.ai"
+sender_name = "Roadbook"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+# Roadbook-themed auth emails. Plain HTML, inline styles, dark-on-light so
+# every mail client renders them; the variables are Supabase's own.
+[auth.email.template.confirmation]
+subject = "Confirm your Roadbook account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Roadbook password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Your Roadbook sign-in link"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new Roadbook email"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.invite]
+subject = "You're invited to Roadbook"
+content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

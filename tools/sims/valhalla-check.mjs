@@ -81,7 +81,11 @@ page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (r) => {
   const u = r.request().url();
   if (u.includes('/.netlify/functions/google-route')) {
-    googleRouteCalls++;
+    // The traffic anchor asks Google for the CLOCK over the remaining stops
+    // (`purpose: 'eta'`) and never adopts its road — that is not Google
+    // replacing the plan, and it is supposed to happen while Valhalla is
+    // healthy. Only an untagged routing call counts against the tier.
+    if (r.request().postDataJSON()?.purpose !== 'eta') googleRouteCalls++;
     return r.continue();
   }
   if (u.includes('localhost:5199')) return r.continue();

@@ -74,7 +74,10 @@ const paceSteps = (steps, pace) => (pace === 1 || !steps
 const GOOGLE_FN = '/.netlify/functions/google-route';
 let gSkipUntil = 0; // backoff so a dead/keyless function costs one probe, not one per reroute
 
-async function googleRoute(origin, waypoints) {
+// `extra` rides in the request body untouched by the function — the traffic
+// anchor tags its calls `purpose: 'eta'` so a sim (and a log) can tell "asked
+// Google for the clock" from "Google replaced the Valhalla plan".
+async function googleRoute(origin, waypoints, extra = {}) {
   if (Date.now() < gSkipUntil) throw new Error('google routing backing off');
   let res;
   try {
@@ -82,6 +85,7 @@ async function googleRoute(origin, waypoints) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...extra,
         // heading rides along when the caller has one — the route then
         // departs the way the bike is pointed instead of assuming a
         // direction from the road snap
@@ -672,6 +676,26 @@ export async function routeDayRoads(day) {
   store[key] = out;
   try { localStorage.setItem(ROAD_CACHE, JSON.stringify(store)); } catch { localStorage.removeItem(ROAD_CACHE); }
   return out;
+}
+
+// Traffic-aware time over the remaining route — and ONLY the time.
+//
+// This is the overlay Ride Mode's 10-minute anchor was built on: Valhalla owns
+// the ROAD (motorcycle costing, the planned pass), Google owns the CLOCK (live
+// traffic through the same stops). It has to be its own door because routeFrom
+// is Valhalla-first, and Valhalla knows nothing about traffic — from #68 (Sep 7)
+// until this function existed, the anchor called routeFrom, read `r.traffic`,
+// found it undefined every time Valhalla was healthy, and never set an ETA.
+// The overlay was silently off for the whole time the plan was Valhalla's.
+//
+// Throws when Google is not configured or backing off; the caller keeps the
+// static ETA. Never adopts geometry: a time-optimizer will cut a planned pass
+// in half, and the planned road is the point of the ride.
+export async function trafficEta(pos, waypoints, pace = 1) {
+  const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
+  if (!wps.length) throw new Error('no destination');
+  const g = await googleRoute(pos, wps, { purpose: 'eta' });
+  return { seconds: g.durationSeconds * pace, miles: g.distanceMeters / 1609.34, traffic: true };
 }
 
 // Live reroute: current GPS position → the day's remaining waypoints.

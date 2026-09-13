@@ -8,6 +8,7 @@ import RouteSilhouette from './RouteSilhouette.jsx';
 import { RoadbookBrand, SettingsIcon, ThemeToggle } from './Chrome.jsx';
 import { useT, useUnits } from '../engine/settings.jsx';
 import { libraryTrips, libraryTemplates } from '../engine/templates.js';
+import InstallPrompt from './InstallPrompt.jsx';
 
 // The front door. Not a map: nothing is on the map until there is a trip.
 // The intake box is the product's opening move — describe the ride, get a
@@ -58,6 +59,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       </header>
 
       <div className="home-inner">
+        {/* Only in a browser tab — the installed app never sees it. */}
+        <InstallPrompt />
         <section className="home-hero">
           <h2>{t('Where do you want to ride?')}</h2>
           <p className="home-sub">{t('Describe riders, days, region, and pace. Roadbook researches real opportunities, compares routed choices, and lets you shape every piece before the trip is created.')}</p>
