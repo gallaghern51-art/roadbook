@@ -26,7 +26,15 @@ const RAW_DETAILS = {
   googleMapsUri: 'https://maps.google.com/?cid=1', websiteUri: 'https://www.cowboycafewyo.com/', nationalPhoneNumber: '(307) 672-2391',
   regularOpeningHours: { weekdayDescriptions: HOURS, periods: [] }, currentOpeningHours: { openNow: true },
   editorialSummary: { text: 'Down-home diner known for chicken-fried steak and pie.' },
-  photos: [{ name: 'places/g-cowboy/photos/p1', widthPx: 1600, heightPx: 1200, authorAttributions: [{ displayName: 'Cowboy Cafe', uri: 'https://maps.google.com/maps/contrib/1' }] }, { name: 'places/g-cowboy/photos/p2' }],
+  photos: [{ name: 'places/g-cowboy/photos/p1', widthPx: 1600, heightPx: 1200, authorAttributions: [{ displayName: 'Cowboy Cafe', uri: 'https://maps.google.com/maps/contrib/1' }] }, { name: 'places/g-cowboy/photos/p2' }, { name: 'places/g-cowboy/photos/p3' }],
+  reviews: [
+    { rating: 5, relativePublishTimeDescription: '2 weeks ago', text: { text: 'Chicken-fried steak the size of the plate. Bikes welcome out front.' }, authorAttribution: { displayName: 'Dale R.', uri: 'https://www.google.com/maps/contrib/2' } },
+    { rating: 4, relativePublishTimeDescription: 'a month ago', text: { text: 'Good pie, slow on a Saturday.' }, authorAttribution: { displayName: 'Marta K.' } },
+    { rating: 5, relativePublishTimeDescription: '3 months ago', text: { text: 'Best breakfast in Sheridan.' }, authorAttribution: { displayName: 'Jo' } },
+  ],
+  dineIn: true, takeout: true, delivery: false, reservable: false, servesBreakfast: true, goodForGroups: true, restroom: true,
+  accessibilityOptions: { wheelchairAccessibleEntrance: true },
+  parkingOptions: { freeStreetParking: true },
 };
 
 // 0. the details normaliser, pure
@@ -34,7 +42,9 @@ const RAW_DETAILS = {
   const d = normalizePlace(RAW_DETAILS);
   check(d.name === 'Cowboy Cafe' && d.phone === '(307) 672-2391' && d.websiteUri === 'https://www.cowboycafewyo.com/' && d.summary?.startsWith('Down-home'), 'details carry phone, website and the editorial summary');
   check(d.hours.length === 7 && d.openNow === true && d.rating === 4.5 && d.userRatingCount === 1308, 'hours, open-now and rating come through in the search-row shape');
-  check(d.photos.length === 2 && d.photos[0].name === 'places/g-cowboy/photos/p1' && d.photos[0].by[0].name === 'Cowboy Cafe' && d.photos[0].by[0].uri, 'photos carry their names and author attribution');
+  check(d.photos.length === 3 && d.photos[0].name === 'places/g-cowboy/photos/p1' && d.photos[0].by[0].name === 'Cowboy Cafe' && d.photos[0].by[0].uri, 'photos carry their names and author attribution');
+  check(d.reviews.length === 3 && d.reviews[0].by === 'Dale R.' && d.reviews[0].rating === 5 && /Chicken-fried/.test(d.reviews[0].text), 'reviews carry rating, author and text');
+  check(d.amenities.some((a) => a.label === 'Dine-in' && a.ok) && d.amenities.some((a) => a.label === 'Delivery' && !a.ok) && d.amenities.some((a) => a.label === 'Wheelchair entrance' && a.ok) && d.amenities.some((a) => a.label === 'Free parking' && a.ok) && !d.amenities.some((a) => a.label === 'Dogs OK'), 'amenities list only what Google states, true or false');
   check(normalizePlace({ id: 'x' }).photos.length === 0 && normalizePlace({ id: 'x' }).hours === null, 'a bare place normalises without throwing');
   check(hoursOnly('Monday: 7:00 AM – 8:00 PM') === '7:00 AM – 8:00 PM' && todayIndex(new Date('2026-09-14T12:00:00')) === 0 && todayIndex(new Date('2026-09-13T12:00:00')) === 6, 'today indexes Monday-first like Google');
 }
@@ -133,14 +143,20 @@ async function run(width, label) {
     };
   });
   check(/Cowboy Cafe/.test(s1.text) && /★ 4\.5/.test(s1.text) && /\(1308\)/.test(s1.text) && /\$\$/.test(s1.text) && /Open now/.test(s1.text), 'name, rating with count, price and open-now on the sheet');
-  check(s1.img && /Photo: Cowboy Cafe/.test(s1.credit), 'one photo loads with its author credit');
+  check(s1.img && /Photo: Cowboy Cafe/.test(s1.credit), 'the first photo loads with its author credit');
+  const rich = await page.evaluate(() => ({ shots: document.querySelectorAll('.place-sheet .ps-shot').length, chips: [...document.querySelectorAll('.place-sheet .ps-chip')].map((c) => c.textContent), reviews: document.querySelectorAll('.place-sheet .ps-review').length, more: document.querySelector('.place-sheet .ps-reviews .btn')?.textContent ?? '' }));
+  check(rich.shots === 3, `a photo strip, not one photo (${rich.shots})`);
+  check(rich.chips.some((c) => /✓ Dine-in/.test(c)) && rich.chips.some((c) => /✓ Wheelchair entrance/.test(c)) && rich.chips.some((c) => /✕ Delivery/.test(c)), `the practical facts as chips (${rich.chips.slice(0, 4).join(', ')}…)`);
+  check(rich.reviews === 2 && /More reviews \(1\)/.test(rich.more), 'two reviews shown, the rest behind More reviews');
+  await page.locator('.place-sheet .ps-reviews .btn').click();
+  check(await page.locator('.place-sheet .ps-review').count() === 3 && /Dale R\./.test(await page.locator('.place-sheet .ps-review').first().innerText()), 'More reviews shows them all, each with its author');
   check(new RegExp(`Today ${hoursOnly(HOURS[today]).replace(/[–]/g, '.')}`).test(s1.text.replace(/[–]/g, '.')), `today's hours are on the stat row (${hoursOnly(HOURS[today])})`);
   check(s1.rows === 7 && s1.todayRow === today, 'the weekly table lists seven days with today bold');
   check(/Down-home diner/.test(s1.text), "Google's one-line summary is shown");
   check(/138 N Main St/.test(s1.text) && s1.tel === 'tel:3076722391' && s1.site === 'https://www.cowboycafewyo.com/', 'address, tap-to-call and the website are real links');
   check(s1.mapsOut === 0 && !/\bMaps\b/.test(s1.text), 'no link out to Google Maps anywhere on the sheet');
-  check(/Place facts and photo from Google/i.test(s1.text), 'Google is credited for the facts and the photo');
-  check(hits.details === 1 && hits.photo === 1, `one details call and one photo request per open (${hits.details}/${hits.photo})`);
+  check(/Place facts, photos and reviews from Google/i.test(s1.text), 'Google is credited for the facts, the photos and the reviews');
+  check(hits.details === 1 && hits.photo >= 1 && hits.photo <= 3, `one details call and at most three photo requests per open (${hits.details}/${hits.photo})`);
   check(s1.inView && s1.foot && s1.foot.bottom <= 821 && s1.foot.height >= (phone ? 44 : 30), `the sheet fits the viewport and scrolls to its action (sheet ${s1.box.top}–${s1.box.bottom} of ${s1.box.h}, foot bottom ${Math.round(s1.foot?.bottom)} h ${Math.round(s1.foot?.height)})`);
   await page.screenshot({ path: SHOT(`place-sheet-${width}`) });
   // Add from the sheet lands a verified stop

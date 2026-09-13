@@ -106,12 +106,12 @@ async function run(width, label) {
   const s1 = await page.evaluate(() => {
     const m = window.__homeMap; const sh = document.querySelector('.hm-sheet').getBoundingClientRect(); const c = m.getCenter();
     const fields = [...document.querySelectorAll('input,textarea,select')].filter((e) => !['checkbox', 'radio', 'range'].includes(e.type)).map((e) => parseFloat(getComputedStyle(e).fontSize));
-    return { style: m.getStyle().name, center: [c.lng, c.lat], zoom: m.getZoom(), sheet: { top: sh.top, h: sh.height, w: sh.width, left: sh.left }, pill: document.querySelector('.hm-pill')?.textContent, chips: document.querySelectorAll('.hm-chip').length, cards: document.querySelectorAll('.hm-trips-row .trip-card').length, verbs: [...document.querySelectorAll('.hm-verbs .btn')].map((b) => b.textContent.trim()), near: document.querySelector('.hm-near')?.textContent, under16: fields.filter((v) => v < 16).length, wider: document.documentElement.scrollWidth > innerWidth, logo: !!document.querySelector('.hm-map .mapboxgl-ctrl-logo') };
+    return { style: m.getStyle().name, center: [c.lng, c.lat], zoom: m.getZoom(), sheet: { top: sh.top, h: sh.height, w: sh.width, left: sh.left }, pill: document.querySelector('.hm-pill')?.textContent, chips: document.querySelectorAll('.hm-chip').length, cards: document.querySelectorAll('.hm-trips-row .trip-card').length, verbs: [...document.querySelectorAll('.hm-verbs .btn')].length, near: document.querySelector('.hm-near')?.textContent, under16: fields.filter((v) => v < 16).length, wider: document.documentElement.scrollWidth > innerWidth, logo: !!document.querySelector('.hm-map .mapboxgl-ctrl-logo') };
   });
   check(/satellite-streets/.test(s1.style), `the home map is Mapbox satellite-streets (${s1.style})`);
   check(Math.abs(s1.center[1] - ME.lat) < 0.01 && Math.abs(s1.center[0] - ME.lng) < 0.01 && s1.zoom >= 12, `the camera landed on the rider (${s1.center.map((n) => n.toFixed(3)).join(', ')} z${s1.zoom.toFixed(1)}) and says so (${s1.near})`);
   check(/Where do you want to ride\?/.test(s1.pill) && s1.chips === 7, 'the pill keeps the old hero\'s words; seven category chips');
-  check(/Plan a trip with AI/.test(s1.verbs[0]) && /Ride now/.test(s1.verbs[1]), 'the sheet leads with the two verbs');
+  check(s1.verbs === 0, 'no verb buttons: the pill is the one door');
   check(s1.cards >= 1, 'your trips ride in the sheet');
   if (phone) check(s1.sheet.h > 300 && s1.sheet.h < 380 && s1.sheet.top > 400, `on a phone the sheet PEEKS (${Math.round(s1.sheet.h)}px of 820) and the map owns the rest`);
   else check(s1.sheet.left < 40 && s1.sheet.w < 500 && s1.sheet.h > 600, `on a desktop the sheet is a column (${Math.round(s1.sheet.w)}×${Math.round(s1.sheet.h)}) and the map takes the rest`);
@@ -125,9 +125,32 @@ async function run(width, label) {
     await page.waitForFunction(() => document.querySelector('.hm-sheet').getBoundingClientRect().height > 600, null, { timeout: 3000 }).catch(() => {});
     const up = await page.evaluate(() => document.querySelector('.hm-sheet').getBoundingClientRect().height);
     check(up > 600, `the handle pulls the sheet up (${Math.round(up)}px)`);
-    check(await page.locator('.quick-ride').count() === 1 && await page.locator('.start-grid').count() === 1, 'pulled up, it is the whole old home — Ride somewhere now, Start from');
+    check(await page.locator('.quick-ride').count() === 0 && await page.locator('.start-grid').count() === 1, 'pulled up, it is the library — templates, Start from — with no second ride button');
+    check(await page.locator('.hm-body .trip-grid .trip-card').count() >= 1, 'pulled up, the trips are a GRID, not a row');
     await page.locator('.hm-handle').click();
-    await page.waitForFunction(() => document.querySelector('.hm-sheet').getBoundingClientRect().height < 400, null, { timeout: 3000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek' && Math.abs(document.querySelector('.hm-sheet').getBoundingClientRect().height - innerHeight * 0.42) < 4, null, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    // drag the handle DOWN: the sheet snaps to its minimum — the two verbs and the map
+    // (a pointer sequence on the handle: Playwright's mouse drag does not reach a
+    // touch-action:none button under phone emulation; the iOS simulator is the
+    // real-finger check)
+    await page.evaluate(() => {
+      const h = document.querySelector('.hm-handle'); const r = h.getBoundingClientRect();
+      const fire = (type, y) => h.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.x + r.width / 2, clientY: y, pointerId: 1, pointerType: 'touch', isPrimary: true }));
+      const y0 = r.y + r.height / 2; fire('pointerdown', y0); fire('pointermove', y0 + 80); fire('pointermove', y0 + 200); fire('pointerup', y0 + 260);
+    });
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'min' && document.querySelector('.hm-sheet').getBoundingClientRect().height < 80, null, { timeout: 3000 }).catch(() => {});
+    const mn = await page.evaluate(() => ({ state: document.querySelector('.hm-sheet').dataset.state, h: document.querySelector('.hm-sheet').getBoundingClientRect().height, verbs: 0 }));
+    check(mn.state === 'min' && mn.h < 80, `dragging the handle down dismisses the sheet to the handle alone (${Math.round(mn.h)}px)`);
+    await page.locator('.hm-handle').click();
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek', null, { timeout: 3000 }).catch(() => {});
+    check((await page.evaluate(() => document.querySelector('.hm-sheet').dataset.state)) === 'peek', 'a tap on the handle brings it back to peek');
+    // a tap on open map steps it down
+    await page.evaluate(() => window.__homePoiTap(null));
+    await page.waitForTimeout(400);
+    check((await page.evaluate(() => document.querySelector('.hm-sheet').dataset.state)) === 'min', 'a tap on open map steps the sheet down');
+    await page.locator('.hm-handle').click();
+    await page.waitForTimeout(400);
   }
 
   // 3. a chip: the picker in the sheet, its rows as pins
@@ -171,6 +194,9 @@ async function run(width, label) {
   await page.waitForSelector('.hm-place .nb-ver', { timeout: 8000 });
   check(/Cowboy Cafe/.test(await page.locator('.hm-place').innerText()) && /from you/.test(await page.locator('.hm-place').innerText()), 'a tapped POI resolves against Google and reads its distance from you');
   await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
+  await page.waitForSelector('.hm-ride-confirm', { timeout: 5000 });
+  check(await page.locator('.hm-ride-confirm .qk-roads button').count() === 3, 'Ride here opens the Roads + tolls strip on the card');
+  await page.locator('.hm-ride-confirm .btn.gold').click();
   await page.waitForSelector('.ride-bar', { timeout: 15000 });
   const l6 = await lib();
   check(l6.trip.meta.quick === true && /Cowboy Cafe/.test(l6.trip.meta.title) && l6.trip.days[0].waypoints[1].placeId === 'g-cowboy' && l6.trip.meta.routePrefs?.style === 'touring', 'Ride here makes a REAL quick ride to the place, with the rider\'s road style');
@@ -186,6 +212,7 @@ async function run(width, label) {
   await page.locator('.hm-pill').click();
   await page.waitForSelector('.hm-input', { timeout: 5000 });
   check((await page.evaluate(() => getComputedStyle(document.querySelector('.hm-input')).fontSize)) === '16px', 'the search field is 16px — no zoom on focus');
+  check(/Plan a trip with AI/.test(await page.locator('.hm-ai.lead').innerText()), 'an empty pill offers the planner as one standing row');
   await page.fill('.hm-input', 'Granite Diner');
   await page.waitForSelector('.hm-results button', { timeout: 8000 });
   const s7 = await page.evaluate(() => ({ ai: document.querySelector('.hm-ai')?.innerText ?? '', lead: !!document.querySelector('.hm-ai.lead'), first: document.querySelector('.hm-results b')?.textContent }));
