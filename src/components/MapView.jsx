@@ -7,7 +7,8 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle, cachedCompositeStyle, compositeStyle, poiLayerIds } from '../engine/basemaps.js';
+import PoiCard from './PoiCard.jsx';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
@@ -17,12 +18,16 @@ import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { InputSheet } from './Sheets.jsx';
 
 // Basemap roster: Google tiles headline when a session exists, free styles otherwise.
+// Satellite is the COMPOSITE when its pieces are cached (imagery under,
+// OpenFreeMap's vector roads/labels/POIs over — tappable POIs), Google's flat
+// hybrid while they are not, Esri's with no key at all.
+function satelliteStyle() {
+  return cachedCompositeStyle() ?? cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE;
+}
 function buildBasemapList() {
-  const hyb = cachedGoogleStyle('hybrid');
   const road = cachedGoogleStyle('roadmap');
-  if (!hyb) return { ...BASEMAPS };
   return {
-    gsat: { label: 'Satellite', style: hyb },
+    sat: { label: 'Satellite', style: satelliteStyle() },
     ...(road ? { groad: { label: 'Road', style: road } } : {}),
     streets: BASEMAPS.streets,
     dark: BASEMAPS.dark,
@@ -86,7 +91,11 @@ export default function MapView() {
   const beginDragRef = useRef(() => {});
   const paintedDragRef = useRef(0); // how many points the drag layer currently holds
   const [maps, setMaps] = React.useState(buildBasemapList);
-  const [basemap, setBasemap] = React.useState(() => (cachedGoogleStyle('hybrid') ? 'gsat' : 'sat'));
+  const [basemap, setBasemap] = React.useState('sat');
+  const [poi, setPoi] = React.useState(null); // a vector POI tapped on the composite satellite
+  const appliedStyleRef = useRef(null); // the style object the map currently wears
+  const poiTapRef = useRef(null);
+  const poiHoverRef = useRef(new Set());
   const basemapRef = useRef(basemap);
   basemapRef.current = basemap;
   const [mapObj, setMapObj] = React.useState(null); // the loaded map, for marker children
@@ -125,7 +134,7 @@ export default function MapView() {
   useEffect(() => {
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE,
+      style: (appliedStyleRef.current = maps[basemapRef.current]?.style ?? satelliteStyle()),
       center: [-108.5, 45.9],
       zoom: 5.4,
       // No credit pill on the map at all. Esri and OpenMapTiles require the
@@ -188,10 +197,19 @@ export default function MapView() {
     // click empty map = add waypoint to the selected day
     map.on('click', (e) => {
       const { selectedDayId: dayId } = stateRef.current;
-      if (!dayId) return;
       if (e.originalEvent._wpHandled) return;
       if (dragRef.current) return; // the click that ends a drag is not an add
       if (wheelRef.current) { setWheel(null); paintDrag(); return; } // dismiss first
+      // a POI symbol under the finger is a place, not a spot on the map — the
+      // composite satellite draws them as vector features, so this is a real
+      // hit test, the thing a baked raster could never answer
+      const poiIds = poiLayerIds(map);
+      if (poiIds.length) {
+        const hits = map.queryRenderedFeatures(e.point, { layers: poiIds });
+        if (hits.length) { poiTapRef.current?.(hits[0]); return; }
+      }
+      setPoi(null);
+      if (!dayId) return;
       // clicking a route line opens the leg modal, not the add-stop prompt
       const lineIds = stateRef.current.trip.days
         .map((d) => `route-${d.id}-line`)
@@ -333,21 +351,24 @@ export default function MapView() {
   // Google tile sessions arrive async — swap the roster in and lead with Google
   // satellite unless the user already picked something else.
   useEffect(() => {
-    if (!GOOGLE_KEY) return;
     let dead = false;
     (async () => {
       try {
-        const [hyb, road] = await Promise.all([googleStyle('hybrid'), googleStyle('roadmap')]);
-        if (dead || !hyb) return;
+        // the composite needs liberty's style JSON (and a Google satellite
+        // session when there is a key); Road needs a roadmap session
+        const [comp, road] = await Promise.all([
+          compositeStyle().catch(() => null),
+          GOOGLE_KEY ? googleStyle('roadmap').catch(() => null) : Promise.resolve(null),
+        ]);
+        if (dead) return;
         setMaps({
-          gsat: { label: 'Satellite', style: hyb },
+          sat: { label: 'Satellite', style: comp ?? satelliteStyle() },
           ...(road ? { groad: { label: 'Road', style: road } } : {}),
           streets: BASEMAPS.streets,
           dark: BASEMAPS.dark,
           light: BASEMAPS.light,
         });
-        setBasemap((b) => (b === 'sat' ? 'gsat' : b));
-      } catch { /* Map Tiles API unavailable — free basemaps carry on */ }
+      } catch { /* free basemaps carry on */ }
     })();
     return () => { dead = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -355,10 +376,32 @@ export default function MapView() {
   // basemap switch — setStyle wipes sources; redraw once the new style has loaded
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !readyRef.current) return;
-    map.setStyle(maps[basemap]?.style ?? STYLE_FALLBACK);
-    map.once('idle', () => drawAllRef.current());
-  }, [basemap]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!map) return undefined;
+    const style = maps[basemap]?.style ?? STYLE_FALLBACK;
+    // a basemap whose style object was upgraded in place (Satellite going
+    // from the flat Google hybrid to the composite once its pieces arrive)
+    // re-applies; the same object twice does not — the constructor's style
+    // is recorded so the first load never swaps a style for itself
+    const apply = () => {
+      if (appliedStyleRef.current === style) return;
+      appliedStyleRef.current = style;
+      map.setStyle(style);
+      map.once('idle', () => drawAllRef.current());
+    };
+    if (!readyRef.current) { map.once('load', apply); return () => map.off('load', apply); }
+    apply();
+    return undefined;
+  }, [basemap, maps]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A tapped POI: OSM's name/class/point from the feature. The dev seam lets
+  // the sims drive the exact handler the click uses without vector tiles.
+  poiTapRef.current = (f) => {
+    const p = f?.properties ?? {};
+    const c = f?.geometry?.coordinates ?? [];
+    if (!Number.isFinite(c[0]) || !Number.isFinite(c[1])) return;
+    setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? '', lng: c[0], lat: c[1] });
+  };
+  useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f) => poiTapRef.current?.(f); }, []);
 
   // 3D toggle — terrain + a tilted camera (drawAll re-asserts it after style switches)
   useEffect(() => {
@@ -409,6 +452,14 @@ export default function MapView() {
     ensureTerrain(map, terrainRef.current);
     // our shields are the ones on this map — setStyle brings the basemap's back
     hideNativeRoadShields(map);
+    // POI symbols are tappable: say so with the cursor (delegated listeners
+    // survive setStyle; register each layer id once)
+    for (const id of poiLayerIds(map)) {
+      if (poiHoverRef.current.has(id)) continue;
+      poiHoverRef.current.add(id);
+      map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
+    }
     if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage());
 
     for (const day of t.days) {
@@ -977,6 +1028,29 @@ export default function MapView() {
 
       {/* Naming a tapped stop — the app's sheet, not window.prompt (which is
           unstyled, unlocalised, and on iOS can be suppressed outright). */}
+      {poi && (
+        <PoiCard
+          poi={poi}
+          day={selectedDay ?? null}
+          onClose={() => setPoi(null)}
+          onAdd={(place, { fuel }) => {
+            const day = selectedDay;
+            if (!day) return;
+            const pt = { lat: place.lat, lng: place.lng };
+            dispatch({
+              type: 'apply_ops',
+              ops: [{
+                op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
+                waypoint: {
+                  name: place.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
+                  ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : {}),
+                },
+              }],
+            });
+            setPoi(null);
+          }}
+        />
+      )}
       {addAt && (
         <InputSheet
           title={t('Add a stop')}

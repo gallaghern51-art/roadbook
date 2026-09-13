@@ -59,6 +59,7 @@ try { localStorage.removeItem('moto.gtiles.v1'); localStorage.removeItem('moto.g
 const G_SESSION_SPECS = {
   hybrid: { mapType: 'satellite', layerTypes: ['layerRoadmap'] },
   roadmap: { mapType: 'roadmap' },
+  satellite: { mapType: 'satellite' }, // bare imagery — the composite draws roads/labels/POIs itself
 };
 
 // Google bakes its own route shields into the roadmap layer, and we now draw
@@ -149,6 +150,122 @@ export async function googleStyle(kind) {
   return styleFromSession(kind, rec);
 }
 
+// ---- Satellite the way Tesla draws it: imagery UNDERNEATH, vector on TOP ----
+// Google's hybrid tiles are one flat picture — roads, labels and POI icons
+// baked into the pixels, nothing behind them to tap (owner, Sep 13 2026: "how
+// does Tesla navigation do it where the icons are actually tappable?"). Tesla
+// composites: imagery as the bottom layer, Mapbox VECTOR roads/labels/POIs
+// drawn over it, so every POI is a symbol feature with a name and a class the
+// renderer can hit-test. MapLibre is Mapbox GL's fork and does the same. The
+// vector layer here is OpenFreeMap's liberty style (OSM data, free, already
+// shipped for Streets): we fetch the style, keep ONLY its road / road-name /
+// place / POI layers, recolour the type for a dark ground, and lay them over
+// Google's bare satellite session (or Esri imagery without a key).
+//
+// The POI symbols are then real features: MapView hit-tests them on a tap and
+// PoiCard resolves the tapped name against Google Places for the facts.
+const LIB_CACHE = 'moto.libertyStyle.v1';
+const LIB_TTL_MS = 7 * 86_400_000;
+// OpenMapTiles source-layers that belong on a satellite overlay. Everything
+// else in liberty (landuse, buildings, water fill, relief) is the imagery's
+// job now and would paint over it.
+const OVERLAY_SOURCE_LAYERS = new Set(['transportation', 'transportation_name', 'place', 'poi', 'aerodrome_label', 'mountain_peak', 'water_name', 'park']);
+
+function loadLibertyCache() {
+  try {
+    const rec = JSON.parse(localStorage.getItem(LIB_CACHE) || 'null');
+    return rec && rec.at + LIB_TTL_MS > Date.now() ? rec.style : null;
+  } catch { return null; }
+}
+let libertyInflight = null;
+/** The liberty style JSON, cached a week (the vector overlay is built from it). */
+export async function fetchLibertyStyle() {
+  const hit = loadLibertyCache();
+  if (hit) return hit;
+  if (!libertyInflight) {
+    libertyInflight = fetch(STYLE_STREETS).then(async (r) => {
+      if (!r.ok) throw new Error(`liberty ${r.status}`);
+      const style = await r.json();
+      try { localStorage.setItem(LIB_CACHE, JSON.stringify({ at: Date.now(), style })); } catch { /* cache full */ }
+      return style;
+    }).finally(() => { libertyInflight = null; });
+  }
+  return libertyInflight;
+}
+
+/** Pure: liberty style + an imagery raster source → the composite satellite style. */
+export function compositeSatellite(liberty, imagery) {
+  if (!liberty?.layers || !liberty.sources) return null;
+  const vecName = Object.keys(liberty.sources).find((k) => liberty.sources[k]?.type === 'vector');
+  if (!vecName) return null;
+  const kept = [];
+  const poiLayers = [];
+  for (const l of liberty.layers) {
+    if (l.source !== vecName || !OVERLAY_SOURCE_LAYERS.has(l['source-layer'])) continue;
+    if (l.type !== 'line' && l.type !== 'symbol') continue;
+    if (l['source-layer'] === 'park' && l.type !== 'symbol') continue; // park OUTLINES over imagery are noise; park NAMES are not
+    const layer = { ...l, paint: { ...(l.paint ?? {}) }, layout: { ...(l.layout ?? {}) } };
+    if (l.type === 'symbol') {
+      // liberty sets dark type with a white halo for paper; imagery is dark
+      layer.paint['text-color'] = '#ffffff';
+      layer.paint['text-halo-color'] = 'rgba(0, 0, 0, 0.85)';
+      layer.paint['text-halo-width'] = 1.4;
+      layer.paint['text-halo-blur'] = 0.4;
+      if (l['source-layer'] === 'poi') poiLayers.push(l.id);
+    } else if (l['source-layer'] === 'transportation') {
+      // road linework a shade lighter than liberty paints on paper, so it
+      // reads on forest and shadow without shouting over the route line
+      layer.paint['line-opacity'] = typeof layer.paint['line-opacity'] === 'number' ? Math.min(layer.paint['line-opacity'], 0.8) : 0.8;
+    }
+    kept.push(layer);
+  }
+  if (!kept.length) return null;
+  return {
+    version: 8,
+    glyphs: liberty.glyphs,
+    ...(liberty.sprite ? { sprite: liberty.sprite } : {}),
+    sources: { imagery: imagery.source, [vecName]: liberty.sources[vecName] },
+    layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }, ...kept],
+    metadata: { roadbook: { composite: true, imagery: imagery.id, poiLayers } },
+  };
+}
+
+const ESRI_IMAGERY = {
+  id: 'esri',
+  source: {
+    type: 'raster',
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+  },
+};
+function googleImagery() {
+  if (!GOOGLE_KEY) return null;
+  const rec = freshSession('satellite');
+  if (!rec) return null;
+  return { id: 'google', source: styleFromSession('satellite', rec).sources.gtiles };
+}
+/** Sync: the composite from cached pieces, or null until they are fetched. */
+export function cachedCompositeStyle() {
+  const liberty = loadLibertyCache();
+  if (!liberty) return null;
+  return compositeSatellite(liberty, googleImagery() ?? ESRI_IMAGERY);
+}
+/** Async: fetch what is missing (liberty style, a Google satellite session) and build it. */
+export async function compositeStyle() {
+  const [liberty] = await Promise.all([
+    fetchLibertyStyle(),
+    GOOGLE_KEY ? googleStyle('satellite').catch(() => null) : Promise.resolve(null),
+  ]);
+  return compositeSatellite(liberty, googleImagery() ?? ESRI_IMAGERY);
+}
+/** POI symbol layer ids of the current style, or [] on a non-composite basemap. */
+export function poiLayerIds(map) {
+  try {
+    const ids = map.getStyle()?.metadata?.roadbook?.poiLayers ?? [];
+    return ids.filter((id) => map.getLayer(id));
+  } catch { return []; }
+}
+
 // ---- the basemap's own route shields ----
 // We draw shields on the route (RouteShields.jsx) at OUR spacing, on the road
 // the rider is actually on. The vector basemaps post their own on every
@@ -209,6 +326,12 @@ const ESRI_WARM_LAYERS = [
 // Warm whichever source the nav map actually renders: Google hybrid when a
 // tile session is cached, the Esri pair otherwise.
 function navWarmLayers() {
+  const comp = cachedCompositeStyle();
+  if (comp) {
+    const src = comp.sources.imagery;
+    const tpl = src.tiles?.[0];
+    if (tpl) return [(z, x, y) => tpl.replace('{z}', z).replace('{x}', x).replace('{y}', y)];
+  }
   const g = cachedGoogleStyle('hybrid');
   if (g) {
     const tpl = g.sources.gtiles.tiles[0];

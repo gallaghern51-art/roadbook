@@ -200,3 +200,24 @@ export function gateSlack(day, timeline, parseTime, fromIndex = null) {
   }
   return out;
 }
+
+// ---- OpenMapTiles POI classes → the picker's categories ----
+// A tapped vector POI carries OSM's `class`; this is the bridge to the chip a
+// rider would have pressed, so the Google lookup can be strict-typed and the
+// pin/card wear the right glyph. Unknown classes are a plain place.
+const POI_CLASS = {
+  fuel: 'fuel',
+  restaurant: 'food', fast_food: 'food', bar: 'food', pub: 'food', food_court: 'food',
+  cafe: 'coffee', bakery: 'coffee', ice_cream: 'coffee',
+  lodging: 'lodging', hotel: 'lodging', motel: 'lodging', campsite: 'lodging', camping: 'lodging',
+  hospital: 'help', doctors: 'help', pharmacy: 'help', clinic: 'help',
+  attraction: 'sights', park: 'sights', viewpoint: 'sights', museum: 'sights', monument: 'sights', castle: 'sights', zoo: 'sights', information: 'sights',
+  car: 'moto', car_repair: 'moto', motorcycle: 'moto',
+};
+export function poiCategory(cls, subclass) {
+  return POI_CLASS[subclass] ?? POI_CLASS[cls] ?? null;
+}
+export function poiGlyph(cls, subclass) {
+  const cat = poiCategory(cls, subclass);
+  return CATEGORIES.find((c) => c.id === cat)?.glyph ?? '📍';
+}

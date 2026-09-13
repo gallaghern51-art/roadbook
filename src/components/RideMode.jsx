@@ -16,7 +16,7 @@ import {
   createNav, syncNav, navTarget, navRemaining, navFix,
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
-import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
+import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY, cachedCompositeStyle, compositeStyle } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
@@ -269,7 +269,7 @@ const navStyleFor = (key) => (
   key === 'streets' ? STYLE_STREETS
     : key === 'dark' ? STYLE_DARK
       : key === 'light' ? STYLE_LIGHT
-        : cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE
+        : cachedCompositeStyle() ?? cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE
 );
 
 
@@ -362,6 +362,8 @@ export default function RideMode({ onClose }) {
   const [ridePins, setRidePins] = useState([]);    // the quick add's / sheet picker's candidates, on the nav map
   const [pinTap, setPinTap] = useState(null);       // {id, at} — a pin tapped on the nav map
   const [navStyle, setNavStyle] = useState('hybrid');
+  const navStyleRef = useRef('hybrid');
+  navStyleRef.current = navStyle;
   // Camera grammar, Google-style: track-up is the tilted chase view; north-up
   // is flat overhead with the puck arrow carrying the heading. The compass
   // rose toggles between them and its needle always shows true map north.
@@ -531,7 +533,7 @@ export default function RideMode({ onClose }) {
     if (GOOGLE_KEY) googleStyle('hybrid').catch(() => {});
     const map = new maplibregl.Map({
       container: mapDivRef.current,
-      style: cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE,
+      style: navStyleFor('hybrid'),
       center: start ? [start.lng, start.lat] : [-108, 45],
       zoom: 12,
       attributionControl: false, // shown in the hub instead — see below
@@ -539,6 +541,15 @@ export default function RideMode({ onClose }) {
     });
     mapRef.current = map;
     setNavMap(map);
+    // the composite satellite (imagery + vector roads/labels/POIs) once its
+    // pieces are fetched — only if this ride opened on the flat fallback
+    if (!cachedCompositeStyle()) {
+      compositeStyle().then((st) => {
+        if (!st || mapRef.current !== map || navStyleRef.current !== 'hybrid') return;
+        map.setStyle(st);
+        map.once('styledata', () => drawPlannedRef.current());
+      }).catch(() => {});
+    }
     // console/sim debugging — the GPS-sim SOP asserts on the nav map's paint
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
