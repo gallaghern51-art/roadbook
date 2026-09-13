@@ -94,7 +94,8 @@ await page.evaluate(() => {
       days: [{
         id: 'n1', dow: 'Wed', date: '2026-08-12', title: 'Picker day', phase: 'rally',
         miles: 0, hours: 0, depart: '9:00 AM', arrive: '', anchor: false, summary: '', constraints: [],
-        gates: [{ waypointId: 'nb', by: '4:00 PM', label: 'Cabin check-in' }],
+        // arrival at End Lodge is 9:00 + 6 + 45 dwell + 6 = 9:57 — a 10:00 gate has 3 min to spare
+        gates: [{ waypointId: 'nb', by: '4:00 PM', label: 'Cabin check-in' }, { waypointId: 'nc', by: '10:00 AM', label: 'Lodge breakfast cutoff' }],
         meals: [{ meal: 'lunch', name: 'AI Pick Diner', where: 'somewhere', note: '', alt: '' }],
         photos: [], modules: [], ops: [], lodging: { status: 'none', name: '', where: '', note: '' },
         waypoints: [mk('na', 'Basecamp', 44.0, -108.0), mk('nb', 'Granite Diner', 44.06, -107.95, { dwell: 45, kind: 'via' }), mk('nc', 'End Lodge', 44.10, -107.88)],
@@ -172,6 +173,9 @@ await page.waitForSelector('.nearby-swap .nb-actions', { timeout: 4000 });
 await page.waitForTimeout(900); // the detour measurement
 const detourTxt = await page.locator('.nearby-swap .nb-detour').textContent().catch(() => '');
 check(/\+\d+ min/.test(detourTxt), `the expanded row measured a real detour via Valhalla ("${detourTxt.trim().slice(0, 40)}")`);
+const gateTxt = await page.locator('.nearby-swap .nb-gates').textContent().catch(() => '');
+check(/Breaks Lodge breakfast cutoff \(10:00 AM\) by \d+ min/.test(gateTxt), `the detour is judged against the hard gate it breaks ("${gateTxt.trim().slice(0, 60)}")`);
+check(/Cabin check-in \(4:00 PM\): \d+ min to spare/.test(gateTxt), 'and a gate with room to spare says so');
 await page.screenshot({ path: SHOT('nearby-swap') });
 await page.locator('.nearby-swap .nb-actions .btn.gold').click();
 await page.waitForTimeout(500);

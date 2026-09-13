@@ -6,8 +6,9 @@ import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
 import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute, summaryIsStale } from '../engine/tripEngine.js';
-import { dayTimeline, fmtTime, fmtDur, to24h, from24h } from '../engine/timeline.js';
+import { dayTimeline, fmtTime, fmtDur, to24h, from24h, parseTime } from '../engine/timeline.js';
 import NearbyPicker from './NearbyPicker.jsx';
+import { gateSlack } from '../engine/nearby.js';
 import { tripRoutePrefs, alongOnRoute } from '../engine/tripEngine.js';
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
@@ -499,6 +500,7 @@ function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
       fromAlong={0}
       dow={dayDow(day)}
       routePrefs={tripRoutePrefs(trip)}
+      gateSlack={gateSlack(day, timeline, parseTime, null)}
       onPick={pick}
       onClose={() => setOpen(false)}
       title={t('Add a stop to this day')}
@@ -512,7 +514,10 @@ function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
 // stop's arrival in the simulated day.
 function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
   const t = useT();
+  const { routedLegsByDay } = useTrip();
   const chain = dayChain(day, routes);
+  const tl = dayTimeline(day, routedLegsByDay[day.id]);
+  const idx = day.waypoints.findIndex((x) => x.id === w.id);
   const pick = (r) => {
     dispatch({
       type: 'apply_ops',
@@ -540,6 +545,7 @@ function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
       etaMin={sched?.arrive ?? null}
       dow={dayDow(day)}
       routePrefs={tripRoutePrefs(trip)}
+      gateSlack={gateSlack(day, tl, parseTime, idx)}
       initialCategory={cat}
       onPick={pick}
       onClose={onClose}

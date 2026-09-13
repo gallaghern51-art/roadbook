@@ -172,3 +172,24 @@ export function priceGlyph(level) {
   const n = { PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 }[level];
   return n ? '$'.repeat(n) : '';
 }
+
+/**
+ * The margin each hard gate has AFTER a point in the day — what a detour eats
+ * into. Given the day's simulated timeline, returns [{ label, by, marginMin }]
+ * for gates on stops at or after `fromIndex` (all gates when null). A
+ * candidate whose measured detour exceeds a margin breaks that gate; that is
+ * the fact Google cannot know and the one a rider most needs on the row.
+ */
+export function gateSlack(day, timeline, parseTime, fromIndex = null) {
+  const out = [];
+  for (const g of day?.gates ?? []) {
+    const i = (day.waypoints ?? []).findIndex((w) => w.id === g.waypointId);
+    if (i < 0 || (fromIndex != null && i < fromIndex)) continue;
+    const stop = timeline?.stops?.[i];
+    if (!stop) continue;
+    const by = parseTime(g.by);
+    if (!Number.isFinite(by)) continue;
+    out.push({ label: g.label, by: g.by, marginMin: Math.round(by - stop.arrive) });
+  }
+  return out;
+}

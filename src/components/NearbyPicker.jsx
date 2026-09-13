@@ -25,7 +25,7 @@ import { useT, useUnits } from '../engine/settings.jsx';
 //   onClose()
 export default function NearbyPicker({
   near, chain = null, fromAlong = 0, nextStop = null, etaMin = null, dow = null, routePrefs,
-  mode = 'add', initialCategory = null, onPick, onClose, title,
+  mode = 'add', initialCategory = null, onPick, onClose, title, gateSlack = [],
 }) {
   const t = useT();
   const u = useUnits();
@@ -190,6 +190,22 @@ export default function NearbyPicker({
                         {d && d !== 'busy' && d !== 'na' && (
                           <><b>+{Math.round(d.minutes)} min</b> · +{u.miNum(d.miles)} {u.miUnit} {t('detour on the way to the next stop')}</>
                         )}
+                      </div>
+                    )}
+                    {/* the detour against every hard gate still ahead — the fact a
+                        map app cannot know. Broken gates first. */}
+                    {d && d !== 'busy' && d !== 'na' && gateSlack.length > 0 && (
+                      <div className="nb-gates">
+                        {gateSlack.map((g) => {
+                          const left = g.marginMin - Math.round(d.minutes);
+                          return (
+                            <div key={g.label} className={`nb-gate ${left < 0 ? 'bad' : left < 20 ? 'warn' : 'ok'}`}>
+                              {left < 0
+                                ? `${t('Breaks')} ${g.label} (${g.by}) ${t('by')} ${Math.abs(left)} min`
+                                : `${g.label} (${g.by}): ${left} min ${t('to spare')}`}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {Array.isArray(r.hours) && r.hours.length > 0 && (

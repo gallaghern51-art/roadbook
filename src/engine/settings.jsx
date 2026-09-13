@@ -172,6 +172,9 @@ const ES = {
   'one-day rides from where you were — ride again, or make one a trip': 'rodadas de un día desde donde estabas: repítelas o convierte una en viaje',
   'Make it a trip': 'Convertir en viaje',
   // nearby picker
+  'Breaks': 'Rompe',
+  'by': 'por',
+  'to spare': 'de margen',
   'Kind of food': 'Tipo de comida',
   'Any': 'Cualquiera',
   'Diner': 'Diner',
