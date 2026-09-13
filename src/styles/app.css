@@ -523,12 +523,24 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 /* overview */
 .ov-days { display: flex; flex-direction: column; gap: 6px; }
 .ov-day {
-  display: grid; grid-template-columns: 14px 58px 1fr auto; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: 16px 14px 58px 1fr auto; gap: 10px; align-items: center;
   text-align: left; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--asphalt-2);
-  cursor: grab; transition: border-color 0.15s;
+  /* the row OPENS the day — only the grip drags it */
+  cursor: pointer; transition: border-color 0.15s;
 }
 .ov-day:hover { border-color: var(--ink-faint); }
 .ov-day.dragging { opacity: 0.4; }
+/* The reorder grip. It is the only part of the row that drags, and
+   touch-action:none is what lets a finger pull it without the panel
+   scrolling out from under the gesture. */
+.ov-grip {
+  position: relative; cursor: grab; touch-action: none;
+  align-self: stretch; display: flex; align-items: center; justify-content: center;
+  color: var(--ink-faint); font-size: 14px; line-height: 1; letter-spacing: -1px;
+}
+.ov-grip:hover, .ov-grip:focus-visible { color: var(--rally); }
+.ov-grip:active { cursor: grabbing; }
+.ov-day.dragging .ov-grip { cursor: grabbing; }
 .ov-day .ph { width: 8px; height: 34px; border-radius: 3px; }
 .ov-day .dt { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); line-height: 1.4; }
 .ov-day .t { font-family: var(--display); font-size: 16px; font-weight: 600; line-height: 1.1; }
@@ -1636,7 +1648,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
      content width — at 70px the fuel-gap figure wrapped to a lonely second row */
   .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(62px, 1fr)); gap: 10px 12px; }
   .wp-row { grid-template-columns: 18px 60px minmax(0, 1fr) auto; gap: 6px; padding: 9px 4px; }
-  .ov-day { grid-template-columns: 12px 50px minmax(0, 1fr) auto; gap: 8px; }
+  .ov-day { grid-template-columns: 16px 12px 50px minmax(0, 1fr) auto; gap: 8px; }
+  /* glove-sized grip without widening the visual column */
+  .ov-grip::after { content: ''; position: absolute; inset: -8px -12px -8px -10px; }
   .ov-day .t { font-size: 15px; }
   .budget-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
   .route-pref-head { align-items: flex-start; }
@@ -4154,3 +4168,160 @@ input:focus, textarea:focus, select:focus {
 .crash-body details { color: var(--ink-faint, #8a8a8a); font-size: 12px; }
 .crash-body summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
 .crash-body code { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11.5px; word-break: break-word; }
+
+/* ---------- how-to guide ----------
+   Written directions are the guide; video is an enrichment that may not exist
+   yet. The layout is a reading column with a chapter rail beside it on a
+   desktop and above it on a phone — the same shape as the rest of the app's
+   sheets, sized for reading rather than for controls. */
+.guide-modal { width: 960px; max-width: 100%; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+.guide-wrap { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 0; flex: 1 1 auto; }
+.guide-nav {
+  border-right: 1px solid var(--line); padding: 12px 10px 20px;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0;
+}
+.guide-search {
+  width: 100%; margin-bottom: 8px; padding: 8px 10px; min-height: 38px;
+  background: var(--asphalt-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); font-family: var(--body); font-size: 13px;
+}
+.guide-search::placeholder { color: var(--ink-faint); }
+.guide-chap {
+  display: flex; align-items: center; gap: 9px; text-align: left;
+  padding: 9px 10px; border-radius: 8px; border: 1px solid transparent;
+  color: var(--ink-dim); font-family: var(--display); font-size: 14px; font-weight: 600;
+  letter-spacing: 0.01em; line-height: 1.15; min-height: 40px;
+}
+.guide-chap i { font-style: normal; color: var(--ink-faint); width: 16px; text-align: center; flex: none; }
+.guide-chap:hover { color: var(--ink); background: var(--asphalt-2); }
+.guide-chap.active { color: var(--rally); border-color: var(--rally); background: rgba(245, 63, 31, 0.07); }
+.guide-chap.active i { color: var(--rally); }
+.guide-empty { color: var(--ink-faint); font-size: 12.5px; padding: 8px 10px; }
+
+.guide-body { overflow-y: auto; padding: 18px 22px 40px; min-height: 0; }
+.guide-body h4 { font-family: var(--display); font-size: 23px; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
+.guide-blurb { color: var(--ink-dim); font-size: 14px; margin: 6px 0 14px; max-width: 62ch; }
+.guide-steps { list-style: none; counter-reset: gstep; display: flex; flex-direction: column; gap: 14px; margin: 16px 0 0; }
+.guide-steps li { counter-increment: gstep; position: relative; padding-left: 34px; max-width: 66ch; }
+.guide-steps li::before {
+  content: counter(gstep); position: absolute; left: 0; top: 0;
+  width: 24px; height: 24px; border-radius: 999px; border: 1px solid var(--line-strong, var(--line));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+}
+.guide-steps li b { display: block; font-family: var(--display); font-size: 15.5px; font-weight: 650; line-height: 1.2; }
+.guide-steps li p { color: var(--ink-dim); font-size: 13.5px; line-height: 1.5; margin-top: 4px; }
+.guide-tips { margin-top: 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-2); max-width: 66ch; }
+.guide-tips h5 {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-faint); margin-bottom: 6px;
+}
+.guide-tips ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.guide-tips li { position: relative; padding-left: 14px; color: var(--ink-dim); font-size: 13px; line-height: 1.45; }
+.guide-tips li::before { content: '·'; position: absolute; left: 3px; color: var(--outbound); font-weight: 700; }
+.guide-foot { display: flex; gap: 10px; justify-content: space-between; margin-top: 26px; flex-wrap: wrap; }
+.guide-foot .btn { min-height: 40px; }
+
+/* The video slot. A clip that is not in public/guide/ yet says so rather than
+   rendering a dead player — the written steps are the guide either way. */
+.g-video { margin: 4px 0 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #000; max-width: 720px; }
+.g-video video, .g-video iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.g-video-todo {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: var(--asphalt-2); aspect-ratio: auto;
+}
+.g-video-todo .gv-mark {
+  width: 34px; height: 34px; flex: none; border-radius: 999px; border: 1px solid var(--line-strong, var(--line));
+  display: flex; align-items: center; justify-content: center; color: var(--ink-faint); font-size: 13px;
+}
+.g-video-todo b { display: block; font-family: var(--display); font-size: 14px; font-weight: 650; color: var(--ink-dim); }
+.g-video-todo small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+
+/* the guide's doors */
+.guide-card .gc-mark {
+  height: 64px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 34px; font-weight: 700; color: var(--outbound);
+}
+.land-help {
+  display: block; margin-top: 10px; color: var(--ink-dim);
+  font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 0.04em;
+  min-height: 44px;
+}
+.land-help:hover { color: var(--rally); }
+
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .guide-modal { max-height: 94dvh; }
+  /* the rail becomes a scrolling strip above the reading column */
+  .guide-wrap { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .guide-nav {
+    border-right: none; border-bottom: 1px solid var(--line);
+    flex-direction: row; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    gap: 6px; padding: 10px 12px; scrollbar-width: none; overscroll-behavior-x: contain;
+  }
+  .guide-nav::-webkit-scrollbar { display: none; }
+  .guide-search { flex: 0 0 150px; margin-bottom: 0; font-size: 16px; min-height: 44px; }
+  .guide-chap { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
+  .guide-body { padding: 16px 16px 90px; }
+  .guide-body h4 { font-size: 20px; }
+  .guide-steps li { padding-left: 30px; }
+  .guide-foot .btn { min-height: 44px; flex: 1 1 auto; }
+}
+
+:root[data-theme='light'] .guide-chap.active { background: rgba(245, 63, 31, 0.09); }
+:root[data-theme='light'] .g-video { background: var(--asphalt-2); }
+
+/* ---------- templates ----------
+   A template is a library record wearing meta.template (src/engine/templates.js).
+   It reads as a trip card with its provenance on the front, because that is what
+   it is: somebody's plan, kept as a starting point. */
+.tpl-card { border-style: dashed; }
+.tpl-tag {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--outbound); border: 1px solid var(--outbound); border-radius: 3px; padding: 1px 5px;
+}
+.tc-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.tc-actions .tc-open { margin-top: 0; }
+.tc-share {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-dim); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; min-height: 32px;
+}
+.tc-share:hover { color: var(--rally); border-color: var(--rally); }
+
+/* the picker in New trip */
+.tpl-pick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.tpl-pick button {
+  text-align: left; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--asphalt-2); min-height: 44px;
+}
+.tpl-pick button b { display: block; font-family: var(--display); font-size: 15px; font-weight: 650; }
+.tpl-pick button small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+.tpl-pick button.active { border-color: var(--rally); background: rgba(245, 63, 31, 0.07); }
+.tpl-hint { color: var(--ink-faint); font-size: 12px; margin-top: 8px; }
+
+/* save-as-template row in Trip settings */
+.tpl-save { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.tpl-save small { color: var(--ink-faint); font-size: 11.5px; flex: 1 1 180px; }
+
+/* laying template days into this trip */
+.ov-day-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.tpl-insert {
+  flex: 1 1 100%; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; background: var(--asphalt-2);
+}
+.tpl-insert-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.tpl-insert-head b { font-family: var(--display); font-size: 14px; font-weight: 650; }
+.tpl-insert-list { display: flex; flex-direction: column; gap: 4px; max-height: 210px; overflow-y: auto; }
+.tpl-insert-row { text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; min-height: 44px; }
+.tpl-insert-row:hover { border-color: var(--rally); }
+.tpl-insert-row b { font-family: var(--display); font-size: 14px; font-weight: 600; margin-right: 6px; }
+.tpl-insert-row small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+.tpl-insert-day { display: flex; gap: 9px; align-items: flex-start; padding: 6px 4px; min-height: 40px; font-size: 13px; color: var(--ink-dim); }
+.tpl-insert-day input { accent-color: var(--rally); width: 16px; height: 16px; margin-top: 2px; flex: none; }
+.tpl-insert-day b { color: var(--ink); font-family: var(--mono); font-size: 11px; margin-right: 4px; }
+.tpl-insert .fld { margin-top: 10px; }
+.tpl-insert-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .tpl-insert-foot .btn, .tc-share { min-height: 44px; }
+  .tpl-insert-day { min-height: 44px; align-items: center; }
+}

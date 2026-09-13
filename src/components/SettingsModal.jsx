@@ -85,7 +85,7 @@ function Seg({ label, value, options, onPick, note }) {
   );
 }
 
-export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount }) {
+export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount, onHelp }) {
   const s = useSettings();
   const { lang, theme, units, shields, density, basemap, terrain, voice, speedSign, keepAwake, set } = s;
   const t = useT();
@@ -251,6 +251,11 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           {tab === 'about' && (
             <div className="set-section">
+              <div className="set-row">
+                <span className="set-label">{t('Guide')}</span>
+                <button className="btn gold" type="button" onClick={onHelp}>{t('How to use Roadbook')}</button>
+              </div>
+              <p className="set-note">{t('Step-by-step directions for every part of the app, with walkthrough videos.')}</p>
               <div className="set-credits">
                 <span className="set-label">{t('Credits')}</span>
                 <p>
