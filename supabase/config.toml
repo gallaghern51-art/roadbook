@@ -460,9 +460,9 @@ verify_enabled = true
 max_frequency = "1m0s"
 otp_length = 8
 
-# Until RESEND_SMTP_KEY is set in the environment of whoever pushes, the hosted
-# project keeps Supabase's built-in sender (low volume) with the Roadbook
-# templates. Flip this to true and push with the key to move to Resend.
+# SMTP on the hosted project is Resend with a sending-only key restricted to
+# calaf.ai ("Roadbook — Supabase auth SMTP v2"); RESEND_SMTP_KEY must be in the
+# environment of whoever pushes (.env.local holds it locally, gitignored).
 [remotes.production.auth.email.smtp]
-enabled = false
+enabled = true
 
