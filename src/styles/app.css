@@ -4628,6 +4628,25 @@ input:focus, textarea:focus, select:focus {
 .modal.sheet.place-sheet { padding: 0; }
 .ps-hero { position: relative; height: 200px; background: var(--asphalt-3); overflow: hidden; border-radius: var(--radius-panel, 10px) var(--radius-panel, 10px) 0 0; }
 .ps-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* several photos: a strip the thumb scrolls, the first one wider */
+.ps-hero.strip { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
+.ps-hero.strip::-webkit-scrollbar { display: none; }
+.ps-shot { position: relative; flex: 0 0 auto; height: 100%; scroll-snap-align: start; }
+.ps-hero.strip .ps-shot { width: 78%; }
+.ps-hero.strip .ps-shot:first-child { width: 88%; }
+.ps-hero.strip img { width: 100%; height: 100%; object-fit: cover; }
+.ps-amen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ps-chip { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; padding: 5px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-dim); }
+.ps-chip.ok { color: var(--ok, #82c98d); border-color: color-mix(in srgb, var(--ok, #82c98d) 40%, transparent); }
+.ps-chip.no { color: var(--ink-faint); text-decoration: line-through; }
+.ps-reviews { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.ps-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.ps-review { margin: 0; padding: 10px 12px; border: 1px solid var(--line-soft, var(--line)); border-radius: 10px; background: var(--asphalt-0); }
+.ps-review-head { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.ps-review-head .nb-rate { letter-spacing: -1px; }
+.ps-review-by { font-weight: 600; } .ps-review-by a { color: var(--ink); text-decoration: none; }
+.ps-review-when { color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; margin-left: auto; }
+.ps-review p { margin: 6px 0 0; font-size: 13px; line-height: 1.45; color: var(--ink-dim); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .ps-credit { position: absolute; right: 8px; bottom: 6px; font-family: var(--mono); font-size: 10px; color: #fff; background: rgba(0, 0, 0, 0.55); padding: 2px 6px; border-radius: 4px; text-decoration: none; }
 .ps-head { align-items: center; }
 .ps-head h3 { overflow-wrap: anywhere; }
