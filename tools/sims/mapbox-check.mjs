@@ -68,6 +68,10 @@ async function open(styleStatus) {
   check(st.shield === 'none', "Mapbox's own route-number shields are hidden under ours");
   check(st.exit !== 'none', 'exit shields stay — the one number a rider acts on');
   check(st.ours, 'our route layers are on top of the style');
+  // the route outranks the road: white casing + no grey phase on satellite
+  const rc = await page.evaluate(() => { const m = window.__map; const ids = m.getStyle().layers.map((l) => l.id); const casing = ids.find((id) => /^route-.*-casing$/.test(id)); const lines = ids.filter((id) => /^route-.*-line$/.test(id)); return { casing: casing && m.getPaintProperty(casing, 'line-color'), colors: lines.map((id) => String(m.getPaintProperty(id, 'line-color')).toLowerCase()) }; });
+  check(rc.casing === '#ffffff', `on satellite the route casing is WHITE (roads are dark-cased) — ${rc.casing}`);
+  check(rc.colors.length > 0 && !rc.colors.includes('#cecece') && !rc.colors.includes('#7a7a7a'), `no grey phase colour on satellite (${[...new Set(rc.colors)].join(', ')})`);
   const rw = await page.evaluate(() => window.__map.getPaintProperty('road-primary', 'line-width'));
   check(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9), 'satellite: primary roads carry our width floor (the Beartooth Highway hairline fix)');
   check(st.logo && /Mapbox/.test(st.attrib), 'the Mapbox wordmark and © credit are on the map (Product Terms attribution)');
@@ -87,6 +91,11 @@ async function open(styleStatus) {
   check(mbLog.some((u) => /styles\/v1\/mapbox\/streets-v12\?/.test(u)), 'streets-v12 was fetched through the SDK');
   await page.waitForFunction(() => window.__map?.getLayoutProperty?.('road-number-shield', 'visibility') === 'none', null, { timeout: 10000 }).catch(() => {});
   check((await page.evaluate(() => window.__map.getLayoutProperty('road-number-shield', 'visibility'))) === 'none', 'the new style\'s shields are hidden again');
+  // the redraw that recolours the casing runs once the swapped style is idle
+  const readCasing = () => { const m = window.__map; const ids = m.getStyle().layers.map((l) => l.id); const casing = ids.find((id) => /^route-(?!preview|drag).*-casing$/.test(id)); return casing && m.getPaintProperty(casing, 'line-color'); };
+  await page.waitForFunction(`(${readCasing.toString()})() === '#000000'`, null, { timeout: 10000 }).catch(() => {});
+  const sc = await page.evaluate(readCasing);
+  check(sc === '#000000', `on Streets the route casing is black again (${sc})`);
   await page.locator('.basemap-switch.closed button').click();
   const pills = await page.locator('.basemap-switch button').allTextContents();
   check(['Satellite', 'Streets', 'Dark', 'Light'].every((k) => pills.includes(k)), `four Mapbox basemaps on the pill (${pills.join(', ')})`);
