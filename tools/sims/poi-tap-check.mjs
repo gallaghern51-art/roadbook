@@ -1,11 +1,11 @@
-// Composite satellite: imagery UNDERNEATH, OpenFreeMap's vector roads / labels /
-// POIs on top — so a POI on the satellite view is a real feature a rider can
-// tap, resolved against Google Places for the facts, and added to the day.
+// Layered satellite: Mapbox's imagery UNDERNEATH, Mapbox's vector roads /
+// labels / POIs on top — so a POI on the satellite view is a real feature a
+// rider can tap, resolved against Google Places for the facts, and added to
+// the day. api.mapbox.com is mocked (fixtures/mapbox-mock.mjs).
 //
-//   · compositeSatellite() keeps only roads / road names / places / POIs from
-//     liberty, puts imagery first, recolours type for a dark ground, and
-//     names its POI layers in the style metadata
-//   · the plan map and the nav map both run it
+//   · poiLayerIds() names the style's poi_label symbol layers;
+//     hideNativeRoadShields() hides Mapbox's number shields and keeps exits
+//   · the plan map and the nav map both run satellite-streets
 //   · a tapped POI opens a card: OSM name + class glyph, then Google's match
 //     (rating, open now, ✓) when one is close and plausibly the same business
 //   · Add lands it in the day by ROUTE order with placeId + verified; a fuel
@@ -15,28 +15,23 @@
 //   npm run dev    # :5199
 //   node tools/sims/poi-tap-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
-import { compositeSatellite } from '../../src/engine/basemaps.js';
-import { LIBERTY_MINI } from './fixtures/liberty-mini.mjs';
+import { poiLayerIds, hideNativeRoadShields } from '../../src/engine/basemaps.js';
+import { MAPBOX_MINI } from './fixtures/mapbox-mini.mjs';
+import { routeMapbox, isMockTile, fakeMap } from './fixtures/mapbox-mock.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
 const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); ok ? pass++ : fail++; };
 
-// 0. the compositor, as a pure function
+// 0. the pure helpers over a satellite-streets-shaped style
 {
-  const esri = { id: 'esri', source: { type: 'raster', tiles: ['https://x/{z}/{y}/{x}'], tileSize: 256 } };
-  const c = compositeSatellite(LIBERTY_MINI, esri);
-  const ids = c.layers.map((l) => l.id);
-  check(c.layers[0].id === 'imagery' && c.layers[0].type === 'raster', 'imagery is the bottom layer');
-  check(!ids.some((id) => /background|landuse|water$|building|natural_earth|^park$|park_outline/.test(id)), `fills, relief and park outlines are gone (${ids.join(', ')})`);
-  check(['highway_motorway_casing', 'highway_motorway_inner', 'highway_minor', 'highway_name_other', 'place_town', 'place_city', 'poi_z16', 'poi_z14', 'park_label', 'water_name', 'highway-shield-us-interstate'].every((id) => ids.includes(id)), 'roads, road names, places, POIs and park names are kept');
-  const sym = c.layers.filter((l) => l.type === 'symbol');
-  check(sym.every((l) => l.paint['text-color'] === '#ffffff' && /rgba\(0, 0, 0/.test(l.paint['text-halo-color'])), 'type is white with a dark halo on every label layer');
-  const road = c.layers.find((l) => l.id === 'highway_motorway_inner');
-  check(road.paint['line-opacity'] === 0.8 && road.paint['line-color'] === '#fc8', 'road lines keep their colour at reduced opacity');
-  check(c.metadata.roadbook.composite === true && c.metadata.roadbook.poiLayers.join() === 'poi_z16,poi_z14', `POI layers are named in the metadata (${c.metadata.roadbook.poiLayers.join(', ')})`);
-  check(Object.keys(c.sources).join() === 'imagery,openmaptiles' && c.glyphs === LIBERTY_MINI.glyphs, 'two sources, liberty glyphs');
-  check(compositeSatellite({ version: 8, sources: {}, layers: [] }, esri) === null, 'a style with no vector source composes to null (the caller falls back)');
+  const fm = fakeMap(MAPBOX_MINI);
+  check(poiLayerIds(fm).join() === 'poi-label', 'poi_label symbol layers are the tappable POIs');
+  const n = hideNativeRoadShields(fm);
+  check(n === 1 && fm.vis['road-number-shield'] === 'none', 'the route-number shield layer is hidden under ours');
+  check(fm.vis['road-exit-shield'] === undefined && fm.vis['road-label'] === undefined && fm.vis['poi-label'] === undefined, 'exit shields, road names and POIs are left alone');
+  check(hideNativeRoadShields(fm) === 0, 'idempotent: a second pass hides nothing new');
+  check(poiLayerIds(fakeMap({ version: 8, sources: {}, layers: [{ id: 'satellite', type: 'raster', source: 's' }] })).length === 0, 'a raster fallback has no POI layers');
 }
 
 const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -79,7 +74,8 @@ async function run(width, label) {
   page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
   await page.route('**/*', (r) => {
     const u = r.request().url();
-    if (u.includes('tiles.openfreemap.org/styles/liberty')) return r.fulfill({ json: LIBERTY_MINI });
+    if (routeMapbox(r)) return undefined;
+    if (isMockTile(u)) return r.fulfill({ status: 204 });
     if (u.includes('/.netlify/functions/nearby-places')) return r.fulfill({ json: places(r.request().postDataJSON()) });
     if (u.includes('/.netlify/functions/google-route')) return r.fulfill({ status: 501, json: { error: 'no key' } });
     if (u.includes('__mock_tiles') || u.includes('__mock_relief')) return r.fulfill({ status: 204 });
@@ -118,11 +114,11 @@ async function run(width, label) {
   await page.waitForTimeout(1200);
   const lib = () => page.evaluate(() => { const l = JSON.parse(localStorage.getItem('moto.trips.v1')); return l.trips.find((r) => r.id === l.activeId).trip; });
 
-  // 1. the plan map is on the composite
-  await page.waitForFunction(() => window.__map?.getStyle?.()?.metadata?.roadbook?.composite === true, null, { timeout: 15000 }).catch(() => {});
-  const st = await page.evaluate(() => { const s = window.__map.getStyle(); return { composite: s.metadata?.roadbook?.composite, first: s.layers[0]?.id, poi: s.metadata?.roadbook?.poiLayers, imagery: s.metadata?.roadbook?.imagery, hasPoiLayer: !!window.__map.getLayer('poi_z14') }; });
-  check(st.composite === true && st.first === 'imagery', `the plan map runs the composite satellite (imagery: ${st.imagery})`);
-  check(st.hasPoiLayer && st.poi?.length === 2, 'its POI layers are live symbol layers');
+  // 1. the plan map is on Mapbox satellite-streets
+  await page.waitForFunction(() => /satellite-streets/.test(window.__map?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
+  const st = await page.evaluate(() => { const s = window.__map.getStyle(); return { name: s.name, raster: s.layers.find((l) => l.type === 'raster')?.id, poi: s.layers.filter((l) => l['source-layer'] === 'poi_label').map((l) => l.id), hasPoiLayer: !!window.__map.getLayer('poi-label') }; });
+  check(/satellite-streets/.test(st.name) && st.raster === 'satellite', `the plan map runs Mapbox satellite-streets (${st.name})`);
+  check(st.hasPoiLayer && st.poi.join() === 'poi-label', 'its POI layer is a live symbol layer');
   check(await page.locator('.bs-cur').textContent().then((x) => /Satellite/.test(x)), 'the basemap pill still says Satellite');
 
   // 2. no day selected: the card opens, Add is disabled and says why
@@ -171,12 +167,12 @@ async function run(width, label) {
   // 5. a POI tap never doubles as click-to-add
   check(await page.locator('.modal.sheet').count() === 0, 'no "Add a stop" naming sheet opened alongside');
 
-  // 6. the nav map is on the composite too
+  // 6. the nav map is on satellite-streets too
   await page.locator('.modebar button', { hasText: /ride/i }).click();
   await page.waitForSelector('.ride-bar', { timeout: 15000 });
-  await page.waitForFunction(() => window.__rideMap?.getStyle?.()?.metadata?.roadbook?.composite === true, null, { timeout: 15000 }).catch(() => {});
-  const rs = await page.evaluate(() => window.__rideMap?.getStyle?.()?.metadata?.roadbook ?? null);
-  check(rs?.composite === true, `Ride Mode's satellite is the composite (imagery: ${rs?.imagery})`);
+  await page.waitForFunction(() => /satellite-streets/.test(window.__rideMap?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
+  const rs = await page.evaluate(() => window.__rideMap?.getStyle?.()?.name ?? null);
+  check(/satellite-streets/.test(rs ?? ''), `Ride Mode's satellite is Mapbox's too (${rs})`);
   await ctx.close();
 }
 

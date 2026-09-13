@@ -1,16 +1,44 @@
 // Shared basemap styles — used by the planning map and the Ride Mode nav map.
+//
+// Mapbox is the map (owner, Sep 13 2026: "switch from open free maps to mapbox
+// in order to have better tiles for clicking locations… since mapbox wants you
+// to use their SDK we will move away from openfree maps"). The renderer is
+// mapbox-gl — Mapbox's Product Terms (§2.8.3, §3.58) bill a map drawn by
+// Mapbox GL JS as a Map Load and a map drawn by anything else per tile
+// request, so the SDK is the cheap AND the sanctioned path. Every basemap is a
+// Mapbox style: satellite-streets is the layered one — their imagery
+// underneath, their vector roads / labels / POIs on top, so a POI is a symbol
+// feature with a name and a class the map can hit-test (Tesla's grammar).
+//
+// The token is PUBLIC (pk., the default public scopes, URL-restricted in the
+// Mapbox console) — VITE_MAPBOX_TOKEN at build time, or in dev a localStorage
+// override (`moto.mapboxToken`) so a phone or a sim can try one without a
+// rebuild. Without a token mapbox-gl still renders any non-Mapbox style, so
+// the app falls back to Esri imagery rather than a blank map.
 
 import { haversineMiles } from './tripEngine.js';
 
-export const STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
-export const STYLE_STREETS = 'https://tiles.openfreemap.org/styles/liberty';
-export const STYLE_FALLBACK = STYLE_STREETS;
-export const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/positron';
+const ENV = import.meta.env ?? {}; // `?? {}` so node check scripts can import this
+export const MAPBOX_TOKEN = ENV.VITE_MAPBOX_TOKEN
+  || (ENV.DEV ? (() => { try { return localStorage.getItem('moto.mapboxToken') || ''; } catch { return ''; } })() : '');
+export const MAPBOX_ON = !!MAPBOX_TOKEN;
+// The token rides on each Map as `accessToken` (MapView, RideMode) rather than
+// mapboxgl.accessToken here, so this module never imports the renderer — the
+// node check scripts and sims import it for the pure helpers.
 
-// Hybrid satellite: Esri imagery + road network + city/place labels on top.
+// Mapbox's own styles. mapbox-gl resolves mapbox:// itself (style, sprite,
+// glyphs, TileJSON, tiles) and puts the token on every request.
+export const MAPBOX_STYLES = {
+  sat: 'mapbox://styles/mapbox/satellite-streets-v12',
+  streets: 'mapbox://styles/mapbox/streets-v12',
+  dark: 'mapbox://styles/mapbox/dark-v11',
+  light: 'mapbox://styles/mapbox/light-v11',
+};
+
+// No-token fallback: Esri imagery + road network + place labels, all raster
+// (nothing to tap). Also where a map lands if the Mapbox style fails to load.
 export const STYLE_SATELLITE = {
   version: 8,
-  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
   sources: {
     satellite: {
       type: 'raster',
@@ -38,312 +66,47 @@ export const STYLE_SATELLITE = {
     { id: 'esri-places', type: 'raster', source: 'esri-places' },
   ],
 };
+export const STYLE_FALLBACK = STYLE_SATELLITE;
 
-export const BASEMAPS = {
-  sat: { label: 'Satellite', style: STYLE_SATELLITE },
-  streets: { label: 'Streets', style: STYLE_STREETS },
-  dark: { label: 'Dark', style: STYLE_DARK },
-  light: { label: 'Light', style: STYLE_LIGHT },
-};
-
-// ---- Google Map Tiles API (2D raster sessions) ----
-// Needs a client-side key (VITE_GOOGLE_MAPS_KEY at build time) and the
-// "Map Tiles API" enabled on the Google project. Everything degrades to the
-// free basemaps above when the key is absent or a session can't be created.
-
-export const GOOGLE_KEY = (import.meta.env ?? {}).VITE_GOOGLE_MAPS_KEY || ''; // `?? {}` so node check scripts can import this
-const GT_CACHE = 'moto.gtiles.v3';
-try { localStorage.removeItem('moto.gtiles.v1'); localStorage.removeItem('moto.gtiles.v2'); } catch { /* older sessions, styled differently */ }
-
-// mapType key → createSession body. hybrid = satellite imagery + road overlay.
-const G_SESSION_SPECS = {
-  hybrid: { mapType: 'satellite', layerTypes: ['layerRoadmap'] },
-  roadmap: { mapType: 'roadmap' },
-  satellite: { mapType: 'satellite' }, // bare imagery — the composite draws roads/labels/POIs itself
-};
-
-// Google bakes its own route shields into the roadmap layer, and we now draw
-// our own on top — so the rider gets two of everything, at Google's spacing
-// rather than ours (owner, Aug 16 2026: "on street mode there is the underlying
-// road map native icon, ideally I would like those removed"). The tiles are one
-// flat image with no layer to reach into, so the only door is asking Google not
-// to draw them: `styles` on the tile session is the Maps JSON style language,
-// and road `labels.icon` is exactly the shields. Road NAMES stay.
-const NO_ROAD_SHIELDS = [
-  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-];
-// And Google's business/POI icons (owner, Sep 13 2026: "the satellite view has
-// the location pins as flat images you can't interact with"). In Google Maps
-// those icons are vector features with ids behind them; in a raster tile they
-// are pixels, and a pin that looks tappable and is not is a small lie on every
-// screen. The names stay; the icons go. Our own pins — the trip's stops, and
-// the place picker's candidates — are the only pins, and they are real.
-const NO_POI_ICONS = [
-  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-];
-export const TILE_STYLES = [...NO_ROAD_SHIELDS, ...NO_POI_ICONS];
-
-function loadGtCache() {
-  try { return JSON.parse(localStorage.getItem(GT_CACHE) || '{}'); } catch { return {}; }
-}
-
-// Sessions last ~2 weeks; treat anything with <1 day left as expired.
-function freshSession(kind) {
-  const rec = loadGtCache()[kind];
-  return rec && rec.expiry * 1000 > Date.now() + 86_400_000 ? rec : null;
-}
-
-function styleFromSession(kind, rec) {
-  return {
-    version: 8,
-    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
-    sources: {
-      gtiles: {
-        type: 'raster',
-        tiles: [`https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${rec.session}&key=${GOOGLE_KEY}`],
-        tileSize: 256,
-        maxzoom: 22,
-        attribution: '© Google',
-      },
-    },
-    layers: [{ id: 'gtiles', type: 'raster', source: 'gtiles' }],
-  };
-}
-
-// Sync path: style immediately if a session is already cached (map init).
-export function cachedGoogleStyle(kind) {
-  if (!GOOGLE_KEY) return null;
-  const rec = freshSession(kind);
-  return rec ? styleFromSession(kind, rec) : null;
-}
-
-// Async path: create/refresh the session, cache it, return the style.
-export async function googleStyle(kind) {
-  if (!GOOGLE_KEY) return null;
-  const hit = freshSession(kind);
-  if (hit) return styleFromSession(kind, hit);
-  const spec = G_SESSION_SPECS[kind];
-  if (!spec) return null;
-  const open = async (body) => {
-    const res = await fetch(`https://tile.googleapis.com/v1/createSession?key=${GOOGLE_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, language: 'en-US', region: 'US' }),
-    });
-    if (!res.ok) throw new Error(`tiles session ${res.status}`);
-    return res.json();
-  };
-  // Styling is the only way to drop Google's baked-in shields, but a session
-  // that will not open at all costs the whole basemap — so a rejected style
-  // falls back to a plain session (doubled shields, still a map) rather than
-  // dropping the rider onto Esri.
-  // Staged: both styles, then shields-only, then a plain session.
-  const json = await open({ ...spec, styles: TILE_STYLES })
-    .catch(() => open({ ...spec, styles: NO_ROAD_SHIELDS }))
-    .catch(() => open(spec));
-  const rec = { session: json.session, expiry: Number(json.expiry) };
-  try {
-    const c = loadGtCache();
-    c[kind] = rec;
-    localStorage.setItem(GT_CACHE, JSON.stringify(c));
-  } catch { /* cache full — session still usable this page-load */ }
-  return styleFromSession(kind, rec);
-}
-
-// ---- Mapbox (owner, Sep 13 2026: "i actually want to do mapbox") ----
-// Tesla's actual feed. A PUBLIC token (pk., default public scopes — nothing
-// secret) at build time as VITE_MAPBOX_TOKEN; in dev a localStorage override
-// (`moto.mapboxToken`) lets a phone or a sim try it without a rebuild. With a
-// token, Satellite is Mapbox's own satellite-streets style — their imagery
-// with their vector roads / labels / POIs on top, exactly the layering below,
-// authored by them — and its `poi_label` symbols are the tappable POIs.
-// Without one, the OpenFreeMap composite below carries on unchanged.
-//
-// MapLibre does not understand `mapbox://` URLs, so every request is
-// rewritten to api.mapbox.com and given the token (transformRequest).
-export const MAPBOX_TOKEN = (import.meta.env ?? {}).VITE_MAPBOX_TOKEN
-  || ((import.meta.env ?? {}).DEV ? (() => { try { return localStorage.getItem('moto.mapboxToken') || ''; } catch { return ''; } })() : '');
-export const MAPBOX_STYLE = 'mapbox/satellite-streets-v12';
-const MB_CACHE = 'moto.mapboxStyle.v1';
-const MB_TTL_MS = 7 * 86_400_000;
-
-/** MapLibre transformRequest: mapbox:// → api.mapbox.com, token on every Mapbox request. */
-export function mapboxTransformRequest(url, resourceType, token = MAPBOX_TOKEN) {
-  if (!token || typeof url !== 'string') return undefined;
-  const tok = `access_token=${encodeURIComponent(token)}`;
-  let out = url;
-  let m;
-  if ((m = url.match(/^mapbox:\/\/styles\/([^/]+)\/([^/?]+)/))) out = `https://api.mapbox.com/styles/v1/${m[1]}/${m[2]}?${tok}`;
-  else if ((m = url.match(/^mapbox:\/\/sprites\/([^/]+)\/([^/@.]+)(@2x)?\.(json|png)$/))) out = `https://api.mapbox.com/styles/v1/${m[1]}/${m[2]}/sprite${m[3] ?? ''}.${m[4]}?${tok}`;
-  else if ((m = url.match(/^mapbox:\/\/fonts\/([^/]+)\/(.+)$/))) out = `https://api.mapbox.com/fonts/v1/${m[1]}/${m[2]}?${tok}`;
-  else if ((m = url.match(/^mapbox:\/\/([^/?]+)$/))) out = `https://api.mapbox.com/v4/${m[1]}.json?secure&${tok}`; // a source url: tileset ids → TileJSON
-  else if (/^https:\/\/([a-z0-9-]+\.)?(api|tiles)\.mapbox\.com\//.test(url) && !/access_token=/.test(url)) out = `${url}${url.includes('?') ? '&' : '?'}${tok}`;
-  if (out === url) return undefined;
-  void resourceType;
-  return { url: out };
-}
-
-function loadMapboxCache() {
-  try {
-    const rec = JSON.parse(localStorage.getItem(MB_CACHE) || 'null');
-    return rec && rec.at + MB_TTL_MS > Date.now() && rec.id === MAPBOX_STYLE ? rec.style : null;
-  } catch { return null; }
-}
-let mapboxInflight = null;
-export async function fetchMapboxStyle() {
-  if (!MAPBOX_TOKEN) return null;
-  const hit = loadMapboxCache();
-  if (hit) return hit;
-  if (!mapboxInflight) {
-    mapboxInflight = fetch(`https://api.mapbox.com/styles/v1/${MAPBOX_STYLE}?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`).then(async (r) => {
-      if (!r.ok) throw new Error(`mapbox style ${r.status}`);
-      const style = await r.json();
-      try { localStorage.setItem(MB_CACHE, JSON.stringify({ at: Date.now(), id: MAPBOX_STYLE, style })); } catch { /* cache full */ }
-      return style;
-    }).finally(() => { mapboxInflight = null; });
+export const BASEMAPS = MAPBOX_ON
+  ? {
+    sat: { label: 'Satellite', style: MAPBOX_STYLES.sat },
+    streets: { label: 'Streets', style: MAPBOX_STYLES.streets },
+    dark: { label: 'Dark', style: MAPBOX_STYLES.dark },
+    light: { label: 'Light', style: MAPBOX_STYLES.light },
   }
-  return mapboxInflight;
-}
-/** Pure: Mapbox's satellite-streets style, tagged so the app can find its POI layers. */
-export function mapboxComposite(style) {
-  if (!style?.layers || !style.sources) return null;
-  const poiLayers = style.layers.filter((l) => l.type === 'symbol' && l['source-layer'] === 'poi_label').map((l) => l.id);
-  return { ...style, metadata: { ...(style.metadata ?? {}), roadbook: { composite: true, imagery: 'mapbox', poiLayers } } };
+  : { sat: { label: 'Satellite', style: STYLE_SATELLITE } };
+
+/** The style for a basemap key; unknown or unavailable keys land on Satellite. */
+export function basemapStyle(key) {
+  return BASEMAPS[key]?.style ?? BASEMAPS.sat.style;
 }
 
-// ---- Satellite the way Tesla draws it: imagery UNDERNEATH, vector on TOP ----
-// Google's hybrid tiles are one flat picture — roads, labels and POI icons
-// baked into the pixels, nothing behind them to tap (owner, Sep 13 2026: "how
-// does Tesla navigation do it where the icons are actually tappable?"). Tesla
-// composites: imagery as the bottom layer, Mapbox VECTOR roads/labels/POIs
-// drawn over it, so every POI is a symbol feature with a name and a class the
-// renderer can hit-test. MapLibre is Mapbox GL's fork and does the same. The
-// vector layer here is OpenFreeMap's liberty style (OSM data, free, already
-// shipped for Streets): we fetch the style, keep ONLY its road / road-name /
-// place / POI layers, recolour the type for a dark ground, and lay them over
-// Google's bare satellite session (or Esri imagery without a key).
-//
-// The POI symbols are then real features: MapView hit-tests them on a tap and
-// PoiCard resolves the tapped name against Google Places for the facts.
-const LIB_CACHE = 'moto.libertyStyle.v1';
-const LIB_TTL_MS = 7 * 86_400_000;
-// OpenMapTiles source-layers that belong on a satellite overlay. Everything
-// else in liberty (landuse, buildings, water fill, relief) is the imagery's
-// job now and would paint over it.
-const OVERLAY_SOURCE_LAYERS = new Set(['transportation', 'transportation_name', 'place', 'poi', 'aerodrome_label', 'mountain_peak', 'water_name', 'park']);
-
-function loadLibertyCache() {
-  try {
-    const rec = JSON.parse(localStorage.getItem(LIB_CACHE) || 'null');
-    return rec && rec.at + LIB_TTL_MS > Date.now() ? rec.style : null;
-  } catch { return null; }
-}
-let libertyInflight = null;
-/** The liberty style JSON, cached a week (the vector overlay is built from it). */
-export async function fetchLibertyStyle() {
-  const hit = loadLibertyCache();
-  if (hit) return hit;
-  if (!libertyInflight) {
-    libertyInflight = fetch(STYLE_STREETS).then(async (r) => {
-      if (!r.ok) throw new Error(`liberty ${r.status}`);
-      const style = await r.json();
-      try { localStorage.setItem(LIB_CACHE, JSON.stringify({ at: Date.now(), style })); } catch { /* cache full */ }
-      return style;
-    }).finally(() => { libertyInflight = null; });
-  }
-  return libertyInflight;
+// Mapbox GL fires `error` for a style that will not load (401/403 = token or
+// URL restriction, 404 = style id). Answers whether an error is that.
+export function isStyleLoadError(e) {
+  const msg = String(e?.error?.message ?? e?.message ?? '');
+  return /style|401|403|404|access token/i.test(msg);
 }
 
-/** Pure: liberty style + an imagery raster source → the composite satellite style. */
-export function compositeSatellite(liberty, imagery) {
-  if (!liberty?.layers || !liberty.sources) return null;
-  const vecName = Object.keys(liberty.sources).find((k) => liberty.sources[k]?.type === 'vector');
-  if (!vecName) return null;
-  const kept = [];
-  const poiLayers = [];
-  for (const l of liberty.layers) {
-    if (l.source !== vecName || !OVERLAY_SOURCE_LAYERS.has(l['source-layer'])) continue;
-    if (l.type !== 'line' && l.type !== 'symbol') continue;
-    if (l['source-layer'] === 'park' && l.type !== 'symbol') continue; // park OUTLINES over imagery are noise; park NAMES are not
-    const layer = { ...l, paint: { ...(l.paint ?? {}) }, layout: { ...(l.layout ?? {}) } };
-    if (l.type === 'symbol') {
-      // liberty sets dark type with a white halo for paper; imagery is dark
-      layer.paint['text-color'] = '#ffffff';
-      layer.paint['text-halo-color'] = 'rgba(0, 0, 0, 0.85)';
-      layer.paint['text-halo-width'] = 1.4;
-      layer.paint['text-halo-blur'] = 0.4;
-      if (l['source-layer'] === 'poi') poiLayers.push(l.id);
-    } else if (l['source-layer'] === 'transportation') {
-      // road linework a shade lighter than liberty paints on paper, so it
-      // reads on forest and shadow without shouting over the route line
-      layer.paint['line-opacity'] = typeof layer.paint['line-opacity'] === 'number' ? Math.min(layer.paint['line-opacity'], 0.8) : 0.8;
-    }
-    kept.push(layer);
-  }
-  if (!kept.length) return null;
-  return {
-    version: 8,
-    glyphs: liberty.glyphs,
-    ...(liberty.sprite ? { sprite: liberty.sprite } : {}),
-    sources: { imagery: imagery.source, [vecName]: liberty.sources[vecName] },
-    layers: [{ id: 'imagery', type: 'raster', source: 'imagery' }, ...kept],
-    metadata: { roadbook: { composite: true, imagery: imagery.id, poiLayers } },
-  };
-}
-
-const ESRI_IMAGERY = {
-  id: 'esri',
-  source: {
-    type: 'raster',
-    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-    tileSize: 256, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
-  },
-};
-function googleImagery() {
-  if (!GOOGLE_KEY) return null;
-  const rec = freshSession('satellite');
-  if (!rec) return null;
-  return { id: 'google', source: styleFromSession('satellite', rec).sources.gtiles };
-}
-/** Sync: the composite from cached pieces, or null until they are fetched. */
-export function cachedCompositeStyle() {
-  if (MAPBOX_TOKEN) { const mb = loadMapboxCache(); if (mb) return mapboxComposite(mb); }
-  const liberty = loadLibertyCache();
-  if (!liberty) return null;
-  return compositeSatellite(liberty, googleImagery() ?? ESRI_IMAGERY);
-}
-/** Async: fetch what is missing (Mapbox's style with a token; else liberty + a Google satellite session) and build it. */
-export async function compositeStyle() {
-  if (MAPBOX_TOKEN) {
-    try { const mb = mapboxComposite(await fetchMapboxStyle()); if (mb) return mb; } catch { /* fall through to the free composite */ }
-  }
-  const [liberty] = await Promise.all([
-    fetchLibertyStyle(),
-    GOOGLE_KEY ? googleStyle('satellite').catch(() => null) : Promise.resolve(null),
-  ]);
-  return compositeSatellite(liberty, googleImagery() ?? ESRI_IMAGERY);
-}
-/** POI symbol layer ids of the current style, or [] on a non-composite basemap. */
+/** POI symbol layers of the current style (Mapbox Streets' `poi_label`), or [] on a raster fallback. */
 export function poiLayerIds(map) {
   try {
-    const ids = map.getStyle()?.metadata?.roadbook?.poiLayers ?? [];
-    return ids.filter((id) => map.getLayer(id));
+    return (map.getStyle()?.layers ?? [])
+      .filter((l) => l.type === 'symbol' && l['source-layer'] === 'poi_label')
+      .map((l) => l.id);
   } catch { return []; }
 }
 
 // ---- the basemap's own route shields ----
 // We draw shields on the route (RouteShields.jsx) at OUR spacing, on the road
-// the rider is actually on. The vector basemaps post their own on every
-// numbered road at their own spacing, so the two together read as clutter —
-// which is what the owner saw in Streets: "there is the underlying road map
-// native icon, ideally I would like those removed."
-//
-// A vector style has a layer to reach into, so this is exact: hide the symbol
-// layers that carry shield artwork and leave road NAMES, place labels and
-// everything else alone. Raster basemaps have no such door — Esri's hybrid
-// bakes shields into the World_Transportation overlay and Google's tiles bake
-// everything into one image (which is why the Google path asks the server not
-// to draw them at session time instead; see NO_ROAD_SHIELDS above).
+// the rider is actually on. Mapbox posts its own on every numbered road at its
+// own spacing, so the two together read as clutter — what the owner saw in
+// Streets: "there is the underlying road map native icon, ideally I would
+// like those removed." A vector style has a layer to reach into, so this is
+// exact: hide `road-number-shield` and leave road NAMES, place labels and
+// everything else alone. EXIT shields stay — "my exit is exit 99" is the one
+// number on the map a rider acts on and nothing of ours replaces it.
 //
 // Idempotent and cheap to call again: run it after every style application,
 // since setStyle replaces the layer list wholesale.
@@ -353,9 +116,9 @@ export function hideNativeRoadShields(map) {
   let hidden = 0;
   for (const layer of layers) {
     if (layer.type !== 'symbol') continue;
-    // by id (liberty posts `highway-shield`, `highway-shield-us-interstate`)
-    // and by artwork, so a style that names its layers differently but draws
-    // from a shield sprite is still caught.
+    if (/exit/i.test(layer.id)) continue;
+    // by id (Mapbox: `road-number-shield`) and by artwork, so a style that
+    // names its layers differently but draws from a shield sprite is caught
     const icon = JSON.stringify(layer.layout?.['icon-image'] ?? '');
     if (!/shield/i.test(layer.id) && !/shield|interstate/i.test(icon)) continue;
     try {
@@ -370,41 +133,14 @@ export function hideNativeRoadShields(map) {
 // The light-gray "return"/"prep" phases disappear on a light basemap — swap in dark tones.
 export const LIGHT_SAFE = { return: '#1a1a1a', prep: '#5a5a5a' };
 
-// ---- 3D terrain (AWS Open Data / Mapzen terrarium DEM — free, no key) ----
-
-const DEM_SOURCE_ID = 'terrain-dem';
-const HILLSHADE_ID = 'terrain-hillshade';
-const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-
-// Idempotent: safe to call from every redraw. setStyle() wipes sources, so the
-// draw path re-asserts terrain state after any style switch.
 // ---- look-ahead tile warming (Ride Mode) ----
-// The satellite basemap is plain raster URLs (Esri), so fetching a tile fills
-// the browser HTTP cache and MapLibre gets an instant hit when the camera
-// arrives. We warm the corridor the rider is about to ride through.
-
+// Only the Esri fallback is plain tile URLs we can prefetch into the browser
+// HTTP cache. On Mapbox the tiles come from TileJSON and mapbox-gl's own tile
+// cache (maxTileCacheSize on the nav map) holds the ridden corridor.
 const ESRI_WARM_LAYERS = [
   (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
   (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/${z}/${y}/${x}`,
 ];
-
-// Warm whichever source the nav map actually renders: Google hybrid when a
-// tile session is cached, the Esri pair otherwise.
-function navWarmLayers() {
-  const comp = cachedCompositeStyle();
-  if (comp) {
-    const src = comp.sources.imagery;
-    const tpl = src?.tiles?.[0];
-    if (tpl) return [(z, x, y) => tpl.replace('{z}', z).replace('{x}', x).replace('{y}', y)];
-    return []; // Mapbox: tile URLs come from TileJSON; the browser cache warms itself as the map loads
-  }
-  const g = cachedGoogleStyle('hybrid');
-  if (g) {
-    const tpl = g.sources.gtiles.tiles[0];
-    return [(z, x, y) => tpl.replace('{z}', z).replace('{x}', x).replace('{y}', y)];
-  }
-  return ESRI_WARM_LAYERS;
-}
 let warmedTiles = new Set();
 
 function tileXY(lat, lng, z) {
@@ -418,9 +154,10 @@ function tileXY(lat, lng, z) {
 // chain: [{lat,lng}] route geometry · fromIdx: rider's current segment.
 // Warms the next `miles` of route at nav zooms. Fire-and-forget; failures ignored.
 export function warmTilesAhead(chain, fromIdx, { miles = 12, zooms = [13, 14], cap = 60 } = {}) {
+  if (MAPBOX_ON) return 0;
   if (!chain?.length) return 0;
   if (warmedTiles.size > 5000) warmedTiles = new Set();
-  const layers = navWarmLayers();
+  const layers = ESRI_WARM_LAYERS;
   const urls = [];
   let dist = 0;
   for (let i = Math.max(0, fromIdx); i < chain.length - 1 && dist < miles && urls.length < cap; i++) {
@@ -441,23 +178,32 @@ export function warmTilesAhead(chain, fromIdx, { miles = 12, zooms = [13, 14], c
   return Math.min(urls.length, cap);
 }
 
+// ---- 3D terrain ----
+// Mapbox's DEM with a token (covered by the Map Load like every other tile);
+// the AWS/Mapzen terrarium DEM (free, no key) on the fallback.
+const DEM_SOURCE_ID = 'terrain-dem';
+const HILLSHADE_ID = 'terrain-hillshade';
+const DEM_SOURCE = MAPBOX_ON
+  ? { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1', tileSize: 512, maxzoom: 14 }
+  : {
+    type: 'raster-dem',
+    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+    encoding: 'terrarium',
+    tileSize: 256,
+    maxzoom: 15,
+    attribution: 'Elevation: Mapzen/AWS Open Data',
+  };
+
+// Idempotent: safe to call from every redraw. setStyle() wipes sources, so the
+// draw path re-asserts terrain state after any style switch.
 export function ensureTerrain(map, on, { exaggeration = 1.5 } = {}) {
   if (!map.isStyleLoaded()) return;
   if (on) {
-    if (!map.getSource(DEM_SOURCE_ID)) {
-      map.addSource(DEM_SOURCE_ID, {
-        type: 'raster-dem',
-        tiles: [DEM_TILES],
-        encoding: 'terrarium',
-        tileSize: 256,
-        maxzoom: 15,
-        attribution: 'Elevation: Mapzen/AWS Open Data',
-      });
-    }
+    if (!map.getSource(DEM_SOURCE_ID)) map.addSource(DEM_SOURCE_ID, DEM_SOURCE);
     if (!map.getLayer(HILLSHADE_ID)) {
       // Sit the shading under roads/labels so they stay crisp.
       const layers = map.getStyle().layers ?? [];
-      const beforeId = layers.find((l) => l.type === 'symbol' || l.id === 'esri-roads')?.id;
+      const beforeId = layers.find((l) => l.type === 'symbol' || l.type === 'line' || l.id === 'esri-roads')?.id;
       map.addLayer({
         id: HILLSHADE_ID,
         type: 'hillshade',

@@ -29,13 +29,18 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
     setMatch(undefined);
     (async () => {
       try {
-        const rows = await searchNearby({ category: cat, query: poi.name, near: { lat: poi.lat, lng: poi.lng }, radiusMi: 2, limit: 5 });
-        if (dead) return;
         const words = String(poi.name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-        const best = rows
+        const lookup = (category) => searchNearby({ category, query: poi.name, near: { lat: poi.lat, lng: poi.lng }, radiusMi: 2, limit: 5 });
+        const pick = (rows) => rows
           .map((r) => ({ r, d: haversineMiles({ lat: poi.lat, lng: poi.lng }, r) }))
           .filter(({ r, d }) => d <= MATCH_MI && (!words.length || words.some((w) => String(r.name).toLowerCase().includes(w))))
           .sort((a, b) => a.d - b.d)[0];
+        // strict-typed first (ranks "Sinclair" among gas stations, not the
+        // motel next door), then by NAME with no type at all — a theater, a
+        // brewery, a bike shop are real listings no category filter can name
+        let best = pick(await lookup(cat));
+        if (dead) return;
+        if (!best && cat && words.length) { best = pick(await lookup(null)); if (dead) return; }
         setMatch(best ? best.r : null);
       } catch { if (!dead) setMatch(null); }
     })();

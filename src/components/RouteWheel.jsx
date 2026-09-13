@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import maplibregl from 'maplibre-gl';
+import mapboxgl from 'mapbox-gl';
 
 // The touch answer to dragging the route line.
 //
@@ -11,8 +11,8 @@ import maplibregl from 'maplibre-gl';
 // and confirm are SEPARATE, which is the point: a stray touch on the route can
 // never edit the day, and you can take as long as you like lining the pull up.
 //
-// The handle is a draggable MapLibre marker, so it is geo-anchored (it stays on
-// its bit of road while the map moves) and MapLibre suppresses its own pan for
+// The handle is a draggable Mapbox GL marker, so it is geo-anchored (it stays on
+// its bit of road while the map moves) and Mapbox GL suppresses its own pan for
 // the duration of the drag — the two things a hand-rolled touch handler here
 // would have to fight for.
 //
@@ -39,7 +39,7 @@ export default function RouteWheel({ map, pull, onMove, onConfirm, onCancel, onD
     }
     const el = document.createElement('div');
     el.className = 'route-wheel';
-    const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'center' })
+    const marker = new mapboxgl.Marker({ element: el, draggable: true, anchor: 'center' })
       .setLngLat(pull.at)
       .addTo(map);
     marker.on('drag', () => {

@@ -71,7 +71,7 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--ral
 
    Pin one root box to the viewport and make every app shell absolute inside
    it. No screen-height arithmetic, no stale --app-h, and no document that can
-   rubber-band independently of MapLibre's canvas. */
+   rubber-band independently of Mapbox GL's canvas. */
 html[data-app-display='standalone'] {
   overflow: hidden; overscroll-behavior: none;
   background: var(--asphalt-1);
@@ -261,7 +261,7 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 }
 
 .map-wrap { position: relative; min-height: 0; }
-.map-wrap .maplibregl-map { position: absolute; inset: 0; }
+.map-wrap .mapboxgl-map { position: absolute; inset: 0; }
 .basemap-switch {
   position: absolute; top: 12px; right: 52px; z-index: 5;
   display: flex; gap: 0;
@@ -321,21 +321,21 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
    a label underneath it never overlaps the line. cullLabels() in MapView hides
    any label that would collide with a higher-priority one. */
 .wp-label { top: calc(100% + 5px); transform: translateX(-50%); }
-.maplibregl-popup-content {
+.mapboxgl-popup-content {
   background: var(--asphalt-2) !important; color: var(--ink) !important;
   border: 1px solid var(--line); border-radius: 6px; font-family: var(--body); font-size: 13px;
   padding: 10px 12px !important; max-width: 260px;
 }
-.maplibregl-popup-tip { border-top-color: var(--asphalt-2) !important; border-bottom-color: var(--asphalt-2) !important; }
-.maplibregl-popup-content .pp-name { font-family: var(--display); font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
-.maplibregl-popup-content .pp-note { color: var(--ink-dim); font-size: 12px; margin-top: 3px; }
-.maplibregl-popup-content .pp-actions { margin-top: 8px; display: flex; gap: 6px; }
-.maplibregl-popup-content .pp-actions button {
+.mapboxgl-popup-tip { border-top-color: var(--asphalt-2) !important; border-bottom-color: var(--asphalt-2) !important; }
+.mapboxgl-popup-content .pp-name { font-family: var(--display); font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
+.mapboxgl-popup-content .pp-note { color: var(--ink-dim); font-size: 12px; margin-top: 3px; }
+.mapboxgl-popup-content .pp-actions { margin-top: 8px; display: flex; gap: 6px; }
+.mapboxgl-popup-content .pp-actions button {
   font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 3px 8px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink-dim);
 }
-.maplibregl-popup-content .pp-actions button:hover { color: var(--danger); border-color: var(--danger); }
-.maplibregl-popup-close-button { color: var(--ink-dim) !important; font-size: 16px !important; }
+.mapboxgl-popup-content .pp-actions button:hover { color: var(--danger); border-color: var(--danger); }
+.mapboxgl-popup-close-button { color: var(--ink-dim) !important; font-size: 16px !important; }
 
 /* ---------- side panel ---------- */
 
@@ -814,7 +814,7 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 
 /* ---- route wheel: the touch way to reshape a leg -------------------------
    Anchored to the point the rider tapped. The grip is the marker itself (so
-   MapLibre owns the drag and suppresses its own pan); the three actions are
+   Mapbox GL owns the drag and suppresses its own pan); the three actions are
    satellites that swallow their own pointer events, or pressing one would
    start a drag instead. Everything here is at least 44pt. */
 .route-wheel { position: relative; width: 0; height: 0; }
@@ -1381,7 +1381,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .chat-suggest button { padding: 8px 12px; }
   .basemap-switch button { padding: 9px 12px; }
   .wp-marker { width: 16px; height: 16px; }
-  .maplibregl-popup-close-button { padding: 4px 8px; font-size: 20px !important; }
+  .mapboxgl-popup-close-button { padding: 4px 8px; font-size: 20px !important; }
 
   /* The HUD is read at speed on the smallest screen, so a phone is exactly where
      the type must NOT shrink — no size overrides live here on purpose. */
@@ -1613,7 +1613,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
      the translation pill appears, so a constant here would be wrong by a row. */
   .app.map-full .map-hint,
   .app.map-full .basemap-switch { top: calc(var(--chrome-h, 0px) + 6px); }
-  .app.map-full .maplibregl-ctrl-top-right { margin-top: calc(var(--chrome-h, 0px) + 46px); }
+  .app.map-full .mapboxgl-ctrl-top-right { margin-top: calc(var(--chrome-h, 0px) + 46px); }
   .map-legend {
     /* right inset clears the Copilot fab */
     left: 8px; right: 128px; bottom: 30px;
@@ -2639,7 +2639,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 }
 .ov-wp.above .ov-label { bottom: 8px; }
 .ov-wp.below .ov-label { top: 8px; }
-/* Off screen. MapLibre parks a marker in the margins rather than removing it,
+/* Off screen. Mapbox GL parks a marker in the margins rather than removing it,
    so a stop 200 miles up the trip is still a live element — and the edge clamp
    used to drag its name back into the frame every time the camera settled.
    See viewGate() in engine/mapVis.js. */
@@ -2672,25 +2672,29 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   /* One furniture row under the chrome: hint on the left, layers pill on the
      right — then the zoom stack BELOW the pill, never on top of it. */
   .map-hint { top: 12px; }
-  .maplibregl-ctrl-top-right { margin-top: 52px; }
+  .mapboxgl-ctrl-top-right { margin-top: 52px; }
   /* the scale and the credit sit above the legend band rather than through it */
-  .maplibregl-ctrl-bottom-right { margin-bottom: 62px; }
+  .mapboxgl-ctrl-bottom-right { margin-bottom: 62px; }
   /* No full-width override here: the 128px right inset from the mobile block
      stays, because the Copilot fab lives in that corner and was sitting on
      top of the legend's second row. The keys wrap taller instead of wider. */
 
   .app.map-full .basemap-switch { top: calc(var(--chrome-h, 0px) + 8px); }
   .app.map-full .map-hint { top: calc(var(--chrome-h, 0px) + 14px); }
-  .app.map-full .maplibregl-ctrl-top-right { margin-top: calc(var(--chrome-h, 0px) + 58px); }
+  .app.map-full .mapboxgl-ctrl-top-right { margin-top: calc(var(--chrome-h, 0px) + 58px); }
 }
 
 /* Attribution is a legal credit, not a caption: it belongs behind its own (i)
-   until someone asks. MapLibre ships `compact` already expanded, so collapse
+   until someone asks. Mapbox GL ships `compact` already expanded, so collapse
    it and let its own toggle class be the only thing that opens it. */
-.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-inner {
+.mapboxgl-ctrl-attrib.mapboxgl-compact:not(.mapboxgl-compact-show) .mapboxgl-ctrl-attrib-inner {
   display: none;
 }
-.maplibregl-ctrl-attrib.maplibregl-compact { min-height: 24px; }
+.mapboxgl-ctrl-attrib.mapboxgl-compact { min-height: 24px; }
+/* Ride Mode: the bar owns the bottom edge, so the wordmark sits top-left under
+   the chrome and the credit's (i) rides above the bar on the right. */
+.ride-mode .mapboxgl-ctrl-top-left { margin-top: 48px; }
+.ride-mode .mapboxgl-ctrl-bottom-right { margin-bottom: 128px; }
 
 
 /* Map credits. Required to be displayed — not required to be displayed across

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import mapboxgl from 'mapbox-gl';
 import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, parseTime, planTargetAt } from '../engine/timeline.js';
 import {
@@ -16,7 +16,7 @@ import {
   createNav, syncNav, navTarget, navRemaining, navFix,
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
-import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY, cachedCompositeStyle, compositeStyle, mapboxTransformRequest } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, warmTilesAhead, hideNativeRoadShields, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
@@ -265,12 +265,8 @@ const NAV_STYLES = [
   { key: 'light', label: 'Light' },
 ];
 
-const navStyleFor = (key) => (
-  key === 'streets' ? STYLE_STREETS
-    : key === 'dark' ? STYLE_DARK
-      : key === 'light' ? STYLE_LIGHT
-        : cachedCompositeStyle() ?? cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE
-);
+// the same Mapbox styles as the plan map; `hybrid` is the nav map's name for Satellite
+const navStyleFor = (key) => basemapStyle(key === 'hybrid' ? 'sat' : key);
 
 
 // A stop name is often longer than a phone is wide. Rather than truncate it,
@@ -528,37 +524,36 @@ export default function RideMode({ onClose }) {
   // ---- nav map with position puck ----
   useEffect(() => {
     const start = day.waypoints[0];
-    // Google hybrid when a tile session is cached; otherwise Esri now and warm
-    // a session in the background so the next ride opens on Google.
-    if (GOOGLE_KEY) googleStyle('hybrid').catch(() => {});
-    const map = new maplibregl.Map({
+    const map = new mapboxgl.Map({
       container: mapDivRef.current,
+      accessToken: MAPBOX_TOKEN,
       style: navStyleFor('hybrid'),
-      transformRequest: mapboxTransformRequest,
       center: start ? [start.lng, start.lat] : [-108, 45],
       zoom: 12,
-      attributionControl: false, // shown in the hub instead — see below
+      attributionControl: { compact: true }, // Mapbox's terms: credits on the map
+      logoPosition: 'top-left', // the ride bar owns the bottom; the wordmark has to stay visible
       maxTileCacheSize: 1024, // keep ridden-past tiles around for overview jumps
     });
     mapRef.current = map;
     setNavMap(map);
-    // the composite satellite (imagery + vector roads/labels/POIs) once its
-    // pieces are fetched — only if this ride opened on the flat fallback
-    if (!cachedCompositeStyle()) {
-      compositeStyle().then((st) => {
-        if (!st || mapRef.current !== map || navStyleRef.current !== 'hybrid') return;
-        map.setStyle(st);
-        map.once('styledata', () => drawPlannedRef.current());
-      }).catch(() => {});
-    }
+    // a Mapbox style that will not load lands on Esri imagery, not a blank map
+    let fellBack = false;
+    map.on('error', (e) => {
+      if (fellBack || !isStyleLoadError(e) || map.isStyleLoaded()) return;
+      fellBack = true;
+      map.setStyle(STYLE_FALLBACK);
+      map.once('styledata', () => drawPlannedRef.current());
+    });
     // console/sim debugging — the GPS-sim SOP asserts on the nav map's paint
     // properties, and the sims drive the BUILT app, so this isn't dev-gated
     window.__rideMap = map;
     mapReadyRef.current = false;
     map.once('load', () => {
       mapReadyRef.current = true;
-      // one set of shields on this screen, ours — see hideNativeRoadShields
-      hideNativeRoadShields(map);
+      // one set of shields on this screen, ours — see hideNativeRoadShields.
+      // Once IDLE, not at load: mapbox-gl's symbol placement is still running
+      // then, and flipping a symbol layer's visibility under it throws.
+      map.once('idle', () => hideNativeRoadShields(map));
       setMapObj(map);
     });
     map.on('dragstart', () => { lastTouchRef.current = Date.now(); setFollow(false); });
@@ -586,7 +581,7 @@ export default function RideMode({ onClose }) {
 
     const el = document.createElement('div');
     el.className = 'nav-puck';
-    puckRef.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+    puckRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
       .setLngLat(start ? [start.lng, start.lat] : [-108, 45])
       .addTo(map);
 
@@ -646,7 +641,7 @@ export default function RideMode({ onClose }) {
     const map = mapRef.current;
     if (!map) return;
     ensureNavLayers(map);
-    hideNativeRoadShields(map); // the new style arrived with its own set
+    map.once('idle', () => hideNativeRoadShields(map)); // the new style arrived with its own set
 
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
@@ -1498,7 +1493,7 @@ export default function RideMode({ onClose }) {
     if (!map) return;
     const coords = reroute?.geometry ?? routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     if (coords.length < 2) return;
-    const b = coords.reduce((acc, c) => acc.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+    const b = coords.reduce((acc, c) => acc.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
     map.setPitch(0);
     // Padding leaves room for the HUD, which covers the top and bottom of the
     // screen — without it the first and last stops sit under the panels.
@@ -1533,7 +1528,7 @@ export default function RideMode({ onClose }) {
       el.classList.add(i % 2 ? 'below' : 'above');
       el.append(dot, label);
       marks.push({ el, label, ll: [w.lng, w.lat] });
-      wpMarkersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([w.lng, w.lat]).addTo(map));
+      wpMarkersRef.current.push(new mapboxgl.Marker({ element: el }).setLngLat([w.lng, w.lat]).addTo(map));
     });
 
     // A stop that is not on screen has no business being drawn. MapLibre parks

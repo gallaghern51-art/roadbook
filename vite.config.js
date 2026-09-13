@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
@@ -45,6 +45,10 @@ function netlifyFunctionsInDev() {
       // background-size budget unless the shell says otherwise. (Production
       // budgets are unaffected; this process only serves `vite dev`.)
       process.env.PLANNER_BUDGET_MS ||= '600000';
+      // Vite only exposes VITE_* to the bundle; the functions read process.env
+      // (GOOGLE_MAPS_API_KEY, ANTHROPIC_API_KEY…), so hand them .env/.env.local
+      // too — the shell still wins where it already set a value.
+      for (const [k, v] of Object.entries(loadEnv('development', process.cwd(), ''))) process.env[k] ??= v;
       server.middlewares.use(async (req, res, next) => {
         const match = /^\/\.netlify\/functions\/([\w-]+)/.exec(req.url ?? '');
         if (!match) return next();

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import maplibregl from 'maplibre-gl';
+import mapboxgl from 'mapbox-gl';
 import RoadShield from './RoadShield.jsx';
 import { viewGate } from '../engine/mapVis.js';
 
@@ -18,7 +18,7 @@ import { viewGate } from '../engine/mapVis.js';
 // refresh would blink the signs down the whole line.
 //
 // Two things are culled on every camera frame:
-//   - anything off screen. MapLibre parks off-screen markers in the margins
+//   - anything off screen. Mapbox GL parks off-screen markers in the margins
 //     rather than removing them (see engine/mapVis.js).
 //   - anything that would land on a shield already kept. What fits at z14
 //     does not fit at z8, so this is a camera-time decision, not a
@@ -68,7 +68,7 @@ export default function RouteShields({ map, placements, avoid, max = Infinity, p
       }
       const el = document.createElement('div');
       el.className = `rt-shield rt-${mode} off`; // hidden until the cull places it
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([p.lng, p.lat])
         .addTo(map);
       have.set(id, { p, el, marker });

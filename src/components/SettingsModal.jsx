@@ -259,8 +259,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
               <div className="set-credits">
                 <span className="set-label">{t('Credits')}</span>
                 <p>
-                  Map imagery © Esri, Maxar, Earthstar Geographics · Street data ©
-                  {' '}OpenStreetMap contributors, © OpenMapTiles · Routing by Valhalla and OSRM
+                  Maps © Mapbox, © OpenStreetMap contributors (fallback imagery © Esri, Maxar, Earthstar Geographics) · Routing by Valhalla and OSRM
                   {' '}· Places by Google · Highway shields from Wikimedia Commons · Weather by Open-Meteo
                 </p>
               </div>

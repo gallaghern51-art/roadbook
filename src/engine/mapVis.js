@@ -1,6 +1,6 @@
 // Is a ground point actually on screen?
 //
-// MapLibre keeps DOM markers in the document wherever they land — it never
+// Mapbox GL keeps DOM markers in the document wherever they land — it never
 // removes an off-screen one. A stop 200 miles up the trip still has a live
 // element, and with a pitched chase camera its projected x swings by thousands
 // of pixels between frames (the perspective divide runs away as the point
@@ -16,7 +16,7 @@
 // A note on the horizon, since it is the obvious next worry: a pitched camera
 // would fold ground beyond the horizon back into the top of the frame, where a
 // stop hundreds of miles away renders as if it were up the road. It cannot
-// happen here. MapLibre's ground is a flat plane and its horizon line sits at
+// happen here. Mapbox GL's ground is a flat plane and its horizon line sits at
 // pitch 90 minus the half-FOV (~18°) above the camera axis — off the top of
 // the frame for any pitch it allows (max 60; Ride Mode uses 55). Screen bounds
 // are the whole answer. If maxPitch is ever raised past ~70, this needs a
@@ -28,7 +28,7 @@ const asLL = (p) => (Array.isArray(p) ? { lng: p[0], lat: p[1] } : { lng: p.lng,
  * Build a visibility test for the map's CURRENT camera. Call once per pass and
  * reuse it for every point — it measures the container once.
  *
- * @param {import('maplibre-gl').Map} map
+ * @param {import('mapbox-gl').Map} map
  * @param {{pad?: number}} opts  pad: px of slack outside the container, for
  *   markers that should appear a beat before they slide into frame
  * @returns {(lngLat: [number,number]|{lng:number,lat:number}) => {x:number,y:number}|null}
