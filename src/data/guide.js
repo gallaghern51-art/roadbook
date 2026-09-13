@@ -109,8 +109,12 @@ export const CHAPTERS = [
         b: 'Departure time, phase, anchor, every stop in order with arrival times and leg miles, meals, lodging, photo stops, hard gates and constraint notes. Tap the mileage figures on a stop row to zoom the map to that leg.',
       },
       {
-        t: 'Add a stop',
-        b: 'Use the search box in the day panel — results come from Google Places and carry the place identity, so routing aims at the business rather than a pin in its car park. New stops are inserted by ROUTE order, not by straight-line distance, so a stop on a loop day lands in the leg it actually belongs to.',
+        t: 'Add a stop — by category, along the route',
+        b: 'Press "Find a place" in the day panel. Chips for Fuel, Food, Coffee, Lodging, Sights, Moto and Help; "Along route" lists what sits on the road you are riding with how far off it each place is, "Near here" lists by distance. Every row carries rating, price and whether it is open. Tap a row for its hours and the measured detour to the next stop. New stops are inserted by ROUTE order, so a stop on a loop day lands in the leg it actually belongs to.',
+      },
+      {
+        t: 'Swap a stop, keep its role',
+        b: 'The AI picked a diner you do not want? Press ⇄ on the stop row. The picker opens on that category, judged against your arrival time there — "open at your ETA" is the badge that matters — and "Use this instead" changes only the place: the slot, the fuel flag, the dwell and any gate on that stop all stay. Meals have the same ⇄.',
       },
       {
         t: 'Edit a stop',

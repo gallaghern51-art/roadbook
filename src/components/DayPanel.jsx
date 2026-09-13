@@ -7,7 +7,8 @@ import { PHASES } from '../data/seedTrip.js';
 import { fmtLongDate } from '../engine/dates.js';
 import { fuelGaps, haversineMiles, bestInsertIndex, insertIndexOnRoute, summaryIsStale } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur, to24h, from24h } from '../engine/timeline.js';
-import PlaceSearch from './PlaceSearch.jsx';
+import NearbyPicker from './NearbyPicker.jsx';
+import { tripRoutePrefs, alongOnRoute } from '../engine/tripEngine.js';
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
@@ -50,6 +51,7 @@ export default function DayPanel({ day }) {
   const gaps = fuelGaps(day, routedLegsByDay[day.id]);
   const longestGap = gaps.reduce((m, g) => Math.max(m, g.miles), 0);
   const timeline = dayTimeline(day, routedLegsByDay[day.id]);
+  const [swapId, setSwapId] = useState(null); // the stop row with the swap picker open
   const t = useT();
   const tt = useTT();
   const u = useUnits();
@@ -167,11 +169,16 @@ export default function DayPanel({ day }) {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={day.waypoints.map((w) => w.id)} strategy={verticalListSortingStrategy}>
             {day.waypoints.map((w, i) => (
-              <SortableWaypoint key={w.id} w={w} dayId={day.id} legIndex={i - 1} dispatch={dispatch} sched={timeline.stops[i]} cum={cumMiles[i]} first={i === 0} tt={tt} u={u} t={t} shields={showShields ? shieldsByStop[i] : null} snapM={routes[day.id]?.snaps?.[w.id]} />
+              <React.Fragment key={w.id}>
+                <SortableWaypoint w={w} dayId={day.id} legIndex={i - 1} dispatch={dispatch} sched={timeline.stops[i]} cum={cumMiles[i]} first={i === 0} tt={tt} u={u} t={t} shields={showShields ? shieldsByStop[i] : null} snapM={routes[day.id]?.snaps?.[w.id]} onSwap={() => setSwapId(swapId === w.id ? null : w.id)} />
+                {swapId === w.id && (
+                  <SwapPicker day={day} w={w} sched={timeline.stops[i]} next={day.waypoints[i + 1] ?? null} dispatch={dispatch} routes={routes} trip={state.trip} onClose={() => setSwapId(null)} />
+                )}
+              </React.Fragment>
             ))}
           </SortableContext>
         </DndContext>
-        <PlaceSearch day={day} />
+        <DayAddPicker day={day} dispatch={dispatch} routes={routes} timeline={timeline} trip={state.trip} />
       </div>
 
       <GatesSection day={day} dispatch={dispatch} timeline={timeline} t={t} tt={tt} />
@@ -445,8 +452,141 @@ function PhotoStops({ day, dispatch }) {
 
 const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'];
 
+
+// ---- the picker's three doors on a day -----------------------------------
+// The routed line for along-route mode; null when the day fell back to
+// straight lines (there is no road to be "off" of then).
+function dayChain(day, routes) {
+  const r = routes?.[day.id];
+  const geom = r && !r.fallback ? r.geometry : null;
+  return geom?.length > 1 ? geom.map(([lng, lat]) => ({ lat, lng })) : null;
+}
+const dayDow = (day) => (day?.date ? new Date(`${day.date}T12:00:00`).getDay() : null);
+
+function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const chain = dayChain(day, routes);
+  const anchor = day.waypoints.find((w) => Number.isFinite(w.lat)) ?? null;
+  if (!open) {
+    return (
+      <div className="place-search">
+        <button className="btn" onClick={() => setOpen(true)}>＋ {t('Find a place — fuel, food, sights…')}</button>
+      </div>
+    );
+  }
+  const pick = (r, { fuel }) => {
+    const pt = { lat: r.lat, lng: r.lng };
+    dispatch({
+      type: 'apply_ops',
+      ops: [{
+        op: 'add_waypoint',
+        dayId: day.id,
+        index: insertIndexOnRoute(day.waypoints, chain, pt) ?? bestInsertIndex(day.waypoints, pt),
+        waypoint: {
+          name: r.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: r.detail ?? '',
+          ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
+        },
+      }],
+    });
+    setOpen(false);
+  };
+  return (
+    <NearbyPicker
+      mode="add"
+      near={anchor}
+      chain={chain}
+      fromAlong={0}
+      dow={dayDow(day)}
+      routePrefs={tripRoutePrefs(trip)}
+      onPick={pick}
+      onClose={() => setOpen(false)}
+      title={t('Add a stop to this day')}
+    />
+  );
+}
+
+// Swap a stop: only the PLACE changes. Slot, kind, fuel flag, dwell and any
+// gate pointing at this stop all stay — that is what makes it a swap and not
+// a remove-and-add. The ETA the picker judges "open at" against is THIS
+// stop's arrival in the simulated day.
+function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
+  const t = useT();
+  const chain = dayChain(day, routes);
+  const pick = (r) => {
+    dispatch({
+      type: 'apply_ops',
+      ops: [{
+        op: 'update_waypoint', dayId: day.id, waypointId: w.id,
+        patch: {
+          name: r.name, lat: r.lat, lng: r.lng, note: r.detail ?? w.note ?? '', mile: null,
+          ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : { placeId: undefined }),
+        },
+      }],
+    });
+    onClose();
+  };
+  const cat = w.fuel || w.kind === 'fuel' ? 'fuel' : /diner|cafe|grill|restaurant|bar|kitchen|pizza|bbq/i.test(w.name) ? 'food' : null;
+  // "ahead" and "behind" are relative to THIS stop's place on the line, not the
+  // day's start — a candidate before it on the road is a candidate behind it.
+  const here = chain ? alongOnRoute(chain, { lat: w.lat, lng: w.lng })?.along : null;
+  return (
+    <NearbyPicker
+      mode="swap"
+      near={{ lat: w.lat, lng: w.lng }}
+      chain={chain}
+      fromAlong={Number.isFinite(here) ? here : 0}
+      nextStop={next && Number.isFinite(next.lat) ? { lat: next.lat, lng: next.lng } : null}
+      etaMin={sched?.arrive ?? null}
+      dow={dayDow(day)}
+      routePrefs={tripRoutePrefs(trip)}
+      initialCategory={cat}
+      onPick={pick}
+      onClose={onClose}
+      title={`${t('Swap')} ${w.name}`}
+    />
+  );
+}
+
+// A meal has no coordinate of its own, so it is judged against the day's
+// line and the hour the slot implies: breakfast at departure, lunch at 12:30,
+// dinner at the day's end.
+function MealSwapPicker({ day, meal, dispatch, onClose }) {
+  const t = useT();
+  const { routes, routedLegsByDay, state } = useTrip();
+  const chain = dayChain(day, routes);
+  const tl = dayTimeline(day, routedLegsByDay[day.id]);
+  const mid = day.waypoints[Math.floor(day.waypoints.length / 2)] ?? day.waypoints[0];
+  const eta = meal.meal === 'breakfast' ? tl.stops[0]?.depart : meal.meal === 'dinner' ? tl.endMin : 12 * 60 + 30;
+  const pick = (r) => {
+    dispatch({
+      type: 'apply_ops',
+      ops: [{
+        op: 'update_meal', dayId: day.id, meal: meal.meal,
+        patch: { name: r.name, where: r.detail ?? '', lat: r.lat, lng: r.lng, ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}) },
+      }],
+    });
+    onClose();
+  };
+  return (
+    <NearbyPicker
+      mode="swap"
+      near={mid && Number.isFinite(mid.lat) ? { lat: mid.lat, lng: mid.lng } : null}
+      chain={chain}
+      etaMin={Number.isFinite(eta) ? eta : null}
+      dow={dayDow(day)}
+      routePrefs={tripRoutePrefs(state.trip)}
+      initialCategory={meal.meal === 'breakfast' ? 'coffee' : 'food'}
+      onPick={pick}
+      onClose={onClose}
+      title={`${t('Swap')} ${t(meal.meal)}`}
+    />
+  );
+}
+
 function MealsSection({ day, dispatch }) {
   const [editing, setEditing] = useState(null); // meal slot being edited
+  const [swapping, setSwapping] = useState(null); // meal slot with the swap picker open
   const [form, setForm] = useState({});
   const meals = day.meals ?? [];
   const missing = MEAL_SLOTS.filter((s) => !meals.some((m) => m.meal === s));
@@ -474,12 +614,16 @@ function MealsSection({ day, dispatch }) {
             <>
               <div className="m-kind">{t(m.meal)}
                 <button className="mini-edit" onClick={() => startEdit(m.meal)}>✎</button>
+                <button className="mini-edit swap" title={t('Swap for another place')} aria-label={t('Swap for another place')} onClick={() => setSwapping(swapping === m.meal ? null : m.meal)}>⇄</button>
                 <button className="mini-edit" title={t('Remove meal')} onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'remove_meal', dayId: day.id, meal: m.meal }] })}>✕</button>
               </div>
               <div className="m-name">{m.name || '—'}<VerifyTag on={m.verified} t={t} /></div>
               {m.where && <div className="m-where">{m.where}</div>}
               {m.note && <div className="m-note">{tt(m.note)}</div>}
               {m.alt && <div className="m-alt">{tt(m.alt)}</div>}
+              {swapping === m.meal && (
+                <MealSwapPicker day={day} meal={m} dispatch={dispatch} onClose={() => setSwapping(null)} />
+              )}
             </>
           )}
         </div>
@@ -682,7 +826,7 @@ function LodgingSection({ day, dispatch }) {
   );
 }
 
-function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt, u, t, shields, snapM }) {
+function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt, u, t, shields, snapM, onSwap}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
@@ -744,6 +888,12 @@ function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt,
         </span>
         {w.note && <span className="note">{tt(w.note)}</span>}
       </div>
+      {/* Swap keeps the stop's ROLE — slot, kind, dwell, gates — and changes only
+          the place. It is how "not that diner" becomes a two-tap fix instead of
+          remove + search + re-add + re-dwell. */}
+      {!first && onSwap && (
+        <button className="rm swap" title={t('Swap this stop for another place')} aria-label={t('Swap this stop for another place')} onClick={onSwap}>⇄</button>
+      )}
       <button
         className="rm info"
         title="Stop details"

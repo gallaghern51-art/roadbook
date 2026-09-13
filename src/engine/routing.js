@@ -166,7 +166,7 @@ function valhallaMotorcycleOptions(value) {
   };
 }
 
-async function valhallaRoute(origin, wps, routePrefs, signal) {
+export async function valhallaRoute(origin, wps, routePrefs, signal) {
   if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
   const body = {
     locations: [

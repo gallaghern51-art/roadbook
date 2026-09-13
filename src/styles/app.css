@@ -4373,3 +4373,57 @@ input:focus, textarea:focus, select:focus {
 .modal, .modal.settings, .modal-body, .side-inner, .guide-body, .set-section, .prep-board, .home-inner, .ai-dock, .chat-panel {
   overflow-x: hidden;
 }
+
+/* ---------- nearby picker ----------
+   Chips, a scope, and rows that carry the facts a rider decides on. Shared by
+   the day panel (add / swap), Ride Mode (add ahead) and Quick Ride. */
+.nearby { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--asphalt-2); }
+.nb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.nb-head b { font-family: var(--display); font-size: 14px; font-weight: 650; }
+.nb-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; margin-bottom: 8px; overscroll-behavior-x: contain; }
+.nb-chips::-webkit-scrollbar { display: none; }
+.nb-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 6px 11px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--asphalt-1); color: var(--ink-dim);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
+.nb-chip i { font-style: normal; font-size: 13px; }
+.nb-chip.active { color: var(--ink); border-color: var(--rally); background: rgba(245, 63, 31, 0.08); }
+.nb-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nb-q { flex: 1 1 160px; min-width: 0; font-size: 13px; }
+.nb-scope { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.nb-scope button { padding: 6px 10px; min-height: 34px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim); }
+.nb-scope button.active { background: var(--asphalt-3); color: var(--ink); }
+.nb-note { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); padding: 6px 2px; }
+.nb-note.warn { color: var(--danger); }
+.nb-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+.nb-item { border: 1px solid var(--line); border-radius: 8px; background: var(--asphalt-1); }
+.nb-item.open { border-color: var(--rally); }
+.nb-item.behind { opacity: 0.6; }
+.nb-main { display: block; width: 100%; text-align: left; padding: 9px 10px; min-height: 44px; }
+.nb-name { display: block; font-size: 13.5px; font-weight: 600; }
+.nb-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); }
+.nb-rate { color: var(--outbound); }
+.nb-rate small { color: var(--ink-faint); }
+.nb-open.ok { color: var(--ok, #4caf72); }
+.nb-open.bad { color: var(--danger); }
+.nb-ver { color: var(--ink-faint); }
+.nb-addr { display: block; margin-top: 2px; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-more { padding: 0 10px 10px; }
+.nb-detour { font-size: 12.5px; color: var(--ink-dim); margin: 2px 0 8px; }
+.nb-detour b { color: var(--ink); font-family: var(--mono); }
+.nb-hours summary { cursor: pointer; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); min-height: 32px; display: flex; align-items: center; }
+.nb-hours ul { list-style: none; padding: 0 0 6px; margin: 0; font-size: 12px; color: var(--ink-dim); }
+.nb-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.nb-actions .btn { min-height: 38px; }
+.nb-attrib { margin-top: 6px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+/* swap affordance on stop and meal rows */
+.wp-row .rm.swap { font-size: 12px; }
+.wp-row .rm.swap:hover { color: var(--outbound); }
+.meal .m-kind .mini-edit.swap { margin-left: 4px; }
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .nb-chip { min-height: 40px; }
+  .nb-scope button { min-height: 40px; }
+  .nb-actions .btn { min-height: 44px; }
+  .nb-list { max-height: 50dvh; }
+}

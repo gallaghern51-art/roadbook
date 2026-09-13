@@ -43,7 +43,13 @@ export async function searchPlacesGoogle(key, query, near, {
     fields.add('places.primaryType');
     fields.add('places.businessStatus');
   }
-  if (hours) fields.add('places.regularOpeningHours.weekdayDescriptions');
+  if (hours) {
+    fields.add('places.regularOpeningHours.weekdayDescriptions');
+    // machine-readable periods too: "open at the rider's ETA" is a comparison,
+    // not a string — same Enterprise tier the descriptions already cost
+    fields.add('places.regularOpeningHours.periods');
+    fields.add('places.currentOpeningHours.openNow');
+  }
   if (encodedPolyline) fields.add('routingSummaries');
   if (enrich) {
     fields.add('places.rating');
@@ -76,7 +82,11 @@ export async function searchPlacesGoogle(key, query, near, {
     lat: p.location?.latitude,
     lng: p.location?.longitude,
     ...((classify || enrich) ? { types: p.types ?? [], primaryType: p.primaryType ?? '', status: p.businessStatus ?? '' } : {}),
-    ...(hours ? { hours: p.regularOpeningHours?.weekdayDescriptions ?? null } : {}),
+    ...(hours ? {
+      hours: p.regularOpeningHours?.weekdayDescriptions ?? null,
+      periods: p.regularOpeningHours?.periods ?? null,
+      openNow: typeof p.currentOpeningHours?.openNow === 'boolean' ? p.currentOpeningHours.openNow : null,
+    } : {}),
     ...(enrich ? {
       rating: Number.isFinite(p.rating) ? p.rating : null,
       userRatingCount: Number.isFinite(p.userRatingCount) ? p.userRatingCount : null,
