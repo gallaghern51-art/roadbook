@@ -20,12 +20,15 @@ export const PHASES = {
 /** The trip's own word for a phase, falling back to the generic one. */
 export const phaseLabel = (trip, key) => trip?.meta?.phaseLabels?.[key] || PHASES[key]?.label || key;
 
+import { SEED_PLACES } from './seedPlaces.js';
+
 export const SEED_TRIP = {
   meta: {
     phaseLabels: { rally: 'Rally' },
-    title: 'STURGIS 2026',
-    subtitle: 'La Expedición Chilena',
-    summary: 'Eleven days and roughly 2,700 routed miles out of Missoula: the Gallatin Canyon down to Island Park, Yellowstone end to end and over Sylvan Pass to Cody, the Bighorns to four nights in the Black Hills for the rally, then home the long way over Little Bighorn, the Beartooth, and Going-to-the-Sun. Seven riders on rented Harleys.',
+    title: 'Sturgis Trip Template',
+    subtitle: 'Missoula · Yellowstone · Bighorns · Black Hills · Beartooth · Glacier',
+    summary: 'An eleven-day, 2,700-mile rally loop out of Missoula, built for a group on rented Harleys and ridden as written. Day one is the bike pickup; then the Gallatin Canyon to Island Park, Yellowstone end to end and over Sylvan Pass to a cabin in the Wapiti Valley, the Bighorns on US-14 to four nights in Lead for the Sturgis rally (the Needles, Iron Mountain Road, Rushmore, Crazy Horse, Spearfish Canyon and Devils Tower), then home the long way: Little Bighorn, the Beartooth Pass to Red Lodge, Great Falls, Going-to-the-Sun Road and a night at Quinn’s Hot Springs. Every fuel stop is a real station with hours, every night has a bed, and the hard gates (park entrances, check-ins, the rental return) are on the clock. Copy it, move the dates, swap the stops you would ride differently.',
+    templateNote: 'the full field guide — fuel, beds, gates and photo stops on every day',
     startDate: '2026-08-07',
     riders: 7,
     totalMiles: 2390,
@@ -364,7 +367,7 @@ export const SEED_TRIP = {
         { id: 'd8w2', name: 'Beartooth Pass summit, 10,947 ft', mile: 24, note: 'Alpine tundra, 38–45°F with wind at ~8:15 AM. Liners and full gloves — this is not optional for the group pace.', lat: 44.97, lng: -109.4665, kind: 'photo', dwell: 20 },
         { id: 'd8w6', name: 'Dead Indian Pass, 8,048 ft', mile: 78, note: 'Overlook, switchbacks below. Last stop before WY-120 opens up to 70 mph country.', lat: 44.7455, lng: -109.4116, kind: 'photo', dwell: 20 },
         { id: 'd8w8', name: 'Salta\'s Big Country Garage — Belfry, MT', mile: 123, note: '322 Broadway Ave. Splash-and-go, closes the Red Lodge→Billings gap before Piccola. Backup: Black\'s Service Station, 320 Broadway Ave (next door).', lat: 45.1426497, lng: -109.0098118, kind: 'fuel', dwell: 10, fuel: true },
-        { id: 'd8w9', name: 'Red Lodge — Piccola 1:00 PM', mile: 135, note: 'Target back 11:15–11:45. Unload, dry layers off, stage for 1:00 PM lunch — margin built in for one thing going wrong.', lat: 45.1866, lng: -109.2468, kind: 'via', dwell: 105 },
+        { id: 'd8w9', name: 'Piccola Cucina at Ox Pasture — Red Lodge', mile: 135, note: 'Target back 11:15–11:45. Unload, dry layers off, stage for 1:00 PM lunch — margin built in for one thing going wrong.', lat: 45.1866, lng: -109.2468, kind: 'via', dwell: 105 },
         { id: 'd8w10', name: 'Laurel, MT', mile: 179, note: 'I-90 East one exit to the US-87 interchange', lat: 45.6691, lng: -108.7715, kind: 'via', dwell: 0, fuel: false },
         { id: 'd8w11', name: 'Town Pump — Billings, MT', mile: 195, note: '1030 US-87. Fuel before the long run north. Backup: LIBERTY, 1031 US-87 (across the lot).', lat: 45.796618, lng: -108.459633, kind: 'fuel', dwell: 10, fuel: true },
         { id: 'd8w12', name: 'Roundup, MT', mile: 245, note: 'Open two-lane, 70 mph, almost no traffic', lat: 46.4452, lng: -108.5418, kind: 'via', dwell: 0, fuel: false },
@@ -375,7 +378,7 @@ export const SEED_TRIP = {
       ],
       meals: [
         { meal: 'breakfast', name: 'Cafe Regis', where: '501 S Word Ave, Red Lodge', note: 'The local breakfast institution, opens early enough for the 7:00 rollout.', alt: 'City Bakery on Broadway to move faster' },
-        { meal: 'lunch', name: 'PICCOLA CUCINA AT OX PASTURE — 1:00 PM', where: '7 N Broadway Ave, Red Lodge', note: 'Reserved, table of 7. Chef Philip Guardione’s Sicilian kitchen — widely called the best Italian in Montana and it is not a close race. The octopus, the lasagna al ragù, the tableside tiramisù. Ninety minutes, then load up.', alt: '' },
+        { meal: 'lunch', name: 'Piccola Cucina at Ox Pasture', where: '7 N Broadway Ave, Red Lodge', note: 'Reserved, table of 7. Chef Philip Guardione’s Sicilian kitchen — widely called the best Italian in Montana and it is not a close race. The octopus, the lasagna al ragù, the tableside tiramisù. Ninety minutes, then load up.', alt: '' },
         { meal: 'dinner', name: 'Enbar Craft Cocktail Lounge', where: '108 Central Ave, Great Falls', note: 'The best room in Great Falls; takes reservations on OpenTable.', alt: 'Harvest Craft Kitchen, or Mighty Mo Brew Co for pizza and a pint after 420 miles' },
       ],
       photos: [
@@ -507,3 +510,39 @@ export const SEED_TRIP = {
     ],
   },
 };
+
+// Tie the field guide to the ground (owner, Sep 13 2026: "destinations are
+// not tied to actual Google places"). SEED_PLACES is what tools/verify-seed.mjs
+// found for every stop, meal and night: a verified stop takes Google's
+// identity and exact coordinate (the hand-transcribed pin was up to four miles
+// out — Quinn's), keeps its curated name and note, and drops its field-guide
+// mile; a scenic stop or road anchor with no listing is marked PLACED; a
+// business with none is marked unverified. Applied once, at module load.
+export function applySeedPlaces(trip, places) {
+  for (const day of trip.days) {
+    for (const w of day.waypoints) {
+      const p = places.waypoints[w.id];
+      if (!p) continue;
+      if (p.verified === 'google') {
+        w.placeId = p.placeId; w.verified = 'google'; w.mile = null;
+        if (p.rename) w.name = p.rename; // a fuel stop named after its town takes the station's name
+        // a business or a station IS its listing; a scenic stop or a town is a
+        // spot the author chose on it — a listing's centroid 2 mi off (the
+        // reservoir's middle for its north shore) keeps the author's pin
+        const snap = !(p.cls === 'scenic' || p.cls === 'town') || p.mi <= 0.35;
+        if (snap) { w.lat = p.lat; w.lng = p.lng; }
+        if (p.address && !String(w.note ?? '').includes(p.address)) w.address = p.address;
+      } else if (p.placed) { w.placed = p.placed; } else if (p.verified === false) { w.verified = false; }
+    }
+    const l = places.lodging[day.id];
+    if (l?.verified === 'google' && day.lodging) { day.lodging.placeId = l.placeId; day.lodging.verified = 'google'; day.lodging.lat = l.lat; day.lodging.lng = l.lng; }
+    else if (l?.placed && day.lodging) day.lodging.placed = l.placed;
+    for (const m of day.meals ?? []) {
+      const r = places.meals[`${day.date}:${m.meal}`];
+      if (!r) continue;
+      if (r.verified === 'google') { m.placeId = r.placeId; m.verified = 'google'; m.lat = r.lat; m.lng = r.lng; }
+      else if (r.verified === false) m.verified = false;
+    }
+  }
+}
+applySeedPlaces(SEED_TRIP, SEED_PLACES);

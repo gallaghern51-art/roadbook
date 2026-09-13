@@ -40,7 +40,22 @@ export const SPECS = {
   fuel: { type: 'gas_station', maxMi: 12, hours: false, label: 'gas station', generic: 'gas station' },
   lodging: { type: 'lodging', maxMi: 20, hours: true, label: 'lodging', generic: null },
   food: { type: 'restaurant', maxMi: 20, hours: true, label: 'restaurant', generic: null },
+  // Owner, Sep 13 2026: "the AI planner should never just have a location that
+  // isn't tied to something real, or a user-placed location that's deliberate
+  // if search can't find it". So EVERY stop the model authors is checked, not
+  // only fuel/beds/meals:
+  //   place  — a via / start / end: a town, a business, a landmark. Any type;
+  //            found → snapped; not found → unverified (the rider re-picks it).
+  //   scenic — a photo stop: a pass, a falls, an overlook. Found → carries the
+  //            listing's identity (its coordinate only when it is close — a
+  //            listing's centroid can sit 2 mi from the pullout); not found →
+  //            PLACED: a deliberate coordinate the rider confirms on the map,
+  //            never dressed up as a verified business.
+  place: { type: null, maxMi: 6, hours: false, label: 'place', generic: null },
+  scenic: { type: null, maxMi: 3, hours: false, label: 'scenic stop', generic: null, deny: /store|health|doctor|physio|beauty|hair|salon|golf|gym|school|real_estate|car_repair|dentist|lawyer|bathroom|toilet|lodging|restaurant|cafe|bar\b|casino|vacation_rental|finance|insurance/i, snapMi: 0.35 },
 };
+export const SCENIC_NAME = /\b(pass|falls|overlook|viewpoint|summit|point|lake|reservoir|canyon|monument|memorial|peak|shore|scenic|byway|geyser|basin|spring|trail|vista|dam|ridge|mountain|bridge|gap|creek|pullout|junction)\b/i;
+const typesOf = (c) => [c.primaryType, ...(c.types ?? [])].filter(Boolean).join(' ');
 
 // Concurrency: Places answers in ~200-400ms, so a pool of 4 turns a 12-stop
 // trip into ~1s of wall time. Higher risks the per-minute quota on a site
@@ -48,7 +63,7 @@ export const SPECS = {
 const POOL = 4;
 // Backstop against a pathological trip (30 days x 8 stops) burning the budget
 // and the Places quota in one build.
-const MAX_LOOKUPS = 80;
+const MAX_LOOKUPS = 140; // every stop is checked now, not just fuel/beds/meals: ~10/day of trip
 
 const R_MI = 3958.8;
 const rad = (d) => (d * Math.PI) / 180;
@@ -122,10 +137,11 @@ export function nameOverlap(want, got) {
 // some other brand that merely sits in that town. The GENERIC fallback
 // ("gas station") is asking what is actually here, and there the nearest one
 // to the planned pin is the answer that keeps the route honest.
-function best(candidates, { want, near, maxMi, prefer = 'distance' }) {
+function best(candidates, { want, near, maxMi, prefer = 'distance', deny = null }) {
   let winner = null;
   for (const c of candidates) {
     if (c.status && c.status !== 'OPERATIONAL') continue; // closed for good
+    if (deny && deny.test(typesOf(c))) continue; // the salon that carries the pass's name
     const mi = milesBetween(near, c);
     if (!(mi <= maxMi)) continue;
     const cand = { ...c, mi, overlap: nameOverlap(want, c.name) };
@@ -160,8 +176,11 @@ export async function findPlace(key, { name, near, spec, searchImpl }) {
 
   const named = String(name ?? '').trim();
   if (named && !isPlaceholderName(named)) {
-    const hit = best(await run(named), { want: named, near, maxMi: spec.maxMi, prefer: 'name' });
-    if (hit) return { ...hit, exact: hit.overlap >= 0.5 };
+    const hit = best(await run(named), { want: named, near, maxMi: spec.maxMi, prefer: 'name', deny: spec.deny ?? null });
+    // a typeless lookup (place / scenic) has no generic fallback: the NAME
+    // has to match, or the model's pin is not a real thing we can name
+    if (hit && (spec.type || hit.overlap >= 0.5)) return { ...hit, exact: hit.overlap >= 0.5 };
+    if (!spec.type) return null;
   }
   if (!spec.generic) return null;
   // Fallback: whatever real one is nearest the pin.
@@ -207,15 +226,20 @@ const unverifiedNote = (spec) => `${UNVERIFIED_MARK} — no ${spec.label} found 
 // drawing exit-and-re-enter spurs.
 function applyToWaypoint(w, hit, spec) {
   if (!hit) {
+    if (spec === SPECS.scenic) {
+      // a deliberate coordinate, said so — the rider confirms it on the map
+      w.placed = 'ai';
+      return { moved: 0 };
+    }
     w.verified = false;
     const base = stripMark(w.note);
     w.note = base ? `${unverifiedNote(spec)} | ${base}` : unverifiedNote(spec);
     return { moved: 0 };
   }
   const moved = milesBetween(w, hit);
-  w.name = hit.name || w.name;
-  w.lat = hit.lat;
-  w.lng = hit.lng;
+  const snap = !spec.snapMi || moved <= spec.snapMi;
+  if (spec.type) w.name = hit.name || w.name; // a typed stop IS its listing; a place / scenic keeps its curated name
+  if (snap) { w.lat = hit.lat; w.lng = hit.lng; }
   w.placeId = hit.id;
   w.verified = 'google';
   w.mile = null; // legacy field-guide mileage no longer describes this pin
@@ -237,15 +261,22 @@ function anchorFor(day, meal) {
 // Collect the verification work a trip needs, in priority order: fuel first
 // (running dry is the failure with no workaround at 9pm in Montana), then the
 // bed, then the meals.
+export const waypointSpecKind = (w) => {
+  if (w.fuel === true || w.kind === 'fuel') return 'fuel';
+  if (w.kind === 'photo' || SCENIC_NAME.test(String(w.name ?? ''))) return 'scenic';
+  return 'place';
+};
 export function planVerification(trip) {
   const tasks = [];
+  const rankOf = { fuel: 0, place: 3, scenic: 4 };
   for (const day of trip?.days ?? []) {
     for (const w of day.waypoints ?? []) {
-      const isFuel = w.fuel === true || w.kind === 'fuel';
-      if (!isFuel) continue;
       if (w.placeId) { w.verified = w.verified ?? 'model'; continue; } // came from search_places
+      if (w.placed) continue; // the rider (or an earlier pass) placed it on purpose
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
-      tasks.push({ rank: 0, kind: 'fuel', day, target: w, name: w.name, near: { lat: w.lat, lng: w.lng } });
+      if (isPlaceholderName(w.name)) continue;
+      const kind = waypointSpecKind(w);
+      tasks.push({ rank: rankOf[kind], kind, day, target: w, name: w.name, near: { lat: w.lat, lng: w.lng } });
     }
   }
   for (const day of trip?.days ?? []) {
@@ -288,9 +319,10 @@ export async function verifyTrip(trip, {
     const spec = SPECS[task.kind];
     const hit = await findPlace(key, { name: task.name, near: task.near, spec, searchImpl });
     report.checked += 1;
-    if (task.kind === 'fuel') {
+    if (task.kind === 'fuel' || task.kind === 'place' || task.kind === 'scenic') {
       const { moved } = applyToWaypoint(task.target, hit, spec);
       if (hit && moved > 0.05) report.snapped += 1;
+      if (!hit && task.kind === 'scenic') { report.placed = (report.placed ?? 0) + 1; done += 1; return; } // placed, not unverified
     } else if (hit) {
       const t = task.target;
       t.name = hit.name || t.name;
@@ -328,9 +360,9 @@ export function planOpVerification(ops, trip) {
   for (const op of ops ?? []) {
     if (op.op === 'add_waypoint') {
       const w = op.waypoint ?? {};
-      if (!(w.fuel === true || w.kind === 'fuel') || w.placeId) continue;
+      if (w.placeId || w.placed || isPlaceholderName(w.name)) continue;
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
-      tasks.push({ kind: 'fuel', op, target: w, name: w.name, near: { lat: w.lat, lng: w.lng } });
+      tasks.push({ kind: waypointSpecKind(w), op, target: w, name: w.name, near: { lat: w.lat, lng: w.lng } });
       continue;
     }
     if (op.op === 'update_waypoint') {
@@ -342,9 +374,9 @@ export function planOpVerification(ops, trip) {
       const cur = wpOf(day, op.waypointId);
       if (!cur) continue;
       const merged = { ...cur, ...patch };
-      if (!(merged.fuel === true || merged.kind === 'fuel')) continue;
+      if (merged.placed || isPlaceholderName(merged.name)) continue;
       if (!Number.isFinite(merged.lat) || !Number.isFinite(merged.lng)) continue;
-      tasks.push({ kind: 'fuel', op, target: patch, name: merged.name, near: { lat: merged.lat, lng: merged.lng } });
+      tasks.push({ kind: waypointSpecKind(merged), op, target: patch, name: merged.name, near: { lat: merged.lat, lng: merged.lng } });
       continue;
     }
     if (op.op === 'update_lodging') {
@@ -385,19 +417,20 @@ export async function verifyProposal(proposal, {
     const spec = SPECS[task.kind];
     const hit = await findPlace(key, { name: task.name, near: task.near, spec, searchImpl });
     if (!hit) {
+      if (task.kind === 'scenic') { task.target.placed = 'ai'; out.placed = [...(out.placed ?? []), { name: task.name }]; return; }
       task.target.verified = false;
       out.unverified.push({ kind: task.kind, name: task.name });
       return;
     }
     const was = task.name;
-    if (task.kind === 'fuel') {
+    if (task.kind === 'fuel' || task.kind === 'place' || task.kind === 'scenic') {
       const moved = milesBetween(task.near, hit);
-      task.target.name = hit.name || task.target.name;
-      task.target.lat = hit.lat;
-      task.target.lng = hit.lng;
+      const snap = !spec.snapMi || moved <= spec.snapMi;
+      if (spec.type) task.target.name = hit.name || task.target.name;
+      if (snap) { task.target.lat = hit.lat; task.target.lng = hit.lng; }
       task.target.placeId = hit.id;
       task.target.verified = 'google';
-      if (moved > 0.05 || nameOverlap(was, hit.name) < 0.5) out.corrected.push({ kind: task.kind, was, now: hit.name, mi: moved });
+      if ((snap && moved > 0.05) || nameOverlap(was, hit.name) < 0.5) out.corrected.push({ kind: task.kind, was, now: hit.name, mi: snap ? moved : 0 });
     } else {
       task.target.name = hit.name || task.target.name;
       task.target.where = hit.detail || task.target.where;
@@ -412,8 +445,9 @@ export async function verifyProposal(proposal, {
 }
 
 // One line the rider actually reads, appended to the optimizer's answer.
-export function describeVerification({ corrected = [], unverified = [] }) {
+export function describeVerification({ corrected = [], unverified = [], placed = [] }) {
   const bits = [];
+  if (placed.length) bits.push(`${placed.length === 1 ? `${placed[0].name} is` : `${placed.length} scenic stops are`} placed on the map rather than a listed business — confirm the pin before you ride`);
   for (const c of corrected) {
     bits.push(c.mi >= 0.1
       ? `moved the ${SPECS[c.kind].label} to ${c.now} (${c.mi.toFixed(1)} mi from the pin)`

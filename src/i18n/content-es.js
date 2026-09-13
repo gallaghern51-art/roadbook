@@ -9,7 +9,8 @@
 
 export const CONTENT_ES = {
   // ---- meta ----
-  'La Expedición Chilena': 'La Expedición Chilena',
+  'Sturgis Trip Template': 'Plantilla del viaje a Sturgis',
+  'Missoula · Yellowstone · Bighorns · Black Hills · Beartooth · Glacier': 'Missoula · Yellowstone · Bighorns · Black Hills · Beartooth · Glacier',
   'Eleven days and roughly 2,700 routed miles out of Missoula: the Gallatin Canyon down to Island Park, Yellowstone end to end and over Sylvan Pass to Cody, the Bighorns to four nights in the Black Hills for the rally, then home the long way over Little Bighorn, the Beartooth, and Going-to-the-Sun. Seven riders on rented Harleys.': 'Once días y unas 2.700 millas ruteadas saliendo de Missoula: el cañón Gallatin bajando a Island Park, Yellowstone de punta a punta y sobre Sylvan Pass hasta Cody, los Bighorns y cuatro noches en las Black Hills para el rally, y de vuelta por el camino largo pasando Little Bighorn, el Beartooth y Going-to-the-Sun. Siete motociclistas en Harleys de arriendo.',
   'Fill at half tank on any stretch over 100 miles. Rental Harleys: 150–180 mi comfortable, 200 absolute.': 'Llenar a medio estanque en cualquier tramo de más de 100 millas. Harleys de arriendo: 150–180 mi cómodas, 200 el límite absoluto.',
 

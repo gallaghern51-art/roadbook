@@ -117,7 +117,10 @@ async function googleRoute(origin, waypoints, extra = {}) {
 // costing, heading-aware departures, and rich maneuver text. Community
 // server, fair-use policy like the OSRM demo — every failure backs off and
 // falls through, so it can only ever add quality, never remove a fallback.
-const VALHALLA = 'https://valhalla1.openstreetmap.de/route';
+// The community endpoint by default; VITE_VALHALLA_URL (build time) points
+// the app at our own Valhalla — the server functions already honour
+// VALHALLA_URL — once one is running, and every limit below is then ours.
+const VALHALLA = `${String((import.meta.env ?? {}).VITE_VALHALLA_URL || 'https://valhalla1.openstreetmap.de').replace(/\/$/, '')}/route`;
 let vSkipUntil = 0;
 
 // Valhalla shapes are encoded polylines with SIX decimal digits (not five).
@@ -166,26 +169,64 @@ function valhallaMotorcycleOptions(value) {
   };
 }
 
+// The public Valhalla caps a request at this many locations (error 150,
+// "Exceeded max locations: 10" — it was 20 until Sep 2026, and a busy rally
+// day carries 12–15 stops; field-caught as straight lines between every stop
+// on those days). A day longer than the cap is routed in WINDOWS that share
+// their boundary stop, and the legs are stitched back into one trip — the
+// boundary stop is a true break (a U-turn is legal there, which is what a
+// stop is anyway), everything inside a window still rides break_through.
+export const VALHALLA_MAX_LOCATIONS = 10;
+export function valhallaWindows(locations, max = VALHALLA_MAX_LOCATIONS) {
+  if (locations.length <= max) return [locations];
+  const out = [];
+  for (let start = 0; start < locations.length - 1; start += max - 1) {
+    const win = locations.slice(start, start + max).map((l, i, arr) => (
+      i === 0 || i === arr.length - 1 ? { ...l, type: 'break' } : l
+    ));
+    out.push(win);
+    if (start + max >= locations.length) break;
+  }
+  return out;
+}
+
 export async function valhallaRoute(origin, wps, routePrefs, signal) {
   if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
+  const locations = [
+    {
+      lon: origin.lng, lat: origin.lat, type: 'break',
+      // like Google: the route departs the way the bike is pointed
+      ...(Number.isFinite(origin.heading)
+        ? { heading: ((Math.round(origin.heading) % 360) + 360) % 360, heading_tolerance: 60 }
+        : {}),
+    },
+    ...wps.map((w, i) => ({
+      lon: w.lng,
+      lat: w.lat,
+      // Intermediate points still split the response into per-stop legs,
+      // but the route must continue through them instead of U-turning. The
+      // final location is always a true break.
+      type: i === wps.length - 1 ? 'break' : 'break_through',
+    })),
+  ];
+  const windows = valhallaWindows(locations);
+  const trips = [];
+  for (const win of windows) trips.push(await valhallaWindow(win, routePrefs, signal)); // in order: a 429 on window 2 must not race window 3
+  if (trips.length === 1) return trips[0];
+  return {
+    ...trips[0],
+    legs: trips.flatMap((t) => t.legs),
+    summary: {
+      ...trips[0].summary,
+      length: trips.reduce((s, t) => s + (t.summary?.length ?? 0), 0),
+      time: trips.reduce((s, t) => s + (t.summary?.time ?? 0), 0),
+    },
+  };
+}
+
+async function valhallaWindow(locations, routePrefs, signal) {
   const body = {
-    locations: [
-      {
-        lon: origin.lng, lat: origin.lat, type: 'break',
-        // like Google: the route departs the way the bike is pointed
-        ...(Number.isFinite(origin.heading)
-          ? { heading: ((Math.round(origin.heading) % 360) + 360) % 360, heading_tolerance: 60 }
-          : {}),
-      },
-      ...wps.map((w, i) => ({
-        lon: w.lng,
-        lat: w.lat,
-        // Intermediate points still split the response into per-stop legs,
-        // but the route must continue through them instead of U-turning. The
-        // final location is always a true break.
-        type: i === wps.length - 1 ? 'break' : 'break_through',
-      })),
-    ],
+    locations,
     costing: 'motorcycle',
     costing_options: { motorcycle: valhallaMotorcycleOptions(routePrefs) },
     directions_options: { units: 'miles' },

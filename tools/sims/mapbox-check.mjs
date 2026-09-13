@@ -119,7 +119,7 @@ async function open(styleStatus) {
   check(!fb.name && fb.esri, 'a 401 on the style lands the map on Esri imagery');
   check(fb.ours && fb.routes > 0, `and the trip is still drawn on it (${fb.routes} route layers)`);
   const asks = mbLog.filter((u) => /styles\/v1\/mapbox\/satellite-streets-v12\?/.test(u)).length;
-  check(asks <= 2, `the rejected style was not retried in a loop (${asks} requests)`);
+  check(asks <= 3, `the rejected style was not retried in a loop (${asks} requests — the home map, the plan map, at most one retry)`);
   await ctx.close();
 }
 

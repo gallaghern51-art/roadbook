@@ -34,6 +34,7 @@ async function run(width, label) {
   page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
   await page.route('**/*', (r) => (r.request().url().includes('localhost:5199') ? r.continue() : r.abort()));
   await page.goto('http://localhost:5199/');
+  { const guest = page.locator('.land-skip'); if (await guest.isVisible().catch(() => false)) await guest.click(); } // the signed-out landing gate on a checkout with Supabase keys
   await page.waitForSelector('.trip-card', { timeout: 20000 });
 
   const lib = () => page.evaluate(() => JSON.parse(localStorage.getItem('moto.trips.v1')));

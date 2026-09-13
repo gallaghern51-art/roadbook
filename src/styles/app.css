@@ -4659,3 +4659,100 @@ input:focus, textarea:focus, select:focus {
 @media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
   input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea, select { font-size: 16px; }
 }
+
+/* ---------- The home map (option A, Sep 13 2026) ----------
+   The map is the home. The top strip floats over it (pill · gear · chips),
+   the sheet owns the bottom and scrolls its own content — at PEEK it shows
+   the verbs and the trips row, pulled UP it is the whole old home. On a
+   desktop the sheet is a column on the left and the map takes the rest. */
+.home.home-map { position: relative; height: 100vh; height: 100dvh; overflow: hidden; }
+.hm-map { position: absolute; inset: 0; }
+.hm-map .mapboxgl-ctrl-bottom-left { margin-bottom: 0; }
+.hm-top { position: absolute; left: 12px; right: 12px; top: calc(var(--viewport-safe-top) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; }
+.hm-pillrow { display: flex; align-items: center; gap: 10px; }
+.hm-pill {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
+  border-radius: 999px; background: rgba(8, 10, 11, 0.9); border: 1px solid var(--line-strong); color: var(--ink-dim);
+  font-family: var(--body); font-size: 15px; text-align: left; text-transform: none; letter-spacing: 0;
+}
+.hm-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-round { width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 999px; background: rgba(8, 10, 11, 0.9); border: 1px solid var(--line-strong); color: var(--ink); display: grid; place-items: center; font-size: 22px; line-height: 1; }
+.hm-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 2px; }
+.hm-chips::-webkit-scrollbar { display: none; }
+.hm-chip {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 6px 12px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: rgba(8, 10, 11, 0.82); color: var(--ink);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.hm-chip i { font-style: normal; font-size: 13px; }
+.hm-chip.active { border-color: var(--rally); color: var(--rally); }
+.hm-locate { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 128px); z-index: 3; }
+.hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 6px 10px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); }
+.hm-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; height: 42%;
+  background: var(--asphalt-1); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
+  box-shadow: var(--shadow-float); display: flex; flex-direction: column; transition: height 0.25s ease;
+}
+.hm-sheet[data-state='up'] { height: 86%; }
+.hm-sheet.pick { height: 62%; }
+.hm-sheet.place { height: auto; max-height: 60%; }
+.hm-handle { height: 24px; display: grid; place-items: center; background: transparent; border: 0; padding: 0; flex: 0 0 auto; }
+.hm-handle i { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.hm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 2px 16px calc(24px + var(--viewport-safe-bottom)); }
+.hm-body .section { margin-top: 22px; }
+.hm-body .section h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.hm-fixnote { margin: 8px 0 0; padding: 0; }
+.hm-body .install-prompt { margin-top: 18px; }
+.hm-verbs { display: flex; gap: 10px; }
+.hm-verbs .btn { min-height: 48px; }
+.hm-verbs .btn.gold { flex: 1; justify-content: center; }
+.hm-trips.section { margin-top: 16px; }
+.hm-trips-row { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding: 2px 0 6px; }
+.hm-trips-row::-webkit-scrollbar { display: none; }
+.hm-trips-row .trip-card { flex: 0 0 236px; }
+.hm-place { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.hm-place-head { display: flex; align-items: center; gap: 10px; }
+.hm-place-head .poi-title b { font-family: var(--display); font-size: 22px; font-weight: 700; line-height: 1; }
+.hm-place .poi-facts { margin-top: 0; }
+.hm-place-head .poi-title small { text-transform: none; }
+.hm-place-head .hm-kicker { text-transform: capitalize; }
+.hm-place-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.hm-place-actions .btn { min-height: 48px; }
+.hm-place-actions .btn.gold { flex: 1 1 120px; justify-content: center; }
+.hm-search { position: absolute; inset: 0; z-index: 6; background: rgba(8, 10, 11, 0.9); backdrop-filter: blur(8px); padding: calc(var(--viewport-safe-top) + 12px) 12px 24px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 12px; }
+.hm-input { flex: 1; min-width: 0; height: 48px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--route); background: var(--asphalt-1); color: var(--ink); font-family: var(--body); font-size: 16px; }
+.hm-ai { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--asphalt-1); border: 1px solid var(--line); text-align: left; color: var(--ink); text-transform: none; letter-spacing: 0; font-family: var(--body); }
+.hm-ai.lead { border-color: var(--route); }
+.hm-ai-glyph { color: var(--route); font-size: 18px; }
+.hm-ai b { display: block; font-size: 14px; }
+.hm-ai small { display: block; margin-top: 2px; color: var(--ink-dim); font-size: 12.5px; line-height: 1.4; }
+.hm-results { list-style: none; margin: 0; padding: 0; background: var(--asphalt-1); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.hm-results li + li { border-top: 1px solid var(--line-soft); }
+.hm-results button { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 56px; text-align: left; background: transparent; border: 0; color: var(--ink); font-family: var(--body); text-transform: none; letter-spacing: 0; }
+.hm-res-pin { color: var(--ink-faint); font-size: 16px; }
+.hm-res-main { flex: 1; min-width: 0; }
+.hm-res-main b { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-res-main small { display: block; color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; }
+.hm-res-go { font-size: 10.5px; color: var(--route); letter-spacing: 0.06em; text-transform: uppercase; }
+.hm-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); padding: 0 4px; }
+.hm-addto { display: flex; flex-direction: column; gap: 8px; }
+.hm-addto-row { display: flex; align-items: center; gap: 10px; padding: 12px; min-height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-1); color: var(--ink); text-align: left; font-family: var(--body); text-transform: none; letter-spacing: 0; }
+.hm-addto-row.lead { border-color: var(--rally); }
+.hm-addto-row.new { border-style: dashed; }
+.hm-addto-main { flex: 1; min-width: 0; }
+.hm-addto-main b { display: block; font-family: var(--display); font-size: 17px; font-weight: 700; }
+.hm-addto-main small { display: block; color: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; margin-top: 2px; }
+@media (min-width: 821px) {
+  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place { left: 16px; right: auto; top: 16px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); }
+  .hm-handle { display: none; }
+  .hm-top { left: 480px; }
+  .hm-locate { top: 130px; }
+  .hm-near { left: 480px; top: 138px; }
+  .hm-search { left: 16px; top: 16px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
+}
+
+/* The pin's honesty tags: a placed spot is quiet (turquoise ring, the map's
+   own colour); an unverified one is a BUTTON — the tag is the door to fixing it. */
+.tag.placed { color: var(--route); border-color: color-mix(in srgb, var(--route) 45%, transparent); background: var(--wash-route); }
+.tag.unverified.act { cursor: pointer; font: inherit; }
+.tag.unverified.act:hover { color: var(--ink); border-color: var(--danger); }

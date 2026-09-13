@@ -260,8 +260,14 @@ const longRoute = await evaluateRouteOptions({
   concepts: [{ id: 'thirteen', title: 'Thirteen locations', locations: thirteenLocations }],
 }, { fetchImpl: mockFetch, baseUrl: 'https://valhalla.test' });
 assert.equal(longRoute.options[0].locations.length, 13);
-assert.equal(requests.slice(beforeLongRouteRequests).find((request) => request.url.endsWith('/route')).body.locations.length, 13);
-console.log('PASS whole-trip evaluation no longer silently truncates location 13 and later days');
+// the public Valhalla caps a request at 10 locations: thirteen go out as two
+// windows sharing their boundary stop (10 + 4), stitched into one 12-leg trip
+const longRouteRequests = requests.slice(beforeLongRouteRequests).filter((request) => request.url.endsWith('/route'));
+assert.deepEqual(longRouteRequests.map((request) => request.body.locations.length), [10, 4]);
+assert.equal(longRouteRequests[0].body.locations[9].lat, longRouteRequests[1].body.locations[0].lat);
+assert.equal(longRouteRequests[1].body.locations[0].type, 'break');
+assert.equal(longRoute.options[0].error, undefined);
+console.log('PASS whole-trip evaluation no longer silently truncates location 13 and later days — and routes it in 10-location windows');
 
 const conceptInput = {
   depart: '08:00',
