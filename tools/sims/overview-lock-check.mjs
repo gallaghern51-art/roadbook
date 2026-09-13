@@ -39,6 +39,8 @@ async function run(width, label) {
   page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
   await page.route('**/*', (r) => (r.request().url().includes('localhost:5199') ? r.continue() : r.abort()));
   await page.goto('http://localhost:5199/');
+  const guest = page.locator('.land-skip'); // the signed-out landing gate on a checkout with Supabase keys
+  if (await guest.isVisible().catch(() => false)) await guest.click();
   await page.waitForSelector('.trip-card', { timeout: 20000 });
   await page.click('.trip-card');
   await page.waitForSelector('.modebar', { timeout: 20000 });

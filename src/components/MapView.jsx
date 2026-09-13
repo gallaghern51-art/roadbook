@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import maplibregl from 'maplibre-gl';
+import mapboxgl from 'mapbox-gl';
 import { useTrip } from '../engine/store.js';
 import { PHASES } from '../data/seedTrip.js';
 import {
@@ -7,7 +7,8 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_SATELLITE, STYLE_FALLBACK, LIGHT_SAFE, ensureTerrain, hideNativeRoadShields, GOOGLE_KEY, cachedGoogleStyle, googleStyle } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, poiLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import PoiCard from './PoiCard.jsx';
 import { routeDayRoads } from '../engine/routing.js';
 import { shieldPlacements } from '../engine/routeShields.js';
 import RouteShields from './RouteShields.jsx';
@@ -16,19 +17,10 @@ import PlacePins from './PlacePins.jsx';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { InputSheet } from './Sheets.jsx';
 
-// Basemap roster: Google tiles headline when a session exists, free styles otherwise.
-function buildBasemapList() {
-  const hyb = cachedGoogleStyle('hybrid');
-  const road = cachedGoogleStyle('roadmap');
-  if (!hyb) return { ...BASEMAPS };
-  return {
-    gsat: { label: 'Satellite', style: hyb },
-    ...(road ? { groad: { label: 'Road', style: road } } : {}),
-    streets: BASEMAPS.streets,
-    dark: BASEMAPS.dark,
-    light: BASEMAPS.light,
-  };
-}
+// Basemap roster: Mapbox's four styles with a token (Satellite is
+// satellite-streets — imagery under, vector roads/labels/POIs over, so POIs
+// are tappable), Esri imagery alone without one. See basemaps.js.
+const maps = BASEMAPS;
 
 const isTouch = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 
@@ -85,8 +77,11 @@ export default function MapView() {
   wheelRef.current = wheel;
   const beginDragRef = useRef(() => {});
   const paintedDragRef = useRef(0); // how many points the drag layer currently holds
-  const [maps, setMaps] = React.useState(buildBasemapList);
-  const [basemap, setBasemap] = React.useState(() => (cachedGoogleStyle('hybrid') ? 'gsat' : 'sat'));
+  const [basemap, setBasemap] = React.useState('sat');
+  const [poi, setPoi] = React.useState(null); // a vector POI tapped on the composite satellite
+  const appliedStyleRef = useRef(null); // the style object the map currently wears
+  const poiTapRef = useRef(null);
+  const poiHoverRef = useRef(new Set());
   const basemapRef = useRef(basemap);
   basemapRef.current = basemap;
   const [mapObj, setMapObj] = React.useState(null); // the loaded map, for marker children
@@ -123,27 +118,27 @@ export default function MapView() {
 
   // init once
   useEffect(() => {
-    const map = new maplibregl.Map({
+    const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: cachedGoogleStyle('hybrid') ?? STYLE_SATELLITE,
+      accessToken: MAPBOX_TOKEN, // per map, so basemaps.js never has to import the renderer (node sims import it)
+      style: (appliedStyleRef.current = basemapStyle(basemapRef.current)),
       center: [-108.5, 45.9],
       zoom: 5.4,
-      // No credit pill on the map at all. Esri and OpenMapTiles require the
-      // attribution to be *displayed*, not to be displayed on the map surface —
-      // so it moves to Settings, where it is one tap away and permanent, and
-      // the map keeps its corner. See CREDITS in SettingsModal.
-      attributionControl: false,
+      // Mapbox's terms want the wordmark and "© Mapbox © OpenStreetMap" ON the
+      // map; the compact ⓘ pill and the small logo are the cost of the tiles.
+      // Settings carries the full credits too (CREDITS in SettingsModal).
+      attributionControl: { compact: true },
     });
     mapRef.current = map;
     if (import.meta.env.DEV) window.__map = map; // console access while developing
     // On touch, pinch-zoom replaces the +/− control and the screen is too
     // small to spend on it.
-    if (!isTouch()) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.GeolocateControl({
+    if (!isTouch()) map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new mapboxgl.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
       trackUserLocation: true,
     }), 'top-right');
-    const scale = new maplibregl.ScaleControl({ unit: 'imperial' });
+    const scale = new mapboxgl.ScaleControl({ unit: 'imperial' });
     map.addControl(scale, 'bottom-right');
     scaleRef.current = scale;
     // labels are DOM markers with no collision engine — hide them when the
@@ -156,12 +151,14 @@ export default function MapView() {
     // Direction chevrons live in the style's image store, which setStyle wipes.
     const addArrow = () => { if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage()); };
     map.on('styleimagemissing', (e) => { if (e.id === 'route-arrow') addArrow(); });
+    // a Mapbox style that will not load (token restricted to other URLs,
+    // offline before the style cached) lands on Esri imagery, not a blank map
     let fellBack = false;
     map.on('error', (e) => {
-      if (!fellBack && String(e?.error?.message || '').match(/style|404|403/i)) {
-        fellBack = true;
-        map.setStyle(STYLE_FALLBACK);
-      }
+      if (fellBack || !isStyleLoadError(e) || map.isStyleLoaded()) return;
+      fellBack = true;
+      appliedStyleRef.current = STYLE_FALLBACK;
+      map.setStyle(STYLE_FALLBACK);
     });
     map.on('load', () => {
       readyRef.current = true;
@@ -179,19 +176,32 @@ export default function MapView() {
     //
     // So: redraw only when our own layers are actually GONE. That is exactly
     // the condition this handler was written for, and it is cheap to ask.
+    // …and only once the new style is IDLE: mapbox-gl's symbol placement is
+    // still running against the fresh style when styledata fires, and adding
+    // layers or flipping a shield layer's visibility in that window throws
+    // inside its placement pass (an uncaught TypeError in continuePlacement).
     map.on('styledata', () => {
       if (!readyRef.current) return;
       if (map.getLayer('leg-hi-line')) return; // our layers survived — nothing to rebuild
-      scheduleDraw();
+      map.once('idle', () => drawAllRef.current());
     });
-    hoverPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, maxWidth: '280px' });
+    hoverPopupRef.current = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 12, maxWidth: '280px' });
     // click empty map = add waypoint to the selected day
     map.on('click', (e) => {
       const { selectedDayId: dayId } = stateRef.current;
-      if (!dayId) return;
       if (e.originalEvent._wpHandled) return;
       if (dragRef.current) return; // the click that ends a drag is not an add
       if (wheelRef.current) { setWheel(null); paintDrag(); return; } // dismiss first
+      // a POI symbol under the finger is a place, not a spot on the map —
+      // satellite-streets draws them as vector features, so this is a real
+      // hit test, the thing a baked raster could never answer
+      const poiIds = poiLayerIds(map);
+      if (poiIds.length) {
+        const hits = map.queryRenderedFeatures(e.point, { layers: poiIds });
+        if (hits.length) { poiTapRef.current?.(hits[0]); return; }
+      }
+      setPoi(null);
+      if (!dayId) return;
       // clicking a route line opens the leg modal, not the add-stop prompt
       const lineIds = stateRef.current.trip.days
         .map((d) => `route-${d.id}-line`)
@@ -272,7 +282,7 @@ export default function MapView() {
       map.once('mouseup', endDrag);
     };
     map.on('mouseout', () => { if (dragRef.current) endDrag(null); });
-    // The map is a hidden tab on mobile; maplibre only watches the window, so
+    // The map is a hidden tab on mobile; mapbox-gl only watches the window, so
     // watch the container and re-measure whenever it comes back on screen.
     const ro = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0) map.resize();
@@ -330,35 +340,34 @@ export default function MapView() {
     return () => cancelAnimationFrame(frame);
   }, [trip, selectedDayId, routes, ui?.routePreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Google tile sessions arrive async — swap the roster in and lead with Google
-  // satellite unless the user already picked something else.
-  useEffect(() => {
-    if (!GOOGLE_KEY) return;
-    let dead = false;
-    (async () => {
-      try {
-        const [hyb, road] = await Promise.all([googleStyle('hybrid'), googleStyle('roadmap')]);
-        if (dead || !hyb) return;
-        setMaps({
-          gsat: { label: 'Satellite', style: hyb },
-          ...(road ? { groad: { label: 'Road', style: road } } : {}),
-          streets: BASEMAPS.streets,
-          dark: BASEMAPS.dark,
-          light: BASEMAPS.light,
-        });
-        setBasemap((b) => (b === 'sat' ? 'gsat' : b));
-      } catch { /* Map Tiles API unavailable — free basemaps carry on */ }
-    })();
-    return () => { dead = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // basemap switch — setStyle wipes sources; redraw once the new style has loaded
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !readyRef.current) return;
-    map.setStyle(maps[basemap]?.style ?? STYLE_FALLBACK);
-    map.once('idle', () => drawAllRef.current());
+    if (!map) return undefined;
+    const style = basemapStyle(basemap);
+    // the constructor's style is recorded so the first load never swaps a
+    // style for itself; a fallback that replaced it re-applies on the next pick
+    const apply = () => {
+      if (appliedStyleRef.current === style) return;
+      appliedStyleRef.current = style;
+      map.setStyle(style);
+      map.once('idle', () => drawAllRef.current());
+    };
+    if (!readyRef.current) { map.once('load', apply); return () => map.off('load', apply); }
+    apply();
+    return undefined;
   }, [basemap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A tapped POI: OSM's name/class/point from the feature. The dev seam lets
+  // the sims drive the exact handler the click uses without vector tiles.
+  poiTapRef.current = (f) => {
+    const p = f?.properties ?? {};
+    const c = f?.geometry?.coordinates ?? [];
+    if (!Number.isFinite(c[0]) || !Number.isFinite(c[1])) return;
+    // OpenMapTiles carries class/subclass; Mapbox Streets carries class/maki
+    setPoi({ name: p.name ?? p['name:latin'] ?? p.name_en ?? t('Unnamed place'), cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1] });
+  };
+  useEffect(() => { if (import.meta.env.DEV) window.__poiTap = (f) => poiTapRef.current?.(f); }, []);
 
   // 3D toggle — terrain + a tilted camera (drawAll re-asserts it after style switches)
   useEffect(() => {
@@ -387,7 +396,7 @@ export default function MapView() {
     const days = selectedDayId ? trip.days.filter((d) => d.id === selectedDayId) : trip.days;
     const pts = days.flatMap((d) => d.waypoints.map((w) => [w.lng, w.lat]));
     if (!pts.length) return;
-    const b = pts.reduce((acc, p) => acc.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
+    const b = pts.reduce((acc, p) => acc.extend(p), new mapboxgl.LngLatBounds(pts[0], pts[0]));
     const doFit = () => {
       // A phone-width map has no room for desk-sized gutters.
       const padding = map.getContainer().clientWidth < 560 ? 28 : 70;
@@ -407,8 +416,19 @@ export default function MapView() {
     if (!map || !map.isStyleLoaded()) return;
     const { trip: t, selectedDayId: sel, routePreview: preview } = stateRef.current;
     ensureTerrain(map, terrainRef.current);
-    // our shields are the ones on this map — setStyle brings the basemap's back
-    hideNativeRoadShields(map);
+    // our shields are the ones on this map — setStyle brings the basemap's
+    // back. Once IDLE: mapbox-gl's placement pass is still running at load and
+    // right after a style swap, and flipping a symbol layer's visibility under
+    // it throws (an uncaught TypeError in continuePlacement).
+    map.once('idle', () => hideNativeRoadShields(map));
+    // POI symbols are tappable: say so with the cursor (delegated listeners
+    // survive setStyle; register each layer id once)
+    for (const id of poiLayerIds(map)) {
+      if (poiHoverRef.current.has(id)) continue;
+      poiHoverRef.current.add(id);
+      map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
+    }
     if (!map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImage());
 
     for (const day of t.days) {
@@ -586,7 +606,7 @@ export default function MapView() {
     const map = mapRef.current;
     const pins = (state.pickerPins ?? []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
     if (!map || !state.pickerFit || !pins.length) return;
-    const b = new maplibregl.LngLatBounds();
+    const b = new mapboxgl.LngLatBounds();
     pins.forEach((p) => b.extend([p.lng, p.lat]));
     const h = containerRef.current?.clientHeight ?? 600;
     map.fitBounds(b, {
@@ -649,7 +669,7 @@ export default function MapView() {
     // so a routes refresh doesn't re-yank the camera.
     if (fl?.zoom && fl.zoom !== legZoomAtRef.current && coords.length > 1) {
       legZoomAtRef.current = fl.zoom;
-      const b = coords.reduce((acc, c) => acc.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+      const b = coords.reduce((acc, c) => acc.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
       map.fitBounds(b, { padding: { top: 150, bottom: 90, left: 50, right: 50 }, maxZoom: 13, duration: 700 });
     }
   }, [state.focusLeg, routes]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -886,7 +906,7 @@ export default function MapView() {
           const priority = isEnd ? 0 : w.fuel ? 1 : w.kind === 'photo' ? 2 : 3;
           labelsRef.current.push({ el: lab, priority, order: wi });
         }
-        const marker = new maplibregl.Marker({ element: el, draggable: showAll })
+        const marker = new mapboxgl.Marker({ element: el, draggable: showAll })
           .setLngLat([w.lng, w.lat])
           .addTo(map);
 
@@ -931,7 +951,7 @@ export default function MapView() {
 
   const selectedDay = trip.days.find((d) => d.id === selectedDayId);
   return (
-    <div className={`map-wrap${['streets', 'light', 'groad'].includes(basemap) ? ' labels-dark' : ''}${ui?.routeLoad ? ' route-pending' : ''}${dragging ? ' route-dragging' : ''}`}>
+    <div className={`map-wrap${['streets', 'light'].includes(basemap) ? ' labels-dark' : ''}${ui?.routeLoad ? ' route-pending' : ''}${dragging ? ' route-dragging' : ''}`}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       {/* Real signage on the line the route line was covering up */}
       <RouteShields map={mapObj} placements={shieldMarks} avoid={shieldAvoid} mode="plan" />
@@ -977,6 +997,29 @@ export default function MapView() {
 
       {/* Naming a tapped stop — the app's sheet, not window.prompt (which is
           unstyled, unlocalised, and on iOS can be suppressed outright). */}
+      {poi && (
+        <PoiCard
+          poi={poi}
+          day={selectedDay ?? null}
+          onClose={() => setPoi(null)}
+          onAdd={(place, { fuel }) => {
+            const day = selectedDay;
+            if (!day) return;
+            const pt = { lat: place.lat, lng: place.lng };
+            dispatch({
+              type: 'apply_ops',
+              ops: [{
+                op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
+                waypoint: {
+                  name: place.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
+                  ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : {}),
+                },
+              }],
+            });
+            setPoi(null);
+          }}
+        />
+      )}
       {addAt && (
         <InputSheet
           title={t('Add a stop')}

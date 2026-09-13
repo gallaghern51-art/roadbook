@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import maplibregl from 'maplibre-gl';
+import mapboxgl from 'mapbox-gl';
 
 // The place picker's candidates as REAL pins — a category glyph and a name,
 // tappable, on every basemap. This replaced two circle layers that could not
@@ -13,7 +13,7 @@ import maplibregl from 'maplibre-gl';
 // DOM markers, DIFFED rather than rebuilt (the same discipline as RouteShields):
 // a search that returns the same eight places must not blink eight pins.
 //
-//   map    the loaded MapLibre map (null while it loads)
+//   map    the loaded Mapbox GL map (null while it loads)
 //   pins   [{ id, lat, lng, name, glyph, hot }]  — `hot` is the expanded row
 //   onTap  (id) → the caller expands that row
 //   mode   'plan' | 'ride' — ride pins are bigger, for a glove
@@ -51,7 +51,7 @@ export default function PlacePins({ map, pins, onTap, mode = 'plan' }) {
         el.addEventListener('click', (ev) => { ev.stopPropagation(); ev._wpHandled = true; tapRef.current?.(id); });
         el.addEventListener('mousedown', (ev) => ev.stopPropagation());
         el.addEventListener('touchstart', (ev) => ev.stopPropagation(), { passive: true });
-        const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
         rec = { p, el, marker, name: null, glyph: null };
         marks.set(id, rec);
       } else if (rec.p.lat !== p.lat || rec.p.lng !== p.lng) {

@@ -12,7 +12,6 @@
 //   npm run dev    # :5199
 //   node tools/sims/place-pins-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
-import { TILE_STYLES } from '../../src/engine/basemaps.js';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
@@ -50,8 +49,6 @@ function places(body) {
 }
 
 // 0. the tile session drops Google's baked POI icons (and still the road shields)
-check(TILE_STYLES.some((s) => s.featureType === 'poi' && s.elementType === 'labels.icon' && s.stylers?.[0]?.visibility === 'off'), 'Google tile session asks for no POI icons');
-check(TILE_STYLES.some((s) => s.featureType === 'road' && s.elementType === 'labels.icon'), 'and still no road shields');
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM
   ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/opt/pw-browsers/chromium');
@@ -171,7 +168,7 @@ async function run(width, label) {
   const spot = await page.evaluate(([x0, y0, w, h]) => {
     for (const fy of [0.35, 0.25, 0.45, 0.15]) for (const fx of [0.3, 0.5, 0.7]) {
       const x = x0 + w * fx, y = y0 + h * fy;
-      if (document.elementFromPoint(x, y)?.classList.contains('maplibregl-canvas')) return [x, y];
+      if (document.elementFromPoint(x, y)?.classList.contains('mapboxgl-canvas')) return [x, y];
     }
     return null;
   }, [m.x, m.y, m.width, m.height]);
@@ -210,7 +207,7 @@ async function run(width, label) {
   await page.locator('.rqa-big', { hasText: 'Fuel' }).click();
   await page.waitForSelector('.rqa-card', { timeout: 6000 });
   const gotRide = await page.waitForFunction(() => document.querySelectorAll('.ride-mode .pl-pin.pl-ride').length >= 2, null, { timeout: 4000 }).then(() => true).catch(() => false);
-  if (!gotRide) console.log('DEBUG ride', await page.evaluate(() => ({ any: document.querySelectorAll('.pl-pin').length, ride: document.querySelectorAll('.pl-pin.pl-ride').length, inRide: document.querySelectorAll('.ride-mode .pl-pin').length, rideEls: document.querySelectorAll('.ride-mode').length, cards: document.querySelectorAll('.rqa-card').length, canvases: document.querySelectorAll('.maplibregl-canvas').length, rideMapCanvas: !!window.__rideMap?.getCanvas()?.isConnected, loaded: window.__rideMap?.loaded?.(), styleLoaded: window.__rideMap?.isStyleLoaded?.() })));
+  if (!gotRide) console.log('DEBUG ride', await page.evaluate(() => ({ any: document.querySelectorAll('.pl-pin').length, ride: document.querySelectorAll('.pl-pin.pl-ride').length, inRide: document.querySelectorAll('.ride-mode .pl-pin').length, rideEls: document.querySelectorAll('.ride-mode').length, cards: document.querySelectorAll('.rqa-card').length, canvases: document.querySelectorAll('.mapboxgl-canvas').length, rideMapCanvas: !!window.__rideMap?.getCanvas()?.isConnected, loaded: window.__rideMap?.loaded?.(), styleLoaded: window.__rideMap?.isStyleLoaded?.() })));
   const ridePins = await page.locator('.ride-mode .pl-pin.pl-ride').count();
   const cards = await page.locator('.rqa-card').count();
   check(ridePins === cards, `the ${cards} cards are ${ridePins} pins on the nav map`);
