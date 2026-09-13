@@ -4569,6 +4569,14 @@ input:focus, textarea:focus, select:focus {
   order: 1; font-family: var(--mono); font-size: 11px; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis;
   text-shadow: 0 1px 3px #000, 0 0 6px rgba(0, 0, 0, 0.8);
 }
+/* category colours, the way Google tells a diner from a pump at a glance */
+.pl-pin.pl-cat-food .pl-glyph { background: #f4762a; color: #fff; }
+.pl-pin.pl-cat-coffee .pl-glyph { background: #a8683a; color: #fff; }
+.pl-pin.pl-cat-fuel .pl-glyph { background: #3b82f6; color: #fff; }
+.pl-pin.pl-cat-lodging .pl-glyph { background: #8b5cf6; color: #fff; }
+.pl-pin.pl-cat-sights .pl-glyph { background: #22a06b; color: #fff; }
+.pl-pin.pl-cat-moto .pl-glyph { background: #64748b; color: #fff; }
+.pl-pin.pl-cat-help .pl-glyph { background: #e5484d; color: #fff; }
 .pl-pin.hot { z-index: 3; }
 .pl-pin.hot .pl-glyph { background: var(--outbound); color: #1a0d00; width: 36px; height: 36px; font-size: 19px; animation: pl-pulse 1.2s ease-out 2; }
 .pl-pin.hot .pl-label { font-weight: 600; color: #fff; }
@@ -4713,8 +4721,9 @@ input:focus, textarea:focus, select:focus {
 /* the right-edge column under the chips: layers pill, then locate, then North up (only while the map is turned) */
 .basemap-switch.hm-layers { top: calc(var(--viewport-safe-top) + 128px); right: 12px; left: auto; z-index: 4; }
 .basemap-switch.hm-layers.closed { left: auto; }
-.hm-locate { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 182px); z-index: 3; }
-.hm-north { position: absolute; right: 12px; top: calc(var(--viewport-safe-top) + 236px); z-index: 3; }
+/* the bottom-right column floats just above the sheet (the root carries --hm-sheet) and follows it between detents */
+.hm-fabs { position: absolute; right: 12px; bottom: calc(var(--hm-sheet, 0px) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; transition: bottom 0.22s ease; }
+.map-area-btn.hm-area { top: calc(var(--viewport-safe-top) + 128px); z-index: 4; }
 .hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 6px 10px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); }
 .hm-sheet {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; height: 42%;
@@ -4798,8 +4807,8 @@ input:focus, textarea:focus, select:focus {
   .hm-sheet:not(.open) { transform: translateX(-24px); opacity: 0; pointer-events: none; }
   .hm-handle { display: none; }
   .basemap-switch.hm-layers { top: 100px; }
-  .hm-locate { top: 154px; }
-  .hm-north { top: 208px; }
+  .hm-fabs { right: 16px; bottom: 16px; } /* the drawer is on the left; nothing under the column */
+  .map-area-btn.hm-area { top: 100px; }
   .hm-near { left: 16px; top: 108px; }
   .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
 }
@@ -4811,6 +4820,16 @@ input:focus, textarea:focus, select:focus {
 .tag.unverified.act:hover { color: var(--ink); border-color: var(--danger); }
 .hm-ride-confirm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-0); display: flex; flex-direction: column; gap: 10px; }
 .hm-ride-confirm .qk-prefs { margin: 0; }
+/* From → To, with a swap — Google's directions grammar on the card */
+.hm-od { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; }
+.hm-od-row { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 10px; border-radius: 8px; background: var(--asphalt-1); border: 1px solid var(--line); overflow: hidden; }
+.hm-od-row .hm-od-k { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; flex: none; width: 34px; }
+.hm-od-row .hm-od-v { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.hm-od-row button.mini-edit { flex: none; }
+.hm-od-swap { grid-row: 1 / span 2; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 999px; font-size: 20px; }
+.hm-od-search { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
+.hm-od-search input { width: 100%; }
+.hm-od-search .hm-results button { width: 100%; text-align: left; }
 
 /* ---------- Settings: one page, scrolled (owner, Sep 13 2026) ----------
    The tab strip is sticky and its buttons are jump links; every section is on

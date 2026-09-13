@@ -121,10 +121,23 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const [place, setPlace] = useState(null);    // { poi, row? } → the place card
   const [focus, setFocus] = useState(null);
   const [center, setCenter] = useState(null); // where the map is looking — the chips and the search look there too
+  const [view, setView] = useState(null);     // the map's bounds after every move (frame-my-trips hides while a trip is in view)
+  const [moved, setMoved] = useState(false);  // a hand pan since the picker's last result set → "Search this area"
+  const [area, setArea] = useState(null);     // the chip pressed: the picker searches the map centre
+  const onCenter = (c, { bounds, hand } = {}) => { if (c) setCenter(c); if (bounds) setView(bounds); if (hand) setMoved(true); };
   const [searching, setSearching] = useState(false);
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
   const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * (place ? 0.34 : chip ? 0.62 : SHEET_PX[sheet]));
   const near = center ?? fix ?? home ?? { lat: 45.9, lng: -108.5 };
+  // every stop of every trip in the library — the extent "Frame my trips" flies to
+  const tripPts = useMemo(() => trips.flatMap((rec) => rec.trip.days.flatMap((d) => d.waypoints.map((w) => [w.lng, w.lat]))).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y)), [trips]);
+  const tripsOffscreen = tripPts.length > 0 && !!view && !tripPts.some(([x, y]) => x >= view[0][0] && x <= view[1][0] && y >= view[0][1] && y <= view[1][1]);
+  const frameTrips = () => {
+    const map = window.__homeMap;
+    if (!map || !tripPts.length) return;
+    const xs = tripPts.map((p) => p[0]), ys = tripPts.map((p) => p[1]);
+    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 150, bottom: sheetPx + 24, left: 32, right: 72 }, duration: 700, maxZoom: 11 });
+  };
 
   const showPlace = (poi, row = null) => {
     setPlace({ poi, row });
@@ -133,14 +146,15 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
   const rowToPoi = (r) => ({ name: r.name, lat: r.lat, lng: r.lng, cls: r.primaryType ?? '', subclass: r.primaryType ?? '' });
 
-  const rideTo = async (dest, prefs) => {
-    const start = fix ?? (await locate());
+  // start: a chosen place, or (undefined) where the rider is — the card's From row
+  const rideTo = async (dest, prefs, start) => {
+    start = start ?? fix ?? (await locate());
     if (!start) return;
     onQuickRide({ start, dest, routePrefs: { style: prefs?.style ?? quickDefaults?.routePrefs?.style ?? 'touring', avoidTolls: prefs?.avoidTolls ?? !!quickDefaults?.routePrefs?.avoidTolls } });
   };
 
   return (
-    <div className="home home-map">
+    <div className="home home-map" style={{ '--hm-sheet': `${sheetPx}px` }}>
       <HomeMap
         fix={fix}
         focus={focus}
@@ -148,7 +162,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         fitAt={fitAt}
         sheetPx={sheetPx}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
-        onCenter={setCenter}
+        onCenter={onCenter}
         onBearing={setBearing}
         basemap={basemap}
         terrain3d={terrain3d}
@@ -174,14 +188,25 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           ))}
         </div>
       </div>
-      <button className="hm-round hm-locate" onClick={async () => { setFixTried(true); const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
-      {Math.abs(bearing) > 1 && (
-        <button className="hm-round hm-north" onClick={() => { window.__homeMap?.resetNorth({ duration: 400 }); setBearing(0); }} aria-label={t('North up')} title={t('North up')}>
-          <svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true" style={{ transform: `rotate(${-bearing}deg)` }}>
-            <path d="M10 2 L13.5 11 L10 9.4 L6.5 11 Z" fill="#ff5a1f" />
-            <path d="M10 18 L6.5 9 L10 10.6 L13.5 9 Z" fill="currentColor" opacity="0.85" />
-          </svg>
-        </button>
+      {/* the bottom-right column, floating above the sheet: frame my trips (only while none is in view) · North up (only while turned) · locate */}
+      <div className="hm-fabs">
+        {tripsOffscreen && (
+          <button className="hm-round hm-frame" onClick={frameTrips} aria-label={t('Frame my trips')} title={t('Frame my trips')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V4h4M21 8V4h-4M3 16v4h4M21 16v4h-4" /><path d="M7 14c2-4 4-6 6-4s3 4 4 2" /></svg>
+          </button>
+        )}
+        {Math.abs(bearing) > 1 && (
+          <button className="hm-round hm-north" onClick={() => { window.__homeMap?.resetNorth({ duration: 400 }); setBearing(0); }} aria-label={t('North up')} title={t('North up')}>
+            <svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true" style={{ transform: `rotate(${-bearing}deg)` }}>
+              <path d="M10 2 L13.5 11 L10 9.4 L6.5 11 Z" fill="#ff5a1f" />
+              <path d="M10 18 L6.5 9 L10 10.6 L13.5 9 Z" fill="currentColor" opacity="0.85" />
+            </svg>
+          </button>
+        )}
+        <button className="hm-round hm-locate" onClick={async () => { setFixTried(true); const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
+      </div>
+      {chip && moved && !place && (
+        <button className="map-area-btn hm-area" onClick={() => { setArea({ ...near, at: Date.now() }); setMoved(false); }}>{t('Search this area')}</button>
       )}
       {/* the same layers pill as the trip map, in the same corner */}
       <div className={`basemap-switch hm-layers${switchOpen ? '' : ' closed'}`}>
@@ -231,9 +256,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               initialCategory={chip}
               title={t('Find a place')}
               tapped={tapped}
-              onRows={(rows, { fit }) => { setPins(rows); if (fit) setFitAt(Date.now()); }}
+              area={area}
+              onRows={(rows, { fit }) => { setPins(rows); if (fit) { setFitAt(Date.now()); setMoved(false); } }}
               onPick={(row) => showPlace(rowToPoi(row), row)}
-              onClose={() => { setChip(null); setPins([]); }}
+              onClose={() => { setChip(null); setPins([]); setArea(null); setMoved(false); }}
             />
           ) : (
             <>
@@ -360,6 +386,21 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   // Ride here opens the one thing a map app will not offer a motorcyclist —
   // the Roads choice — as a one-line strip, then Go
   const [confirm, setConfirm] = useState(false);
+  // From → To, like a directions sheet: From is where the rider is unless they
+  // pick a place; ⇅ swaps the two (ride home from here, plan the return leg)
+  const [from, setFrom] = useState(null);        // null = the rider's fix; else { name, lat, lng, placeId? }
+  const [swapped, setSwapped] = useState(false); // the tapped place is the START and From is the destination
+  const [fromEdit, setFromEdit] = useState(false);
+  const [fromQ, setFromQ] = useState('');
+  const [fromRows, setFromRows] = useState([]);
+  useEffect(() => {
+    if (!fromEdit || fromQ.trim().length < 2) { setFromRows([]); return undefined; }
+    let dead = false;
+    const id = setTimeout(async () => {
+      try { const rows = await searchNearby({ category: null, query: fromQ.trim(), near: { lat: poi.lat, lng: poi.lng }, radiusMi: 150, limit: 5 }); if (!dead) setFromRows(rows); } catch { if (!dead) setFromRows([]); }
+    }, 350);
+    return () => { dead = true; clearTimeout(id); };
+  }, [fromQ, fromEdit]); // eslint-disable-line react-hooks/exhaustive-deps
   const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
   const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
   const match = row ?? looked;
@@ -397,7 +438,37 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
       </div>
       {confirm ? (
         <section className="quick-ride hm-ride-confirm">
-          <div className="qk-prefs">
+          {(() => {
+            const here = fix ? { name: t('Current location'), lat: fix.lat, lng: fix.lng } : null;
+            const a = from ?? here; // the From place (or nothing, if no fix and none chosen)
+            const start = swapped ? place : a;
+            const end = swapped ? a : place;
+            const go = () => { if (!start || !end) return; onRide(end, { style, avoidTolls }, start); };
+            return (
+              <>
+                <div className="hm-od" role="group" aria-label={t('Route')}>
+                  <div className="hm-od-row">
+                    <span className="hm-od-k">{t('From')}</span>
+                    <span className="hm-od-v">{start?.name ?? t('Pick a start')}</span>
+                    {!swapped && <button className="mini-edit" onClick={() => setFromEdit((v) => !v)} aria-label={t('Change start')}>✎</button>}
+                  </div>
+                  <button className="btn hm-od-swap" onClick={() => setSwapped((v) => !v)} aria-label={t('Swap')} title={t('Swap')}>⇅</button>
+                  <div className="hm-od-row">
+                    <span className="hm-od-k">{t('To')}</span>
+                    <span className="hm-od-v">{end?.name ?? t('Pick a destination')}</span>
+                    {swapped && <button className="mini-edit" onClick={() => setFromEdit((v) => !v)} aria-label={t('Change destination')}>✎</button>}
+                  </div>
+                  {fromEdit && (
+                    <div className="hm-od-search">
+                      <input className="hm-input" autoFocus value={fromQ} onChange={(e) => setFromQ(e.target.value)} placeholder={t('Search a place')} aria-label={t('Search a place')} />
+                      <div className="hm-results">
+                        {here && from && <button onClick={() => { setFrom(null); setFromEdit(false); setFromQ(''); }}>◎ {t('Current location')}</button>}
+                        {fromRows.map((r) => <button key={r.id} onClick={() => { setFrom({ name: r.name, lat: r.lat, lng: r.lng, placeId: r.id, verified: 'google' }); setFromEdit(false); setFromQ(''); }}>{r.name}<small> {r.detail}</small></button>)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="qk-prefs">
             <div className="qk-roads" role="radiogroup" aria-label={t('Roads')}>
               {[['quick', t('Quick')], ['touring', t('Touring')], ['backroads', t('Back roads')]].map(([id, label]) => (
                 <button key={id} role="radio" aria-checked={style === id} className={style === id ? 'active' : ''} onClick={() => setStyle(id)}>{label}</button>
@@ -405,10 +476,13 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
             </div>
             <label className="qk-tolls"><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /> {t('Avoid tolls')}</label>
           </div>
-          <div className="hm-place-actions">
-            <button className="btn gold" onClick={() => onRide(place, { style, avoidTolls })}>▶ {t('Go')}</button>
-            <button className="btn" onClick={() => setConfirm(false)}>{t('Back')}</button>
-          </div>
+                <div className="hm-place-actions">
+                  <button className="btn gold" disabled={!start || !end} onClick={go}>▶ {t('Go')}</button>
+                  <button className="btn" onClick={() => setConfirm(false)}>{t('Back')}</button>
+                </div>
+              </>
+            );
+          })()}
         </section>
       ) : (
         <div className="hm-place-actions">

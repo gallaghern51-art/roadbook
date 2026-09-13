@@ -72,7 +72,9 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
       }
     });
     // where the map is LOOKING is where the chips search — not where the rider is
-    map.on('moveend', () => { const c = map.getCenter(); centerRef.current?.({ lat: c.lat, lng: c.lng }); });
+    map.on('moveend', (e) => { const c = map.getCenter(); centerRef.current?.({ lat: c.lat, lng: c.lng }, { bounds: map.getBounds().toArray(), hand: !!e.originalEvent }); });
+    // a HAND pan (dragstart, not dragend — a pan that ends over a pin never gets its dragend) offers "Search this area"
+    map.on('dragstart', () => centerRef.current?.(null, { hand: true }));
     // a two-finger twist rotates the map; a North-up button appears while it is turned
     map.on('rotateend', () => bearingRef.current?.(map.getBearing()));
     map.on('click', (e) => {

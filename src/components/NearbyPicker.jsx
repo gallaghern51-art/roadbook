@@ -106,7 +106,7 @@ export default function NearbyPicker({
     const glyph = CATEGORIES.find((c) => c.id === cat)?.glyph ?? '📍';
     const fresh = rows !== lastRows.current; // a new list, not a row opening
     lastRows.current = rows;
-    onRows?.((rows ?? []).map((r) => ({ id: String(r.id), lat: r.lat, lng: r.lng, name: r.name, glyph, hot: r.id === open })), { fit: fresh && (rows?.length ?? 0) > 0, active: true });
+    onRows?.((rows ?? []).map((r) => ({ id: String(r.id), lat: r.lat, lng: r.lng, name: r.name, glyph, cat: cat ?? 'place', hot: r.id === open })), { fit: fresh && (rows?.length ?? 0) > 0, active: true });
     // on a phone the panel is a half sheet while pins are up: the picker, not
     // the day header above it, is what should be in that half
     if (fresh && rows?.length && halfSheet) rootRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });

@@ -242,6 +242,23 @@ async function run(width, label) {
     await page.locator('.hm-place .mini-edit').click();
     await page.waitForTimeout(300);
   }
+  // "Search this area": a hand pan while the picker is open offers a re-search at the map centre
+  {
+    await page.locator('.hm-chip', { hasText: /Food/i }).first().click();
+    await page.waitForSelector('.pl-pin', { timeout: 8000 });
+    check(await page.locator('.pl-pin.pl-cat-food').count() >= 1, 'food pins wear the food colour class');
+    check(await page.locator('.hm-area').count() === 0, 'no area chip before a hand pan');
+    await page.evaluate(() => { const m = window.__homeMap; m.fire('dragstart'); m.jumpTo({ center: [-108.6, 44.6] }); });
+    await page.waitForSelector('.hm-area', { timeout: 4000 });
+    const before = calls.length;
+    await page.locator('.hm-area').click();
+    await page.waitForTimeout(1200);
+    const last = calls[calls.length - 1];
+    check(calls.length > before && Math.abs(last.near.lat - 44.6) < 0.05 && Math.abs(last.near.lng + 108.6) < 0.05, `the chip re-searches at the map centre (${last?.near?.lat?.toFixed(2)}, ${last?.near?.lng?.toFixed(2)})`);
+    check(await page.locator('.hm-area').count() === 0, 'and the chip goes away with the new results');
+    await page.locator('.hm-sheet .nearby button[aria-label="Cancel"], .hm-sheet button[aria-label="Cancel"]').first().click().catch(() => {});
+    await page.waitForTimeout(400);
+  }
   // the home map keeps Mapbox's road numbers (no route of ours here), and the
   // right-edge column reads layers → locate
   {
@@ -251,7 +268,20 @@ async function run(width, label) {
       w: document.querySelector('.hm-locate')?.getBoundingClientRect().width,
     }));
     check(geo.shield !== 'none', 'the home map keeps the basemap\'s route-number shields');
-    check(geo.locate > geo.layers && geo.w >= 44, `the locate button sits under the layers pill (${Math.round(geo.layers)} → ${Math.round(geo.locate)})`);
+    const vh = await page.evaluate(() => innerHeight);
+    const sheetTop = await page.evaluate(() => document.querySelector('.hm-sheet').getBoundingClientRect().top);
+    const locBottom = await page.evaluate(() => document.querySelector('.hm-locate').getBoundingClientRect().bottom);
+    check(geo.w >= 44 && (phone ? (locBottom <= sheetTop + 2 && locBottom > sheetTop - 80) : locBottom > vh - 80), `the locate button sits at the bottom right, just above the sheet (bottom ${Math.round(locBottom)}, sheet top ${Math.round(sheetTop)})`);
+    // frame my trips: only while no trip is in view, and it brings them back
+    check(await page.locator('.hm-frame').count() === 0, 'no Frame-my-trips button while a trip is in view');
+    await page.evaluate(() => window.__homeMap.jumpTo({ center: [-74, 40.7], zoom: 9 }));
+    await page.waitForSelector('.hm-frame', { timeout: 4000 });
+    await page.locator('.hm-frame').click();
+    await page.waitForFunction(() => window.__homeMap.getBounds().getWest() < -100 && !window.__homeMap.isMoving() && !document.querySelector('.hm-frame'), null, { timeout: 6000 }).catch(() => {}); await page.waitForTimeout(300);
+    const fb = await page.evaluate(() => window.__homeMap.getBounds().toArray());
+    // projected, not getBounds(): the style is a globe at low zoom, where bounds are approximate
+    const out = await page.evaluate(() => { const m = window.__homeMap; const { clientWidth: W, clientHeight: H } = m.getContainer(); const lib = JSON.parse(localStorage.getItem('moto.trips.v1')); return lib.trips.filter((r) => !r.trip.meta.template && !r.trip.meta.quick).flatMap((r) => r.trip.days.flatMap((d) => d.waypoints)).filter((p) => { const q = m.project([p.lng, p.lat]); return q.x < 0 || q.x > W || q.y < 0 || q.y > H; }).map((p) => p.name); });
+    check(out.length === 0 && await page.locator('.hm-frame').count() === 0, `Frame my trips flies to the library — every stop on screen — and the button steps aside (${out.length ? `off: ${out.slice(0, 3).join(', ')}` : fb.map((c) => c.map((n) => n.toFixed(1)).join(',')).join(' → ')})`);
     check(await page.locator('.hm-north').count() === 0, 'no North-up button while the map is north-up');
     await page.evaluate(() => { window.__homeMap.setBearing(40); window.__homeMap.fire('rotateend'); });
     await page.waitForSelector('.hm-north', { timeout: 3000 });

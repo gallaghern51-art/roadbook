@@ -28,6 +28,8 @@ const nowClock = () => {
  * @param {{style:string,avoidTolls:boolean}} o.routePrefs
  * @param {object} [o.defaults]  tripDefaults(profile): riders, pace, range…
  */
+// a place from the card (source google + id) or a From pick (placeId) — either end can be a listing
+const placeIdOf = (p) => p?.placeId ?? (p?.source === 'google' && p?.id ? p.id : null);
 export function buildQuickTrip({ start, dest, routePrefs, defaults = {} }) {
   const title = `Ride to ${dest.name}`;
   const trip = {
@@ -51,10 +53,13 @@ export function buildQuickTrip({ start, dest, routePrefs, defaults = {} }) {
       summary: '', constraints: [], gates: [], meals: [], photos: [], modules: [], ops: [],
       lodging: { status: 'none', name: '', where: '', note: '' },
       waypoints: [
-        { id: uid('wp'), kind: 'start', name: start.name || 'Current location', lat: start.lat, lng: start.lng, mile: null, note: '' },
+        {
+          id: uid('wp'), kind: 'start', name: start.name || 'Current location', lat: start.lat, lng: start.lng, mile: null, note: '',
+          ...(placeIdOf(start) ? { placeId: placeIdOf(start), verified: 'google' } : {}),
+        },
         {
           id: uid('wp'), kind: 'end', name: dest.name, lat: dest.lat, lng: dest.lng, mile: null, note: dest.detail ?? '',
-          ...(dest.source === 'google' && dest.id ? { placeId: dest.id, verified: 'google' } : {}),
+          ...(placeIdOf(dest) ? { placeId: placeIdOf(dest), verified: 'google' } : {}),
         },
       ],
     }],
