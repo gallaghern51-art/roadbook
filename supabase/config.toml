@@ -466,3 +466,8 @@ otp_length = 8
 [remotes.production.auth.email.smtp]
 enabled = true
 
+
+# With custom SMTP the hosted project's email limit is ours; the default 2/hour
+# is Supabase's built-in-sender cap and blocks a crew signing up together.
+[remotes.production.auth.rate_limit]
+email_sent = 30
