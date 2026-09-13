@@ -187,7 +187,7 @@ export default function NearbyPicker({
                   <span className="nb-name">{r.name}</span>
                   <span className="nb-facts">
                     {/* what kind of place, first — the fact a rider scans a food list for */}
-                    {cuisineLabel(r.primaryType, r.types) && <span className="nb-cuisine">{cuisineLabel(r.primaryType, r.types)}</span>}
+                    {cuisineLabel(r.primaryType, r.types, cat === 'food' ? sub : null) && <span className="nb-cuisine">{cuisineLabel(r.primaryType, r.types, cat === 'food' ? sub : null)}</span>}
                     {Number.isFinite(r.rating) && <span className="nb-rate">★ {r.rating.toFixed(1)}{r.userRatingCount ? <small> ({r.userRatingCount})</small> : null}</span>}
                     {priceGlyph(r.priceLevel) && <span className="nb-price">{priceGlyph(r.priceLevel)}</span>}
                     {Number.isFinite(r.offRouteMi) && scope === 'route'

@@ -84,7 +84,9 @@ const CANYON = [[-103.8597, 44.4936], [-103.8300, 44.4400], [-103.7900, 44.3900]
   rows.slice(0, 4).forEach((r) => console.log(`   ${r.name} · ${r.primaryType}`));
   check(rows.length >= 1, 'BBQ exists in Rapid City');
   check(rows.every((r) => r.primaryType === 'barbecue_restaurant' || (r.types ?? []).includes('barbecue_restaurant')), 'every row is barbecue — the cuisine chip is a strict filter');
-  check(rows.every((r) => cuisineLabel(r.primaryType, r.types) === 'BBQ'), 'and every row is tagged BBQ');
+  // Google's strict filter matches ANY type, so a steakhouse that also smokes
+  // brisket is a legitimate row here — and under the BBQ chip it reads BBQ
+  check(rows.every((r) => cuisineLabel(r.primaryType, r.types, 'barbecue_restaurant') === 'BBQ'), 'and every row is tagged BBQ under the BBQ chip');
 }
 
 // 4. Along the canyon: routing summaries come back
@@ -105,11 +107,22 @@ const CANYON = [[-103.8597, 44.4936], [-103.8300, 44.4400], [-103.7900, 44.3900]
 }
 
 // 6. Lodging, Coffee, Moto, Help — each strict
-for (const [cat, types, where] of [['lodging', ['lodging'], RAPID], ['coffee', ['cafe', 'coffee_shop'], RAPID], ['moto', ['motorcycle_repair_shop', 'motorcycle_dealer'], RAPID], ['help', ['hospital'], RAPID]]) {
+for (const [cat, types, where] of [['lodging', ['lodging'], RAPID], ['coffee', ['cafe', 'coffee_shop'], RAPID], ['help', ['hospital'], RAPID]]) {
   const rows = await call({ category: cat, near: where, radiusMi: 15, limit: 6 });
   console.log(`\n── ${cat} in Rapid City: ${rows.slice(0, 3).map((r) => `${r.name} (${r.primaryType})`).join(' | ')}`);
   check(rows.length >= 1, `${cat}: results`);
   check(rows.every((r) => types.includes(r.primaryType) || (r.types ?? []).some((x) => types.includes(x))), `${cat}: strict type held`);
+}
+
+// 7. Moto: Google has no motorcycle type (motorcycle_repair_shop is an INVALID
+// includedType — the first live run 502'd on it), so this is a text search kept
+// to rows that read as a bike shop. Every row must look like one.
+{
+  const rows = await call({ category: 'moto', near: RAPID, radiusMi: 15, limit: 8 });
+  console.log(`\n── moto in Rapid City: ${rows.slice(0, 4).map((r) => `${r.name} (${r.primaryType})`).join(' | ')}`);
+  check(rows.length >= 3, `moto: a real list (${rows.length})`);
+  const bikeish = (r) => /motor|cycle|moto|powersport|twin|harley|indian|bmw|ducati|triumph|honda|yamaha|kawasaki|suzuki|ktm|bike/i.test(r.name) || (r.types ?? []).includes('car_repair');
+  check(rows.every(bikeish), 'moto: every row reads as a bike shop or a repair shop');
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);
