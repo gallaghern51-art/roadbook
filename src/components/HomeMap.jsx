@@ -66,7 +66,7 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, onPinTap
       const hits = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
       poiRef.current?.(hits.length ? featureToPoi(hits[0]) : null);
     });
-    window.__homePoiTap = (f) => poiRef.current?.(featureToPoi(f)); // dev/sim seam: vector tiles cannot be mocked
+    window.__homePoiTap = (f) => poiRef.current?.(f ? featureToPoi(f) : null); // dev/sim seam: vector tiles cannot be mocked; null = a tap on open map
     return () => { map.remove(); mapRef.current = null; if (window.__homeMap === map) window.__homeMap = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

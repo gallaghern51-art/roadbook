@@ -224,6 +224,8 @@ const ES = {
   'Map area': 'Zona del mapa',
   'Checking with Google…': 'Consultando con Google…',
   'Details': 'Detalles',
+  'Go': 'Vamos',
+  'Describe riders, days, region and pace — or just type a place name to ride there.': 'Describe motos, días, región y ritmo — o escribe el nombre de un lugar para ir allí.',
   'the long way home from the rally': 'el camino largo a casa desde el rally',
   'place it': 'ubícalo',
   'placed': 'ubicado',

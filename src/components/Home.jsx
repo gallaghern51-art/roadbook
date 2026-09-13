@@ -37,7 +37,18 @@ const pushRecent = (row) => {
 };
 // a sentence is a plan, a name is a place: five words or riders/days/loop is the builder's
 const readsAsPlan = (q) => /\b(riders?|days?|loop|nights?|weekend|trip)\b/i.test(q) || q.trim().split(/\s+/).length >= 5;
-const SHEET_PX = { peek: 0.42, up: 0.86 };
+// Three positions for the sheet (owner, Sep 13 2026: "what if a user wants
+// to dismiss the lower screen? or expand the trips view?"): MIN is the handle
+// alone — the map is the screen; PEEK is the trips row; UP is the whole old
+// home with the trips as a grid. The handle drags between them and snaps; a
+// tap on it steps up; a tap on the map steps down. There are no verb buttons:
+// the pill is the one door (owner: "there's like 4 different buttons for
+// riding… too much trying to do everything at once") — a place → its card →
+// Ride here; a sentence → the AI builder; an empty pill → one standing
+// "Plan a trip with AI" row.
+const SHEET_PX = { min: 0.06, peek: 0.42, up: 0.86 };
+const DETENTS = ['min', 'peek', 'up'];
+const nearestDetent = (frac) => DETENTS.reduce((best, k) => (Math.abs(SHEET_PX[k] - frac) < Math.abs(SHEET_PX[best] - frac) ? k : best), 'peek');
 
 export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults }) {
   const { state, routedLegsByDay } = useTrip();
@@ -69,7 +80,33 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
   useEffect(() => { locate(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [sheet, setSheet] = useState('peek'); // peek | up
+  const [sheet, setSheet] = useState('peek'); // min | peek | up
+  const [dragH, setDragH] = useState(null);   // the sheet's height while the handle is being dragged
+  const dragRef = useRef(null);
+  const stepDown = () => setSheet((s) => (s === 'up' ? 'peek' : 'min'));
+  const stepUp = () => setSheet((s) => (s === 'min' ? 'peek' : 'up'));
+  // the handle: a drag follows the finger and snaps to the nearest position on
+  // release; a tap (no travel) steps up, and steps back down from the top
+  const onHandleDown = (e) => {
+    const vh = window.innerHeight;
+    dragRef.current = { y0: e.clientY, h0: vh * SHEET_PX[sheet], vh, moved: false, id: e.pointerId };
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* a synthetic pointer has no capture */ }
+  };
+  const onHandleMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dy = d.y0 - e.clientY;
+    if (Math.abs(dy) > 6) d.moved = true;
+    if (d.moved) setDragH(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + dy)));
+  };
+  const onHandleUp = (e) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragH(null);
+    if (!d) return;
+    if (!d.moved) { setSheet((s) => (s === 'up' ? 'peek' : s === 'peek' ? 'up' : 'peek')); return; }
+    setSheet(nearestDetent(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + (d.y0 - e.clientY))) / d.vh));
+  };
   const [chip, setChip] = useState(null);      // a category → the picker in the sheet
   const [pins, setPins] = useState([]);
   const [fitAt, setFitAt] = useState(0);
@@ -89,10 +126,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
   const rowToPoi = (r) => ({ name: r.name, lat: r.lat, lng: r.lng, cls: r.primaryType ?? '', subclass: r.primaryType ?? '' });
 
-  const rideTo = async (dest) => {
+  const rideTo = async (dest, prefs) => {
     const start = fix ?? (await locate());
     if (!start) return;
-    onQuickRide({ start, dest, routePrefs: { style: quickDefaults?.routePrefs?.style ?? 'touring', avoidTolls: !!quickDefaults?.routePrefs?.avoidTolls } });
+    onQuickRide({ start, dest, routePrefs: { style: prefs?.style ?? quickDefaults?.routePrefs?.style ?? 'touring', avoidTolls: prefs?.avoidTolls ?? !!quickDefaults?.routePrefs?.avoidTolls } });
   };
 
   return (
@@ -105,7 +142,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         sheetPx={sheetPx}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={setCenter}
-        onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); }}
+        onPoi={(poi) => { if (poi) showPlace(poi); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the card closes, or the sheet steps down
       />
 
       <div className="hm-top">
@@ -137,12 +174,12 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         />
       )}
 
-      <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}`} data-state={sheet}>
-        <button className="hm-handle" aria-label={sheet === 'up' ? t('Show the map') : t('Show more')} onClick={() => setSheet(sheet === 'up' ? 'peek' : 'up')}><i /></button>
+      <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
+        <button className="hm-handle" aria-label={sheet === 'up' ? t('Show the map') : t('Show more')} onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><i /></button>
         <div className="hm-body">
           {place ? (
             <HomePlaceCard
-              poi={place.poi} row={place.row} fix={fix}
+              poi={place.poi} row={place.row} fix={fix} defaults={quickDefaults}
               onRide={rideTo}
               onAdd={(p) => setAddTo(p)}
               onClose={() => setPlace(null)}
@@ -161,15 +198,11 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
             />
           ) : (
             <>
-              <div className="hm-verbs">
-                <button className="btn gold" onClick={() => onNewTrip({ tab: 'ai', prompt: '' })}>✦ {t('Plan a trip with AI')}</button>
-                <button className="btn" onClick={() => { setSheet('up'); setTimeout(() => document.querySelector('.quick-ride')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }}>▶ {t('Ride now')}</button>
-              </div>
               {fixErr && <p className="nb-note hm-fixnote">{fixErr}</p>}
               {cards.length > 0 && (
                 <section className="section hm-trips">
                   <h3>{t('Your trips')} <span className="cnt">{cards.length}</span></h3>
-                  <div className="hm-trips-row">
+                  <div className={sheet === 'up' ? 'trip-grid' : 'hm-trips-row'}>
                     {cards.map(({ rec, grade, score, miles, dayCount, from, to, riders }) => (
                       <div key={rec.id} className={`trip-card${rec.id === lib.activeId ? ' active' : ''}`} role="button" tabIndex={0} aria-label={rec.name}
                         onClick={() => onOpenTrip(rec.id)} onKeyDown={(e) => { if (e.key === 'Enter') onOpenTrip(rec.id); }}>
@@ -188,7 +221,6 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
                 </section>
               )}
               <InstallPrompt />
-              <QuickRide onGo={onQuickRide} defaults={quickDefaults} />
               {quickRides.length > 0 && (
                 <section className="section">
                   <h3>{t('Quick rides')} <span className="cnt">{t('one-day rides from where you were — ride again, or make one a trip')}</span></h3>
@@ -282,10 +314,15 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 // The place the rider tapped or picked, as the sheet's card. A vector POI is
 // resolved against Google the way the plan map's card does it; a picker or
 // search row is already Google's.
-function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose }) {
+function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const t = useT();
   const u = useUnits();
   const looked = usePoiMatch(row ? null : poi);
+  // Ride here opens the one thing a map app will not offer a motorcyclist —
+  // the Roads choice — as a one-line strip, then Go
+  const [confirm, setConfirm] = useState(false);
+  const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
+  const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
   const match = row ?? looked;
   const cat = poiCategory(poi.cls, poi.subclass) ?? (match?.primaryType?.includes('gas') ? 'fuel' : null);
   const glyph = row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
@@ -316,17 +353,34 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose }) {
           </>
         )}
       </div>
-      <div className="hm-place-actions">
-        <button className="btn gold" disabled={match === undefined} onClick={() => onRide(place)}>{t('Ride here')}</button>
-        <button className="btn" disabled={match === undefined} onClick={() => onAdd(place)}>{t('Add to a trip')}</button>
-        {match && <button className="btn" onClick={() => setDetails(true)}>{t('Details')}</button>}
-      </div>
+      {confirm ? (
+        <section className="quick-ride hm-ride-confirm">
+          <div className="qk-prefs">
+            <div className="qk-roads" role="radiogroup" aria-label={t('Roads')}>
+              {[['quick', t('Quick')], ['touring', t('Touring')], ['backroads', t('Back roads')]].map(([id, label]) => (
+                <button key={id} role="radio" aria-checked={style === id} className={style === id ? 'active' : ''} onClick={() => setStyle(id)}>{label}</button>
+              ))}
+            </div>
+            <label className="qk-tolls"><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /> {t('Avoid tolls')}</label>
+          </div>
+          <div className="hm-place-actions">
+            <button className="btn gold" onClick={() => onRide(place, { style, avoidTolls })}>▶ {t('Go')}</button>
+            <button className="btn" onClick={() => setConfirm(false)}>{t('Back')}</button>
+          </div>
+        </section>
+      ) : (
+        <div className="hm-place-actions">
+          <button className="btn gold" disabled={match === undefined} onClick={() => setConfirm(true)}>{t('Ride here')}</button>
+          <button className="btn" disabled={match === undefined} onClick={() => onAdd(place)}>{t('Add to a trip')}</button>
+          {match && <button className="btn" onClick={() => setDetails(true)}>{t('Details')}</button>}
+        </div>
+      )}
       {details && (
         <PlaceSheet
           place={place} glyph={glyph} kicker={kicker}
           facts={dist ? <span className="nb-note">{dist}</span> : null}
           onClose={() => setDetails(false)}
-          actions={(<><button className="btn gold" onClick={() => { setDetails(false); onRide(place); }}>{t('Ride here')}</button><button className="btn" onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
+          actions={(<><button className="btn gold" onClick={() => { setDetails(false); setConfirm(true); }}>{t('Ride here')}</button><button className="btn" onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
         />
       )}
     </div>
@@ -382,6 +436,12 @@ function HomeSearch({ near, onClose, onPlan, onPick }) {
           ))}
         </ul>
       )}
+      {q.trim().length === 0 && (
+        <button className="hm-ai lead" onClick={() => onPlan('')}>
+          <span className="hm-ai-glyph" aria-hidden="true">✦</span>
+          <span><b>{t('Plan a trip with AI')}</b><small>{t('Describe riders, days, region and pace — or just type a place name to ride there.')}</small></span>
+        </button>
+      )}
       {q.trim().length === 0 && recent.length > 0 && (
         <>
           <div className="mono hm-label">{t('Recent')}</div>
@@ -431,67 +491,3 @@ function AddToTripSheet({ place, trips, onClose, onPick, onNew }) {
 
 const SearchGlyph = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>;
 const LocateGlyph = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2" fill="currentColor" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>;
-
-// "Take me there, the fun way." The Roads choice sits on the front of it
-// because that is the one thing a map app will not offer a motorcyclist.
-function QuickRide({ onGo, defaults }) {
-  const t = useT();
-  const [phase, setPhase] = useState('idle'); // idle | locating | pick | error
-  const [fix, setFix] = useState(null);
-  const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
-  const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
-  const [err, setErr] = useState('');
-
-  const start = async () => {
-    setPhase('locating'); setErr('');
-    try {
-      const f = await locateOnce();
-      setFix(f);
-      setPhase('pick');
-    } catch {
-      if (defaults?.home && Number.isFinite(defaults.home.lat)) {
-        setFix({ lat: defaults.home.lat, lng: defaults.home.lng, name: defaults.home.name || 'Home' });
-        setPhase('pick');
-      } else {
-        setErr(t('Could not get your location. Allow location access, or set a home place in Settings → Places.'));
-        setPhase('error');
-      }
-    }
-  };
-
-  return (
-    <section className="quick-ride">
-      <div className="qk-head">
-        <div>
-          <h3>{t('Ride somewhere now')}</h3>
-          <p>{t('One destination from where you are — turn-by-turn on the roads you actually want.')}</p>
-        </div>
-        {phase !== 'pick' && (
-          <button className="btn gold" onClick={start} disabled={phase === 'locating'}>
-            {phase === 'locating' ? t('Finding you…') : `▶ ${t('Ride')}`}
-          </button>
-        )}
-      </div>
-      <div className="qk-prefs">
-        <div className="qk-roads" role="radiogroup" aria-label={t('Roads')}>
-          {[['quick', t('Quick')], ['touring', t('Touring')], ['backroads', t('Back roads')]].map(([id, label]) => (
-            <button key={id} role="radio" aria-checked={style === id} className={style === id ? 'active' : ''} onClick={() => setStyle(id)}>{label}</button>
-          ))}
-        </div>
-        <label className="qk-tolls"><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /> {t('Avoid tolls')}</label>
-      </div>
-      {err && <p className="qk-err">{err}</p>}
-      {phase === 'pick' && fix && (
-        <NearbyPicker
-          mode="add"
-          near={fix}
-          routePrefs={{ style, avoidTolls }}
-          initialCategory={null}
-          title={t('Where to?')}
-          onPick={(dest) => onGo({ start: fix, dest, routePrefs: { style, avoidTolls } })}
-          onClose={() => setPhase('idle')}
-        />
-      )}
-    </section>
-  );
-}

@@ -56,20 +56,21 @@ await page.waitForSelector('.home', { timeout: 15000 });
 const lib = () => page.evaluate(() => JSON.parse(localStorage.getItem('moto.trips.v1')));
 const before = (await lib()).trips.length;
 
-// 1. the block is on the front door with the Roads choice on its face
-check(await page.locator('.quick-ride').count() === 1, 'Ride somewhere now sits on Home');
+// 1. the pill is the one door: a place → its card → Ride here → the Roads choice → Go
+await page.locator('.hm-pill').click();
+await page.fill('.hm-input', 'Rushmore');
+await page.waitForSelector('.hm-results button', { timeout: 8000 });
+await page.locator('.hm-results button').first().click();
+await page.waitForSelector('.hm-place', { timeout: 8000 });
+await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
+await page.waitForSelector('.quick-ride', { timeout: 8000 });
+check(await page.locator('.quick-ride').count() === 1, 'Ride here opens the quick-ride strip on the card');
 const roads = await page.locator('.qk-roads button').allTextContents();
 check(roads.length === 3 && /Back roads/.test(roads[2]), `Roads choice is on the face of it (${roads.join(' · ')})`);
 await page.locator('.qk-roads button', { hasText: 'Back roads' }).click();
 await page.locator('.qk-tolls input').check();
-await page.locator('.quick-ride .btn.gold').click();
-await page.waitForSelector('.quick-ride .nearby', { timeout: 8000 });
-check(true, 'the picker opens once the phone has a fix');
-await page.fill('.quick-ride .nb-q', 'Rushmore');
-await page.waitForSelector('.quick-ride .nb-item', { timeout: 8000 });
 await page.screenshot({ path: SHOT('quick-ride-pick') });
-await page.locator('.quick-ride .nb-item').first().locator('.nb-main').click();
-await page.locator('.quick-ride .nb-actions .btn.gold').click();
+await page.locator('.quick-ride .btn.gold').click();
 
 // 2. straight into Ride Mode on a real one-day trip
 await page.waitForSelector('.ride-bar', { timeout: 15000 });

@@ -1727,8 +1727,12 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   }
   .builder-basics-copy h4 { font-size: 23px; }
   .builder-basics-copy p { font-size: 12.5px; }
-  .builder-basics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* Start date · Days · Riders on ONE line (owner, Sep 13 2026); the inputs
+     are already sized to what they hold (15ch / 9ch / 9ch), so three fit a
+     375px frame with room for their labels */
+  .builder-basics-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.75fr) minmax(0, 0.75fr); gap: 8px; }
   .builder-basics-grid .wide { grid-column: 1 / -1; }
+  .builder-basics-grid .roads, .builder-basics-grid .check { grid-column: 1 / -1; }
   /* The whole label is the target, and on a phone it owes the rider 44pt. */
   .fld.check { align-items: center; }
   .fld.check input[type='checkbox'] { width: 22px; height: 22px; min-height: 22px; max-width: 22px; margin-top: 0; }
@@ -4694,6 +4698,11 @@ input:focus, textarea:focus, select:focus {
   box-shadow: var(--shadow-float); display: flex; flex-direction: column; transition: height 0.25s ease;
 }
 .hm-sheet[data-state='up'] { height: 86%; }
+.hm-sheet[data-state='min'] { height: calc(34px + var(--viewport-safe-bottom)); }
+.hm-sheet.dragging { transition: none; }
+.hm-handle { touch-action: none; cursor: grab; }
+.hm-verbs .btn.hm-more { flex: 0 0 48px; width: 48px; padding: 0; }
+.hm-sheet[data-state='min'] .hm-body { overflow: hidden; }
 .hm-sheet.pick { height: 62%; }
 .hm-sheet.place { height: auto; max-height: 60%; }
 .hm-handle { height: 24px; display: grid; place-items: center; background: transparent; border: 0; padding: 0; flex: 0 0 auto; }
@@ -4705,7 +4714,7 @@ input:focus, textarea:focus, select:focus {
 .hm-body .install-prompt { margin-top: 18px; }
 .hm-verbs { display: flex; gap: 10px; }
 .hm-verbs .btn { min-height: 48px; }
-.hm-verbs .btn.gold { flex: 1; justify-content: center; }
+.hm-verbs .btn { flex: 1 1 0; justify-content: center; } /* the two verbs weigh the same */
 .hm-trips.section { margin-top: 16px; }
 .hm-trips-row { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding: 2px 0 6px; }
 .hm-trips-row::-webkit-scrollbar { display: none; }
@@ -4756,3 +4765,5 @@ input:focus, textarea:focus, select:focus {
 .tag.placed { color: var(--route); border-color: color-mix(in srgb, var(--route) 45%, transparent); background: var(--wash-route); }
 .tag.unverified.act { cursor: pointer; font: inherit; }
 .tag.unverified.act:hover { color: var(--ink); border-color: var(--danger); }
+.hm-ride-confirm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-0); display: flex; flex-direction: column; gap: 10px; }
+.hm-ride-confirm .qk-prefs { margin: 0; }
