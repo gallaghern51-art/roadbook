@@ -7,13 +7,14 @@ import {
   chainCursor, bestInsertIndex, mercatorCum, lineProgressAt,
 } from '../engine/tripEngine.js';
 import { viewGate } from '../engine/mapVis.js';
-import { routeDaySteps, routeFrom } from '../engine/routing.js';
+import { routeDaySteps, routeFrom, trafficEta } from '../engine/routing.js';
+import NearbyPicker from './NearbyPicker.jsx';
+import RideQuickAdd from './RideQuickAdd.jsx';
 import { speedLimitTracker } from '../engine/speedLimit.js';
 import {
   createNav, syncNav, navTarget, navRemaining, navFix,
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
-import { geocode } from '../engine/geocode.js';
 import { STYLE_SATELLITE, STYLE_STREETS, STYLE_DARK, STYLE_LIGHT, warmTilesAhead, hideNativeRoadShields, cachedGoogleStyle, googleStyle, GOOGLE_KEY } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
@@ -355,6 +356,7 @@ export default function RideMode({ onClose }) {
   const [follow, setFollow] = useState(true);
   const [muted, setMuted] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false); // the ride sheet — everything that isn't glanceable
+  const [quickAdd, setQuickAdd] = useState(false); // the glove-sized add-ahead overlay
   const [navStyle, setNavStyle] = useState('hybrid');
   // Camera grammar, Google-style: track-up is the tilted chase view; north-up
   // is flat overhead with the puck arrow carrying the heading. The compass
@@ -373,10 +375,7 @@ export default function RideMode({ onClose }) {
   const [limit, setLimit] = useState(null); // {mph, ref} — posted speed limit here
   const [liveEta, setLiveEta] = useState(null); // {min, at} — traffic-aware time over the remaining route
   // add-a-stop search: gas, food, a place — inserted into the CURRENT leg
-  const [q, setQ] = useState('');
-  const [found, setFound] = useState(null); // null = idle, [] = no matches
-  const [searching, setSearching] = useState(false);
-  const searchRef = useRef(null);
+
   const wpMarkersRef = useRef([]);
   const t = useT();
   const tt = useTT();
@@ -1218,9 +1217,13 @@ export default function RideMode({ onClose }) {
     liveRouteAtRef.current = now;
     const remaining = remainingNav; // latched + skip-aware
     if (!remaining.length) return;
-    routeFrom(navOrigin(), remaining, pace, routePrefs)
+    // trafficEta, NOT routeFrom: routeFrom is Valhalla-first and Valhalla has
+    // no traffic, so reading `r.traffic` off it left this overlay dark from
+    // the day Valhalla became authoritative (#68) — the ETA on the bar was the
+    // static plan the whole time. Google answers the clock; the road stays.
+    trafficEta(navOrigin(), remaining, pace)
       .then((r) => { if (r.traffic) setLiveEta({ min: r.seconds / 60, at: Date.now() }); })
-      .catch(() => { /* next cycle retries */ });
+      .catch(() => { /* not configured or backing off — the static ETA stands; next cycle retries */ });
   }, [fix]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The next stop nav is actually taking you to — latched and skip-aware.
@@ -1405,22 +1408,8 @@ export default function RideMode({ onClose }) {
   };
 
   // ---- add a stop mid-ride: gas, food, a place — into the current leg ----
-  useEffect(() => {
-    if (q.trim().length < 3) { setFound(null); setSearching(false); return undefined; }
-    setSearching(true);
-    const id = setTimeout(async () => {
-      try {
-        const near = fix ?? nextWp ?? day.waypoints[0];
-        setFound(await geocode(q.trim(), near ? { lat: near.lat, lng: near.lng } : undefined));
-      } catch {
-        setFound([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 350);
-    return () => clearTimeout(id);
-  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // The search itself lives in NearbyPicker (chips, along-route, open now);
+  // this is only where the pick lands in the day.
   const addStop = (r, fuel) => {
     // Insert where it geographically belongs among the REMAINING stops,
     // anchored at the bike: a station between here and the next stop lands on
@@ -1441,8 +1430,6 @@ export default function RideMode({ onClose }) {
       ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
     };
     dispatch({ type: 'apply_ops', ops: [{ op: 'add_waypoint', dayId: day.id, index: at, waypoint: wp }] });
-    setQ('');
-    setFound(null);
     setSheetOpen(false);
     setFollow(true);
     speak(`Added ${r.name}. Rerouting.`);
@@ -1670,6 +1657,16 @@ export default function RideMode({ onClose }) {
         )}
       </div>
 
+      {quickAdd && (
+        <RideQuickAdd
+          fix={fix ? { lat: fix.lat, lng: fix.lng } : (nextWp ?? day.waypoints[0])}
+          chain={hasRealRoute && geomInfo.chain.length > 1 ? geomInfo.chain : null}
+          fromAlong={geoProj?.along ?? 0}
+          speak={speak}
+          onAdd={(r, { fuel }) => { setQuickAdd(false); addStop(r, fuel); speak(`${t('Added')} ${r.name}.`); }}
+          onClose={(why) => { setQuickAdd(false); if (why === 'sheet') { setSheetOpen(true); setTimeout(() => document.querySelector('.ride-sheet .nb-q')?.focus(), 350); } }}
+        />
+      )}
       {/* ---- right edge: one-tap controls, glove-sized ---- */}
       {!sheetOpen && (
       <div className="ride-fabs">
@@ -1694,7 +1691,7 @@ export default function RideMode({ onClose }) {
         {/* add a destination mid-ride — opens the sheet with the search ready */}
         <button
           className="ride-fab"
-          onClick={() => { setSheetOpen(true); setTimeout(() => searchRef.current?.focus(), 350); }}
+          onClick={() => setQuickAdd(true)}
           aria-label={t('Add a stop ahead')}
           title={t('Add a stop ahead')}
         >
@@ -1833,31 +1830,20 @@ export default function RideMode({ onClose }) {
               <div className="ride-sheet" role="dialog" aria-label={t('Ride menu')}>
                 <div className="sheet-block">
                   <div className="sheet-label">{t('Add a stop ahead')}</div>
-                  <input
-                    ref={searchRef}
-                    className="ride-search"
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder={t('Gas, food, a place…')}
-                    enterKeyHint="search"
-                    autoComplete="off"
+                  {/* Along the road you are actually riding, from where you are:
+                      fuel/food/coffee chips, off-route miles, open NOW. A pick
+                      lands in the right leg (addStop) and reroutes. */}
+                  <NearbyPicker
+                    mode="ride"
+                    near={fix ? { lat: fix.lat, lng: fix.lng } : (nextWp ?? day.waypoints[0])}
+                    chain={hasRealRoute && geomInfo.chain.length > 1 ? geomInfo.chain : null}
+                    fromAlong={geoProj?.along ?? 0}
+                    nextStop={nextWp && Number.isFinite(nextWp.lat) ? { lat: nextWp.lat, lng: nextWp.lng } : null}
+                    routePrefs={routePrefs}
+                    initialCategory="fuel"
+                    onPick={(r, { fuel }) => addStop(r, fuel)}
+                    title={t('Add a stop ahead')}
                   />
-                  {searching && <div className="rs-note">{t('Searching…')}</div>}
-                  {!searching && found?.length === 0 && <div className="rs-note">{t('No matches — try adding the town name.')}</div>}
-                  {found?.length > 0 && (
-                    <div className="rs-results">
-                      {found.slice(0, 5).map((r) => (
-                        <div key={`${r.source}:${r.id}`} className="rs-row">
-                          <div className="rs-name">
-                            {r.name}
-                            {r.detail && <span className="rs-detail">{r.detail}</span>}
-                          </div>
-                          <button onClick={() => addStop(r, false)}>＋ {t('Stop')}</button>
-                          <button className="rs-fuel" onClick={() => addStop(r, true)}>＋ {t('FUEL')}</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 {stopsAhead.length > 0 && (

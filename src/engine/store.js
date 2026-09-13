@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react';
 import { SEED_TRIP } from '../data/seedTrip.js';
 import { applyOps, uid } from './ops.js';
+import { templateFromTrip, isTemplateRec, libraryTrips } from './templates.js';
 
 const LIB_KEY = 'moto.trips.v1';
 // pre-library keys (single Sturgis trip) — migrated on first load
@@ -80,7 +81,11 @@ export function persistLibrary(lib) {
 }
 
 function activeRecord(lib) {
-  return lib.trips.find((t) => t.id === lib.activeId) ?? lib.trips[0];
+  // The fallback must never land on a template — it is a record in the same
+  // list, but it is not something the app can be "in".
+  return lib.trips.find((t) => t.id === lib.activeId)
+    ?? lib.trips.find((t) => !isTemplateRec(t))
+    ?? lib.trips[0];
 }
 
 // Persist bookkeeping that hangs off the record rather than the trip itself.
@@ -130,6 +135,7 @@ export const initialState = () => {
     chatAsk: null, // question queued for the optimizer
     opLog: [], // ops since the last collab mark — a rider's unsent proposal
     focusLeg: null, // { dayId, index } — hovered leg, highlighted on the map
+    pickerPins: [], // [{lat,lng,name,hot}] — the place picker's current rows, drawn on the map
   };
 };
 
@@ -182,6 +188,13 @@ export function reducer(state, action) {
       return { ...state, trip: action.trip, outbox: [], opLog: [], history: [], selectedDayId: null };
     }
     case 'set_remote': {
+      // Unbinding (remote → null, "Leave this trip") also drops the outbox:
+      // those batches were addressed to a trip this device no longer belongs
+      // to, and would otherwise be pushed into it on the next drain.
+      if (!action.remote) {
+        syncMeta(state, { remote: null, outbox: [] });
+        return { ...state, remote: null, outbox: [] };
+      }
       syncMeta(state, { remote: action.remote });
       return { ...state, remote: action.remote };
     }
@@ -226,10 +239,42 @@ export function reducer(state, action) {
       persistLibrary(lib);
       return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], activeScenarioId: rec.activeScenarioId ?? null, history: [], selectedDayId: null, pendingProposal: null, modal: null };
     }
+    // ---- templates ----
+    // A template is a library record whose trip carries meta.template (see
+    // src/engine/templates.js for why it lives there and not in its own list).
+    // Saving one does NOT switch to it: the rider is in the middle of a trip
+    // and asked to keep a copy, not to go somewhere.
+    case 'save_template': {
+      const rec = freshRecord(templateFromTrip(action.trip ?? state.trip, { name: action.name, note: action.note }));
+      const lib = { ...state.lib, trips: [...state.lib.trips, rec] };
+      persistLibrary(lib);
+      return { ...state, lib };
+    }
+    case 'rename_template': {
+      const rec = state.lib.trips.find((t) => t.id === action.id);
+      if (!rec || !isTemplateRec(rec) || !action.name?.trim()) return state;
+      rec.name = action.name.trim();
+      rec.trip = { ...rec.trip, meta: { ...rec.trip.meta, title: action.name.trim() } };
+      rec.updatedAt = new Date().toISOString();
+      persistLibrary(state.lib);
+      return { ...state, lib: { ...state.lib } };
+    }
+    case 'delete_template': {
+      const rec = state.lib.trips.find((t) => t.id === action.id);
+      if (!rec || !isTemplateRec(rec)) return state; // never a door onto a real trip
+      const lib = { ...state.lib, trips: state.lib.trips.filter((t) => t.id !== action.id) };
+      persistLibrary(lib);
+      return { ...state, lib };
+    }
+
     case 'delete_trip': {
-      if (state.lib.trips.length <= 1) return state;
+      // Templates are records too, so the "never delete the last one" guard has
+      // to count TRIPS — with one trip and three templates it was letting the
+      // trip go and leaving the library with nothing to open.
+      if (libraryTrips(state.lib).length <= 1) return state;
       const trips = state.lib.trips.filter((t) => t.id !== action.id);
-      const lib = { trips, activeId: state.lib.activeId === action.id ? trips[0].id : state.lib.activeId };
+      const fallback = trips.find((t) => !isTemplateRec(t)) ?? trips[0];
+      const lib = { trips, activeId: state.lib.activeId === action.id ? fallback.id : state.lib.activeId };
       const rec = activeRecord(lib);
       persistLibrary(lib);
       return { ...state, lib, trip: rec.trip, scenarios: rec.scenarios, chat: rec.chat ?? [], remote: rec.remote ?? null, outbox: rec.outbox ?? [], opLog: [], activeScenarioId: rec.activeScenarioId ?? null, history: [], selectedDayId: null };
@@ -282,6 +327,8 @@ export function reducer(state, action) {
     case 'focus_point':
       // `at` makes re-clicking the same stop re-trigger the map effect.
       return { ...state, focus: { lat: action.lat, lng: action.lng, at: Date.now() } };
+    case 'set_picker_pins':
+      return { ...state, pickerPins: Array.isArray(action.pins) ? action.pins : [] };
     case 'focus_leg':
       // Hovering a stop row lights its arriving leg on the map. null clears.
       return { ...state, focusLeg: action.leg ?? null };

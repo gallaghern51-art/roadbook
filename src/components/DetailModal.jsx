@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useTrip } from '../engine/store.js';
 import { dayTimeline, fmtTime, fmtDur, dwellFor } from '../engine/timeline.js';
-import { PHASES } from '../data/seedTrip.js';
+import { PHASES, phaseLabel } from '../data/seedTrip.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { geocode } from '../engine/geocode.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
@@ -19,7 +19,7 @@ export default function DetailModal() {
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         {modal.type === 'stop'
           ? <StopDetail day={day} waypointId={modal.waypointId} trip={trip} dispatch={dispatch} routedLegsByDay={routedLegsByDay} close={close} />
-          : <LegDetail day={day} legIndex={modal.legIndex} routedLegsByDay={routedLegsByDay} dispatch={dispatch} close={close} showPanel={ui?.showPanel} />}
+          : <LegDetail day={day} trip={trip} legIndex={modal.legIndex} routedLegsByDay={routedLegsByDay} dispatch={dispatch} close={close} showPanel={ui?.showPanel} />}
       </div>
     </div>
   );
@@ -84,7 +84,7 @@ function StopDetail({ day, waypointId, trip, dispatch, routedLegsByDay, close })
     <>
       <div className="modal-head">
         <div>
-          <div className="eyebrow">{day.dow} · <span style={{ color: phase?.color }}>{t(phase?.label)}</span> · {t('stop')} {idx + 1} {t('of')} {day.waypoints.length}</div>
+          <div className="eyebrow">{day.dow} · <span style={{ color: phase?.color }}>{t(phaseLabel(trip, day.phase))}</span> · {t('stop')} {idx + 1} {t('of')} {day.waypoints.length}</div>
           <h3>{tt(w.name)}</h3>
         </div>
         <button className="btn" onClick={close}>✕</button>
@@ -138,7 +138,7 @@ function StopDetail({ day, waypointId, trip, dispatch, routedLegsByDay, close })
   );
 }
 
-function LegDetail({ day, legIndex, routedLegsByDay, dispatch, close, showPanel }) {
+function LegDetail({ day, trip, legIndex, routedLegsByDay, dispatch, close, showPanel }) {
   const from = day.waypoints[legIndex];
   const to = day.waypoints[legIndex + 1];
   const t = useT();
@@ -154,7 +154,7 @@ function LegDetail({ day, legIndex, routedLegsByDay, dispatch, close, showPanel 
     <>
       <div className="modal-head">
         <div>
-          <div className="eyebrow">{day.dow} · <span style={{ color: phase?.color }}>{t(phase?.label)}</span> · {t('leg')} {legIndex + 1} {t('of')} {day.waypoints.length - 1}</div>
+          <div className="eyebrow">{day.dow} · <span style={{ color: phase?.color }}>{t(phaseLabel(trip, day.phase))}</span> · {t('leg')} {legIndex + 1} {t('of')} {day.waypoints.length - 1}</div>
           <h3>{tt(from.name)} → {tt(to.name)}</h3>
         </div>
         <button className="btn" onClick={close}>✕</button>

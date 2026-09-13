@@ -390,7 +390,7 @@ export const TOOL = {
             },
             patch: {
               type: 'object',
-              description: 'Fields for the selected op. For set_meta, routePrefs accepts {style: quick|touring|backroads, avoidTolls: boolean}; it controls both planned routes and Ride Mode reroutes.',
+              description: 'Fields for the selected op. For set_meta, routePrefs accepts {style: quick|touring|backroads, avoidTolls: boolean}; it controls both planned routes and Ride Mode reroutes. set_meta also accepts phaseLabels {prep?, outbound?, rally?, return?}: what this trip calls its phases in the rider\'s words (the keys are storage; "rally" means days spent AT a destination and an out-and-back has none).',
             },
             field: {
               type: 'string',
@@ -451,7 +451,7 @@ Rules:
 - EVERY gas station, hotel, and restaurant you name is checked against the live places database after you answer: real ones get snapped to their exact coordinates, and anything that does not exist is flagged "unverified" in the rider's plan. So name the specific businesses you are actually confident about (brand and town — "Sinclair, Ten Sleep WY"), and where you are NOT confident, say so in the note or write an honest placeholder ("best option in town") rather than inventing a name. A guessed station is worse than an unnamed one: riders plan fuel around it.
 - Keep daily distance realistic: 150–300 mi for scenic days, up to 450 for transit days, and note it in the summary.
 - Every day gets: an honest one-to-two-sentence summary (trade-offs included), a depart time, lunch and dinner meal entries with real restaurant-quality picks when you know them (or the honest "best option in town" note), and lodging (real town + property suggestion, status "reserve").
-- Phases: use "outbound" for the way out, "rally" for event/destination days, "return" for the way home, "prep" for travel/arrival days.
+- Phases come from the SHAPE of the trip, never from a template. The storage keys are "prep" (arrival, pickup, staging), "outbound" (the way out), "rally" (days spent AT a destination — a base town, an event, loops from one bed) and "return" (the way home). An out-and-back to upstate New York has NO destination days: outbound, then return. A point-to-point has outbound only. A one-way delivery ride has no return. Use "rally" only when the rider actually stays somewhere. Name the phases in the rider's own words through meta.phaseLabels — {rally: "Rally"} for a Sturgis run, {rally: "Coast days"}, {outbound: "Northbound", return: "Southbound"} — and omit any key where the default (Prep / Outbound / Destination / Return) already fits.
 - Gates: when a day contains a hard real-world deadline — park-entrance cutoffs, timed-entry windows, ferry or tour departures, rental returns, restaurant reservations — emit it in day.gates ({label, by, waypointIndex}). Real commitments only; never invent one.
 - meta.summary: two to three sentences on the whole trip — the shape of the route, the landmark days, the rider count.
 - Respect the rider count and requested day count exactly.`;
@@ -477,6 +477,11 @@ export const GENERATE_TOOL = {
               summary: { type: 'string', description: 'Two-to-three sentences describing the whole trip: the shape of the route, the landmark days, and the rider count. Shown at the top of the trip overview.' },
               riders: { type: 'integer' },
               fuelRule: { type: 'string' },
+              phaseLabels: {
+                type: 'object',
+                description: 'What THIS trip calls its phases, in the rider\'s words. Only the keys whose default word (Prep / Outbound / Destination / Return) does not fit — e.g. {rally: "Rally"} for an event trip, {outbound: "Northbound", return: "Southbound"} for an out-and-back. Omit entirely when the defaults fit.',
+                properties: { prep: { type: 'string' }, outbound: { type: 'string' }, rally: { type: 'string' }, return: { type: 'string' } },
+              },
             },
           },
           days: {

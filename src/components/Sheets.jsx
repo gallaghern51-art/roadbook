@@ -44,9 +44,9 @@ export function ConfirmSheet({ title, body, confirmLabel, danger, onConfirm, onC
   );
 }
 
-export function InputSheet({ title, label, placeholder, submitLabel, onSubmit, onClose }) {
+export function InputSheet({ title, label, placeholder, submitLabel, onSubmit, onClose, defaultValue = '' }) {
   const t = useT();
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(defaultValue);
   const submit = () => {
     const v = value.trim();
     if (!v) return;

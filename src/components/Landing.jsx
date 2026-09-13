@@ -19,7 +19,7 @@ import { RoadbookBrand, ThemeToggle } from './Chrome.jsx';
 
 const MIN_PW = 8;
 
-export default function Landing({ onGuest, recovery, finishAccount, onRecovered, onFinished }) {
+export default function Landing({ onGuest, onHelp, recovery, finishAccount, onRecovered, onFinished, children }) {
   const t = useT();
   const [mode, setMode] = useState(recovery ? 'recovery' : finishAccount ? 'finish' : 'signin');
   const [email, setEmail] = useState('');
@@ -202,13 +202,19 @@ export default function Landing({ onGuest, recovery, finishAccount, onRecovered,
           </div>
 
           {mode !== 'recovery' && mode !== 'finish' && (
-            <button className="land-skip" onClick={onGuest}>
-              {t('Continue without an account →')}
-              <span>{t('Everything works offline on this device. You can create an account later and your trips come with you.')}</span>
-            </button>
+            <>
+              <button className="land-skip" onClick={onGuest}>
+                {t('Continue without an account →')}
+                <span>{t('Everything works offline on this device. You can create an account later and your trips come with you.')}</span>
+              </button>
+              {/* A rider sent a link by a friend should be able to see what the
+                  app does before deciding to hand over an email. */}
+              <button className="land-help" onClick={onHelp}>{t('See how it works →')}</button>
+            </>
           )}
         </section>
       </div>
+      {children}
     </div>
   );
 }

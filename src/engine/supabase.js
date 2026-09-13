@@ -76,6 +76,34 @@ export async function signOut() {
   if (supabase) await supabase.auth.signOut();
 }
 
+/**
+ * Leave a shared trip WITHOUT ending the session. "Leave this trip" used to
+ * call signOut() — fine for a crew-only rider whose whole session was the
+ * anonymous one the join code minted, and a silent sign-out for anyone who
+ * had since created an account: their library backup, saved places and
+ * profile all vanished from the device the moment they left one trip.
+ *
+ * Leaving is a membership change, not an identity change. The rider's own
+ * trip_members row goes (RLS `members_leave` allows exactly that); the
+ * session stays. An anonymous session with nothing else attached to it is
+ * dropped too, so a crew-only phone is left as clean as before — that keeps
+ * "Leave this trip + rejoin with the code" as the manual heal path.
+ */
+export async function leaveTrip(tripId, client = supabase) {
+  if (!client) return { left: false, signedOut: false };
+  const { data } = await client.auth.getUser();
+  const user = data?.user ?? null;
+  let left = false;
+  if (user && tripId) {
+    const { error } = await client.from('trip_members').delete().eq('trip_id', tripId).eq('user_id', user.id);
+    if (error) throw error;
+    left = true;
+  }
+  const signedOut = Boolean(user?.is_anonymous);
+  if (signedOut) await client.auth.signOut();
+  return { left, signedOut };
+}
+
 // -------------------------------------------------------------- trips ----
 
 /** Publish a local trip so the group can join it. Returns { id, joinCode }. */

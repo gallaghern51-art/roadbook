@@ -5,6 +5,7 @@ import { cascadeDates } from '../engine/dates.js';
 import { geocode } from '../engine/geocode.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
 import { usePlacePreferences } from '../engine/placePreferences.js';
+import { libraryTemplates, tripFromTemplate } from '../engine/templates.js';
 import { tripDefaults, placesForPlanner, tasteForPlanner, homePlace } from '../engine/profile.js';
 import TripConstructionChat from './TripConstructionChat.jsx';
 
@@ -15,7 +16,7 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
   // range all start from Settings, so the first planning turn is already
   // shaped like this rider instead of like a default they have to correct.
   const defaults = tripDefaults(profile);
-  const { dispatch } = useTrip();
+  const { state, dispatch } = useTrip();
   const [tab, setTab] = useState(initial?.tab ?? 'ai'); // ai | blank | template
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState(today());
@@ -86,9 +87,23 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
     }
   };
 
+  // The template tab used to BE the Sturgis trip — one hardcoded choice. It is
+  // now a picker over the bundled trip plus the rider's own saved templates
+  // (src/engine/templates.js), so "start from my early-exit version" is a
+  // first-class door rather than a copy-then-edit chore.
+  const templates = libraryTemplates(state.lib);
+  const [templateId, setTemplateId] = useState(initial?.templateId ?? 'seed');
+  const chosenTemplate = templateId === 'seed' ? null : templates.find((r) => r.id === templateId);
+  const templateTrip = chosenTemplate?.trip ?? SEED_TRIP;
+
   const createFromTemplate = () => {
-    const trip = structuredClone(SEED_TRIP);
-    if (name.trim()) trip.meta.title = name.trim();
+    // Fresh ids, booking state cleared, dates re-pinned to the chosen start —
+    // a copy that claimed a confirmed bed nobody booked would be the one lie a
+    // planning tool must not tell.
+    const trip = tripFromTemplate(templateTrip, {
+      name: name.trim() || templateTrip.meta?.title,
+      startDate,
+    });
     dispatch({ type: 'create_trip', trip });
     created();
   };
@@ -249,11 +264,40 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
           </div>
           {tab === 'template' && (
             <div className="template-create">
-              <label className="fld">Trip name<input value={name} placeholder="STURGIS 2026 (copy)" onChange={(e) => setName(e.target.value)} /></label>
+              <div className="tpl-pick" role="radiogroup" aria-label="Template">
+                <button
+                  type="button" role="radio" aria-checked={templateId === 'seed'}
+                  className={templateId === 'seed' ? 'active' : ''}
+                  onClick={() => setTemplateId('seed')}
+                >
+                  <b>Sturgis 2026</b>
+                  <small>{SEED_TRIP.days.length} days · the bundled field guide</small>
+                </button>
+                {templates.map((rec) => (
+                  <button
+                    key={rec.id} type="button" role="radio" aria-checked={templateId === rec.id}
+                    className={templateId === rec.id ? 'active' : ''}
+                    onClick={() => setTemplateId(rec.id)}
+                  >
+                    <b>{rec.name}</b>
+                    <small>{rec.trip.days.length} days{rec.trip.meta?.templateNote ? ` · ${rec.trip.meta.templateNote}` : ' · your template'}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="fld-row">
+                <label className="fld">Trip name<input value={name} placeholder={`${templateTrip.meta?.title ?? 'Template'} (copy)`} onChange={(e) => setName(e.target.value)} /></label>
+                <label className="fld">Start date<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+              </div>
               <p>
-              A full copy of the Sturgis 2026 field-guide trip — 11 days, every stop, gate, booking, and
-              module — as a separate trip you can tear apart freely.
+              A full copy — every stop, gate and module — as a separate trip you can tear apart freely.
+              Dates re-pin to your start date, and nothing arrives marked as booked.
               </p>
+              {!templates.length && (
+                <p className="tpl-hint">
+                  Your own trips can live here too: open a trip, and in the trip overview use
+                  “Save as template”.
+                </p>
+              )}
             </div>
           )}
 

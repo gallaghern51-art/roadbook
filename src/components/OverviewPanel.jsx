@@ -1,15 +1,17 @@
-import React from 'react';
-import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import React, { useState } from 'react';
+import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTrip } from '../engine/store.js';
-import { PHASES } from '../data/seedTrip.js';
+import { PHASES, phaseLabel } from '../data/seedTrip.js';
 import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
 import { tripPace, tripRoutePrefs } from '../engine/tripEngine.js';
 import { to24h, from24h } from '../engine/timeline.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
+import { Sheet } from './Sheets.jsx';
+import { libraryTemplates, daysFromTemplate, insertDaysOp } from '../engine/templates.js';
 
 // Suggestions only — riders type whatever they actually ride. (The list began
 // as the EagleRider rental lineup the Sturgis crew booked from; it survives as
@@ -27,19 +29,27 @@ const ROUTE_STYLE_UI = [
   { id: 'backroads', label: 'Back roads', copy: 'Strongly favors secondary roads. Expect longer days.' },
 ];
 
+// The day list is a COLUMN, so horizontal travel was never a reorder — it was
+// the card escaping the panel under the pointer. dnd-kit ships this as
+// @dnd-kit/modifiers; three lines is cheaper than a dependency.
+const LOCK_VERTICAL = ({ transform }) => ({ ...transform, x: 0 });
+
 export default function OverviewPanel() {
   const { state, dispatch, summary, ui } = useTrip();
   const { trip } = state;
   const t = useT();
   const tt = useTT();
   const u = useUnits();
-  // The whole day row is the drag handle, so on touch the drag has to wait out
-  // a press-and-hold — otherwise the list could never be scrolled.
+  // Reordering is the GRIP's job, not the row's (see SortableDay). With a
+  // dedicated handle the sensors need no intent gate: everything else in the
+  // panel scrolls and taps as normal, so there is nothing to disambiguate.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 3 } }),
+    useSensor(TouchSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const reorderHint = ui?.isMobile ? 'press & hold to reorder' : 'drag to reorder';
+  const reorderHint = 'grab ⠿ to reorder';
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const onDragEnd = (e) => {
     const { active, over } = e;
@@ -71,16 +81,29 @@ export default function OverviewPanel() {
 
       <div className="section">
         <h3>{t('Days')} <span className="cnt">{t(reorderHint)} · {t('dates stay pinned to the calendar')}</span></h3>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[LOCK_VERTICAL]} onDragEnd={onDragEnd}>
           <SortableContext items={trip.days.map((d) => d.id)} strategy={verticalListSortingStrategy}>
             <div className="ov-days">
               {trip.days.map((d) => <SortableDay key={d.id} day={d} summary={summary} dispatch={dispatch} />)}
             </div>
           </SortableContext>
         </DndContext>
-        <button className="btn" style={{ marginTop: 8 }} onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'add_day' }] })}>＋ {t('Add day')}</button>
+        <div className="ov-day-actions">
+          <button className="btn" onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'add_day' }] })}>＋ {t('Add day')}</button>
+          <TemplateDays trip={trip} dispatch={dispatch} />
+        </div>
       </div>
 
+      {/* Everything that configures the trip — name, roads, dates, range, the
+          rider roster, the after-dark hour, the calendar's UTC offset — is one
+          door. It used to be a long form under the day list, so the overview
+          scrolled through settings a rider touches once. */}
+      <div className="trip-settings-row">
+        <button className="btn trip-settings-btn" onClick={() => setSettingsOpen(true)}>⚙ {t('Trip settings')}</button>
+        <small>{ROUTE_STYLE_UI.find((x) => x.id === tripRoutePrefs(trip).style)?.label ?? ''} · {trip.meta.riders} {t('riders')} · {fmtLongDate(trip.meta.startDate)}</small>
+      </div>
+      {settingsOpen && (
+        <Sheet eyebrow={tt(trip.meta.title)} title={t('Trip settings')} onClose={() => setSettingsOpen(false)}>
       <TripSettings trip={trip} dispatch={dispatch} ui={ui} />
 
       {trip.fieldNotes && <div className="section fieldnotes">
@@ -98,6 +121,87 @@ export default function OverviewPanel() {
       </div>}
 
       <RiderRoster trip={trip} dispatch={dispatch} />
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+// Lay days from a saved template INTO this trip — the "use my early-exit
+// version on top of the Sturgis trip" case. A template is a whole trip, so the
+// honest form of "on top of" is: pick the days you want, say where they go,
+// one undoable op. Dates re-cascade, so the inserted days take the calendar
+// slots they land in rather than dragging their old dates along.
+function TemplateDays({ trip, dispatch }) {
+  const { state } = useTrip();
+  const t = useT();
+  const tt = useTT();
+  const templates = libraryTemplates(state.lib);
+  const [open, setOpen] = useState(false);
+  const [tplId, setTplId] = useState(null);
+  const [picked, setPicked] = useState([]);
+  const [at, setAt] = useState(trip.days.length);
+
+  const tpl = templates.find((r) => r.id === tplId) ?? null;
+  const choose = (rec) => {
+    setTplId(rec.id);
+    setPicked(rec.trip.days.map((d) => d.id)); // whole template by default
+    setAt(trip.days.length);
+  };
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const insert = () => {
+    const days = daysFromTemplate(tpl, picked);
+    if (!days.length) return;
+    dispatch({ type: 'apply_ops', ops: [insertDaysOp(days, at, tpl.name)] });
+    setOpen(false); setTplId(null); setPicked([]);
+  };
+
+  if (!templates.length) return null;
+  if (!open) {
+    return <button className="btn" onClick={() => setOpen(true)}>＋ {t('Days from a template')}</button>;
+  }
+
+  return (
+    <div className="tpl-insert">
+      <div className="tpl-insert-head">
+        <b>{t('Days from a template')}</b>
+        <button className="mini-edit" onClick={() => { setOpen(false); setTplId(null); }} aria-label={t('Cancel')}>✕</button>
+      </div>
+      {!tpl && (
+        <div className="tpl-insert-list">
+          {templates.map((rec) => (
+            <button key={rec.id} className="tpl-insert-row" onClick={() => choose(rec)}>
+              <b>{rec.name}</b><small>{rec.trip.days.length} {t('days')}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {tpl && (
+        <>
+          <div className="tpl-insert-list">
+            {tpl.trip.days.map((d, i) => (
+              <label key={d.id} className="tpl-insert-day">
+                <input type="checkbox" checked={picked.includes(d.id)} onChange={() => toggle(d.id)} />
+                <span><b>{t('Day')} {i + 1}</b> {tt(d.title)}</span>
+              </label>
+            ))}
+          </div>
+          <label className="fld">{t('Insert before')}
+            <select value={at} onChange={(e) => setAt(Number(e.target.value))}>
+              {trip.days.map((d, i) => (
+                <option key={d.id} value={i}>{t('Day')} {i + 1} — {tt(d.title)}</option>
+              ))}
+              <option value={trip.days.length}>{t('End of the trip')}</option>
+            </select>
+          </label>
+          <div className="tpl-insert-foot">
+            <button className="btn" onClick={() => setTplId(null)}>{t('Back')}</button>
+            <button className="btn gold" disabled={!picked.length} onClick={insert}>
+              {t('Insert')} {picked.length} {picked.length === 1 ? t('day') : t('days')}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -159,6 +263,12 @@ function TripSettings({ trip, dispatch, ui }) {
   return (
     <div className="section">
       <h3>{t('Trip settings')}</h3>
+      {/* Keep this plan as a starting point — for the next trip, or for a
+          friend. It does not leave the trip you are in. */}
+      <div className="tpl-save">
+        <button className="btn" onClick={() => ui?.saveAsTemplate?.()}>❒ {t('Save as template')}</button>
+        <small>{t('Reuse this plan for another trip, or share the file with a friend.')}</small>
+      </div>
       <div className="budget-grid trip-settings-grid">
         <label className="fld settings-wide">{t('Trip name')}
           <input defaultValue={trip.meta.title} key={trip.meta.title}
@@ -215,13 +325,31 @@ function TripSettings({ trip, dispatch, ui }) {
           <input type="number" min="1" value={trip.meta.riders}
             onChange={(e) => set({ riders: Math.max(1, Number(e.target.value) || 1) })} />
         </label>
+        <label className="fld settings-third">{t('Range: comfort mi')}
+          <input type="number" min="40" value={range.comfort} onChange={(e) => setRange('comfort', e.target.value)} />
+        </label>
+      </div>
+      {/* Touched once a trip, if ever: folded away so the settings a rider
+          actually returns to — roads, date, riders, range — stand alone. */}
+      <details className="settings-adv">
+        <summary>{t('Advanced')} <span>{t('phase names · pace · absolute range · MPG · dusk · calendar UTC offset')}</span></summary>
+        {/* What THIS trip calls its four phases. The keys are storage; the
+            words are the rider's — a rally trip says Rally, a Blue Ridge
+            week says Loop days, and nobody else's trip inherits either. */}
+        <div className="budget-grid trip-settings-grid">
+          {Object.keys(PHASES).map((k) => (
+            <label key={k} className={`fld settings-third${trip.days.some((d) => d.phase === k) ? '' : ' phase-unused'}`} style={{ '--seg-color': PHASES[k].color }}>
+              <span className="phase-dot" /> {t('Phase')} · {t(PHASES[k].label)}{trip.days.some((d) => d.phase === k) ? '' : ` · ${t('no days')}`}
+              <input defaultValue={phaseLabel(trip, k)} key={`${k}:${phaseLabel(trip, k)}`}
+                onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== phaseLabel(trip, k)) set({ phaseLabels: { ...(trip.meta.phaseLabels ?? {}), [k]: v } }); }} />
+            </label>
+          ))}
+        </div>
+        <div className="budget-grid trip-settings-grid">
         <label className="fld settings-third">{t('Group pace buffer %')}
           <input type="number" min="0" max="50" step="1"
             value={Math.round((tripPace(trip) - 1) * 100)}
             onChange={(e) => set({ pace: 1 + Math.max(0, Math.min(50, Number(e.target.value) || 0)) / 100 })} />
-        </label>
-        <label className="fld settings-third">{t('Range: comfort mi')}
-          <input type="number" min="40" value={range.comfort} onChange={(e) => setRange('comfort', e.target.value)} />
         </label>
         <label className="fld settings-third">{t('Range: absolute mi')}
           <input type="number" min="50" value={range.absolute} onChange={(e) => setRange('absolute', e.target.value)} />
@@ -240,7 +368,8 @@ function TripSettings({ trip, dispatch, ui }) {
           <input type="number" min="-12" max="14" step="0.5" value={Number.isFinite(trip.meta.utcOffset) ? trip.meta.utcOffset : -6}
             onChange={(e) => set({ utcOffset: Number(e.target.value) })} />
         </label>
-      </div>
+        </div>
+      </details>
       <p className="trip-settings-note">
         {t('Changing the start date re-pins every day to the new calendar. Fuel warnings and feasibility use the bike range set here.')}{' '}
         {t('Dusk drives the after-dark warnings; the UTC offset places .ics calendar times in the trip’s zone.')}{' '}
@@ -445,11 +574,19 @@ function RouteCharacterPreview({ trip, preview, onClose, onRetry, onApply, onRes
   );
 }
 
+// One row, two jobs — and they used to fight. The whole row carried the drag
+// listeners AND opened the day, so a tap that drifted a few pixels lifted the
+// card, slid it under the pointer in both axes, and on release rewrote the
+// itinerary (`reorder_days` re-cascades every date). Nothing in a day panel
+// behaves that way, which is exactly how it reads as loose. Reordering now
+// belongs to a visible grip: the row is a button again, the card can only
+// travel along its own column, and no amount of dragging the row moves it.
 function SortableDay({ day, summary, dispatch }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day.id });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: day.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const per = summary.perDay.find((p) => p.id === day.id);
   const dangers = per?.warnings.filter((w) => w.level === 'danger').length ?? 0;
+  const t = useT();
   const tt = useTT();
   const u = useUnits();
   return (
@@ -457,13 +594,21 @@ function SortableDay({ day, summary, dispatch }) {
       ref={setNodeRef}
       style={style}
       className={`ov-day${isDragging ? ' dragging' : ''}`}
-      {...attributes}
-      {...listeners}
       onClick={() => dispatch({ type: 'select_day', dayId: day.id })}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') dispatch({ type: 'select_day', dayId: day.id }); }}
     >
+      <button
+        type="button"
+        className="ov-grip"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        aria-label={t('Reorder this day')}
+        title={t('Reorder this day')}
+        onClick={(e) => e.stopPropagation()}
+      >⠿</button>
       <div className="ph" style={{ background: PHASES[day.phase]?.color }} />
       <div className="dt">{day.dow}<br />{fmtDayDate(day.date)}{day.anchor ? ' ★' : ''}</div>
       <div>

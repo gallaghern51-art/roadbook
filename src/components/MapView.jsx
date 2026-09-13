@@ -521,6 +521,20 @@ export default function MapView() {
         layout: round,
       });
     }
+    // The place picker's candidates: turquoise dots (route intelligence), the
+    // expanded row bigger. Circles only — a symbol layer needs glyphs the
+    // raster basemaps do not carry. Names live in the picker's rows.
+    if (!map.getSource('picker-pins')) {
+      map.addSource('picker-pins', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'picker-pins-halo', type: 'circle', source: 'picker-pins',
+        paint: { 'circle-radius': ['case', ['get', 'hot'], 16, 11], 'circle-color': '#2dd4c4', 'circle-opacity': 0.22 },
+      });
+      map.addLayer({
+        id: 'picker-pins-dot', type: 'circle', source: 'picker-pins',
+        paint: { 'circle-radius': ['case', ['get', 'hot'], 8, 5.5], 'circle-color': '#2dd4c4', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+      });
+    }
     // The drag proposal rides above everything: dashed turquoise, the color
     // this app reserves for route intelligence and live state. It is not the
     // route until the rider lets go.
@@ -571,6 +585,20 @@ export default function MapView() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The picker's rows → dots on the map, so "along the route" is seen, not read.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer?.('picker-pins-dot')) return;
+    const pins = state.pickerPins ?? [];
+    map.getSource('picker-pins').setData({
+      type: 'FeatureCollection',
+      features: pins.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((p) => ({
+        type: 'Feature', properties: { name: p.name ?? '', hot: !!p.hot },
+        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      })),
+    });
+  }, [state.pickerPins]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hovered leg → the slice of routed geometry between its two waypoints.
   const legZoomAtRef = useRef(0);

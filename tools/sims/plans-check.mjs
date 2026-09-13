@@ -123,6 +123,11 @@ await page.evaluate((d) => window.__dispatch({
   type: 'set_proposal',
   proposal: { ops: [{ op: 'set_day_field', dayId: d, field: 'depart', value: '8:00 AM' }], summary: 'Depart earlier.', saveAs: 'Early start' },
 }), day0);
+// The Copilot fab hides behind an open day panel on a phone (App: !isMobile ||
+// !panelOpen), and step 8 left the panel open — dismiss it first. Without this
+// the sim waits 30s for a fab that is deliberately not there.
+await page.locator('.panel-scrim').click({ force: true, timeout: 3000 }).catch(() => {});
+await page.waitForTimeout(400);
 await page.locator('.dock-fab').click();
 await page.waitForSelector('.proposal', { timeout: 5000 });
 const pBtns = await page.locator('.proposal .p-actions .btn').allTextContents();
