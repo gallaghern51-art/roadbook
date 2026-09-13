@@ -26,16 +26,24 @@ import ScenarioStrip from './ScenarioStrip.jsx';
 // nobody ever checked (seed trips, hand-built stops, a site with no places
 // key) and must render nothing — flagging those would nag every rider about
 // stops that were never in question.
-function VerifyTag({ on, t }) {
+// Three honest states for a pin: VERIFIED (a real listing at these
+// coordinates), PLACED (a deliberate spot on the map — a pass, a pullout, the
+// rider's own pin — that no listing names, and is not pretending to be one),
+// and UNVERIFIED (a business the planner named that the places database
+// could not find — the rider re-picks it, and the tag itself is the door).
+function VerifyTag({ on, placed, t, onPlace }) {
   if (on === false) {
-    return (
-      <span className="tag unverified" title={t('The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.')}>
-        ⚠ {t('unverified')}
-      </span>
-    );
+    const label = `⚠ ${t('unverified')}${onPlace ? ` · ${t('place it')}` : ''}`;
+    const title = t('The places database found no real business at this pin, so this stop is unconfirmed. Re-pick it with search before you ride.');
+    return onPlace
+      ? <button className="tag unverified act" title={title} onClick={onPlace}>{label}</button>
+      : <span className="tag unverified" title={title}>{label}</span>;
   }
   if (on === 'google' || on === 'model') {
     return <span className="tag verified" title={t('Checked against the live places database — this is a real business at these coordinates.')}>✓</span>;
+  }
+  if (placed) {
+    return <span className="tag placed" title={placed === 'ai' ? t('A scenic spot the planner placed on the map — no listing names it. Confirm the pin before you ride.') : t('A spot placed on the map on purpose — not a listed business.')}>◎ {t('placed')}</span>;
   }
   return null;
 }
@@ -936,7 +944,7 @@ function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt,
               ⚠ {snapM} m {t('off road')}
             </span>
           )}
-          <VerifyTag on={w.verified} t={t} />
+          <VerifyTag on={w.verified} placed={w.placed} t={t} onPlace={onSwap} />
         </span>
         {w.note && <span className="note">{tt(w.note)}</span>}
       </div>

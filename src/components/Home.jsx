@@ -4,6 +4,7 @@ import { tripFeasibility } from '../engine/timeline.js';
 import { tripSummary, haversineMiles } from '../engine/tripEngine.js';
 import { fmtLongDate } from '../engine/dates.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
+import { EARLY_EXIT_TRIP } from '../data/earlyExitTemplate.js';
 import RouteSilhouette from './RouteSilhouette.jsx';
 import { SettingsIcon } from './Chrome.jsx';
 import { useT, useUnits } from '../engine/settings.jsx';
@@ -228,10 +229,16 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               <section className="section">
                 <h3>{t('Start from')}</h3>
                 <div className="trip-grid start-grid">
-                  <div className="trip-card start-card" role="button" tabIndex={0} onClick={() => onNewTrip({ tab: 'template' })} onKeyDown={(e) => { if (e.key === 'Enter') onNewTrip({ tab: 'template' }); }}>
+                  <div className="trip-card start-card" role="button" tabIndex={0} onClick={() => onNewTrip({ tab: 'template', templateId: 'seed' })} onKeyDown={(e) => { if (e.key === 'Enter') onNewTrip({ tab: 'template', templateId: 'seed' }); }}>
                     <RouteSilhouette trip={SEED_TRIP} height={64} />
-                    <div className="tc-name">{t('Sturgis template')}</div>
+                    <div className="tc-name">{SEED_TRIP.meta.title}</div>
                     <div className="tc-meta">{SEED_TRIP.days.length} {t('days')} · {t('the full field guide')}</div>
+                    <div className="tc-open">{t('Copy it →')}</div>
+                  </div>
+                  <div className="trip-card start-card" role="button" tabIndex={0} onClick={() => onNewTrip({ tab: 'template', templateId: 'early-exit' })} onKeyDown={(e) => { if (e.key === 'Enter') onNewTrip({ tab: 'template', templateId: 'early-exit' }); }}>
+                    <RouteSilhouette trip={EARLY_EXIT_TRIP} height={64} />
+                    <div className="tc-name">{EARLY_EXIT_TRIP.meta.title}</div>
+                    <div className="tc-meta">{EARLY_EXIT_TRIP.days.length} {t('days')} · {t('the long way home from the rally')}</div>
                     <div className="tc-open">{t('Copy it →')}</div>
                   </div>
                   <div className="trip-card start-card" role="button" tabIndex={0} onClick={() => onNewTrip({ tab: 'blank' })} onKeyDown={(e) => { if (e.key === 'Enter') onNewTrip({ tab: 'blank' }); }}>

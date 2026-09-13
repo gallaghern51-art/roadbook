@@ -4,6 +4,7 @@ import { blankDay, uid } from '../engine/ops.js';
 import { cascadeDates } from '../engine/dates.js';
 import { geocode } from '../engine/geocode.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
+import { EARLY_EXIT_TRIP } from '../data/earlyExitTemplate.js';
 import { usePlacePreferences } from '../engine/placePreferences.js';
 import { libraryTemplates, tripFromTemplate } from '../engine/templates.js';
 import { tripDefaults, placesForPlanner, tasteForPlanner, homePlace } from '../engine/profile.js';
@@ -93,8 +94,8 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
   // first-class door rather than a copy-then-edit chore.
   const templates = libraryTemplates(state.lib);
   const [templateId, setTemplateId] = useState(initial?.templateId ?? 'seed');
-  const chosenTemplate = templateId === 'seed' ? null : templates.find((r) => r.id === templateId);
-  const templateTrip = chosenTemplate?.trip ?? SEED_TRIP;
+  const chosenTemplate = templateId === 'seed' || templateId === 'early-exit' ? null : templates.find((r) => r.id === templateId);
+  const templateTrip = chosenTemplate?.trip ?? (templateId === 'early-exit' ? EARLY_EXIT_TRIP : SEED_TRIP);
 
   const createFromTemplate = () => {
     // Fresh ids, booking state cleared, dates re-pinned to the chosen start —
@@ -270,8 +271,16 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
                   className={templateId === 'seed' ? 'active' : ''}
                   onClick={() => setTemplateId('seed')}
                 >
-                  <b>Sturgis 2026</b>
-                  <small>{SEED_TRIP.days.length} days · the bundled field guide</small>
+                  <b>{SEED_TRIP.meta.title}</b>
+                  <small>{SEED_TRIP.days.length} days · {SEED_TRIP.meta.templateNote}</small>
+                </button>
+                <button
+                  type="button" role="radio" aria-checked={templateId === 'early-exit'}
+                  className={templateId === 'early-exit' ? 'active' : ''}
+                  onClick={() => setTemplateId('early-exit')}
+                >
+                  <b>{EARLY_EXIT_TRIP.meta.title}</b>
+                  <small>{EARLY_EXIT_TRIP.days.length} days · {EARLY_EXIT_TRIP.meta.templateNote}</small>
                 </button>
                 {templates.map((rec) => (
                   <button

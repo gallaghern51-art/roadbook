@@ -4750,3 +4750,9 @@ input:focus, textarea:focus, select:focus {
   .hm-near { left: 480px; top: 138px; }
   .hm-search { left: 16px; top: 16px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
 }
+
+/* The pin's honesty tags: a placed spot is quiet (turquoise ring, the map's
+   own colour); an unverified one is a BUTTON — the tag is the door to fixing it. */
+.tag.placed { color: var(--route); border-color: color-mix(in srgb, var(--route) 45%, transparent); background: var(--wash-route); }
+.tag.unverified.act { cursor: pointer; font: inherit; }
+.tag.unverified.act:hover { color: var(--ink); border-color: var(--danger); }

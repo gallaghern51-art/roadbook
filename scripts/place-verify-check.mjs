@@ -36,6 +36,11 @@ const DB = [
   { id: 'p_heritage', name: 'Best Western Plus Heritage Inn', detail: '1700 Fox Farm Rd, Great Falls, MT', ...near(GREAT_FALLS, 0.01, 0.01), types: ['lodging'], status: 'OPERATIONAL', hours: ['Open 24 hours'] },
   { id: 'p_roadhouse', name: 'Roadhouse Diner', detail: '613 15th St N, Great Falls, MT', ...near(GREAT_FALLS, 0.008, 0.002), types: ['restaurant'], status: 'OPERATIONAL', hours: ['Monday: 11 AM–8 PM'] },
   { id: 'p_far', name: 'Conoco', detail: 'Helena, MT', ...near(GREAT_FALLS, 1.2, 0.4), types: ['gas_station'], status: 'OPERATIONAL' },
+  // towns and a landmark are places too (every AI stop is checked now)
+  { id: 'p_bozeman', name: 'Bozeman', detail: 'Bozeman, MT, USA', lat: 45.6796, lng: -111.038, types: ['locality', 'political'], status: 'OPERATIONAL' },
+  { id: 'p_gf', name: 'Great Falls', detail: 'Great Falls, MT, USA', ...near(GREAT_FALLS, 0.002, 0.001), types: ['locality', 'political'], status: 'OPERATIONAL' },
+  { id: 'p_kings', name: 'Kings Hill Pass', detail: 'US-89, MT', lat: 46.84, lng: -110.70, types: ['tourist_attraction', 'point_of_interest'], status: 'OPERATIONAL' },
+  { id: 'p_salon', name: 'Monarch Pass Salon', detail: 'Monarch, MT', lat: 46.86, lng: -110.85, types: ['hair_care', 'beauty_salon'], status: 'OPERATIONAL' },
 ];
 
 let calls = [];
@@ -146,8 +151,32 @@ const mkTrip = () => ({
   check('the named dinner resolved', trip.days[0].meals[1].placeId === 'p_roadhouse');
   check('the placeholder lunch was left alone', trip.days[0].meals[0].verified === undefined);
   check('and cost no lookup', !calls.some((c) => c.query.toLowerCase().includes('best option')));
-  check('non-fuel stops are never looked up', !calls.some((c) => c.query.includes('Bozeman')));
-  check('report counts what it checked', report.checked === 3, JSON.stringify(report));
+  // Owner, Sep 13 2026: every AI stop is either a real place or deliberately placed
+  check('towns are looked up too — every stop is checked now', calls.some((c) => c.query.includes('Bozeman')));
+  check('a town verifies as a real place with its id', trip.days[0].waypoints[0].placeId === 'p_bozeman' && trip.days[0].waypoints[0].verified === 'google');
+  check('a verified town keeps its curated name', trip.days[0].waypoints[0].name === 'Bozeman, MT');
+  check('report counts what it checked', report.checked === 5, JSON.stringify(report));
+}
+{
+  // Scenic stops: a real landmark carries its id but a far centroid keeps the
+  // author's pin; a pass no listing names is PLACED, not unverified; the salon
+  // that carries the pass's name never counts; an invented via is unverified.
+  calls = [];
+  const trip = mkTrip();
+  trip.days[0].waypoints.splice(1, 0,
+    { id: 's1', name: 'Kings Hill Pass, 7,393 ft', lat: 46.85, lng: -110.70, kind: 'photo' },
+    { id: 's2', name: 'Monarch Pass overlook', lat: 46.861, lng: -110.851, kind: 'photo' },
+    { id: 's3', name: 'Neihart Mercantile', lat: 46.93, lng: -110.73, kind: 'via' },
+  );
+  await verifyTrip(trip, { key: 'k', searchImpl: fakeSearch });
+  const [, s1, s2, s3] = trip.days[0].waypoints;
+  check('a landmark with a listing is verified with its id', s1.placeId === 'p_kings' && s1.verified === 'google');
+  check("a far centroid keeps the author's pin", Math.abs(s1.lat - 46.85) < 1e-9);
+  check('a pass no listing names is PLACED, not unverified', s2.placed === 'ai' && s2.verified === undefined);
+  check('the salon carrying the pass name never counts', !s2.placeId);
+  check('an invented business via is unverified', s3.verified === false && /unverified/i.test(String(s3.note)));
+  const scenicCalls = calls.filter((c) => /pass/i.test(c.query));
+  check('scenic lookups are untyped', scenicCalls.length > 0 && scenicCalls.every((c) => !c.type));
 }
 {
   // Nothing of the type anywhere near: flag it, never delete it — the rider
@@ -178,7 +207,7 @@ const mkTrip = () => ({
   const w = trip.days[0].waypoints[1];
   check('a stop we ran out of time for is left unstamped', w.verified === undefined);
   check('it is not falsely flagged', w.verified !== false && !String(w.note ?? '').includes('Unverified'));
-  check('the report says how many were skipped', report.skipped === 3, JSON.stringify(report));
+  check('the report says how many were skipped', report.skipped === 5, JSON.stringify(report));
 }
 {
   const trip = mkTrip();
@@ -283,7 +312,7 @@ console.log('\nplanner wiring — an itinerary cannot reach a rider unchecked:')
   const done = events.find((e) => e.type === 'done');
   check('generate emits the trip', Boolean(done?.trip));
   check('the invented station never reaches the rider', done.trip.days[0].waypoints[1].name === 'Cenex Zip Trip');
-  check('the done event carries the verification report', done.verify?.checked === 3);
+  check('the done event carries the verification report', done.verify?.checked === 5);
   check('the build reports a verification phase', events.some((e) => e.type === 'beat' && /verifying/.test(e.note ?? '')));
 }
 {
