@@ -156,6 +156,7 @@ const ES = {
   'Install': 'Instalar',
   'Not now': 'Ahora no',
   // nearby picker
+  'from this stop': 'desde esta parada',
   'Add a stop to this day': 'Agregar una parada a este día',
   'Add ahead': 'Agregar adelante',
   'Add as fuel stop': 'Agregar como parada de gasolina',

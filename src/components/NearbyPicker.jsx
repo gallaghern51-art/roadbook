@@ -59,9 +59,12 @@ export default function NearbyPicker({
       }
       if (my !== seq.current) return;
       const enriched = enrichAlong(res, chain, { near, fromAlong });
-      // sort: along-route by aheadMi (behind-you last), else by distance
+      // sort: along-route by aheadMi (behind-you last) when the rider is
+      // MOVING through the day (add / ride); by road distance from the stop
+      // when swapping — "behind" means nothing for a stop you are replacing
       enriched.sort((a, b) => {
         if (scope === 'route' && Number.isFinite(a.aheadMi) && Number.isFinite(b.aheadMi)) {
+          if (mode === 'swap') return Math.abs(a.aheadMi) - Math.abs(b.aheadMi);
           const ba = a.aheadMi < -0.3, bb = b.aheadMi < -0.3;
           if (ba !== bb) return ba ? 1 : -1;
           return a.aheadMi - b.aheadMi;
@@ -147,7 +150,7 @@ export default function NearbyPicker({
           {rows.map((r) => {
             const ob = openBadge(r);
             const d = detour[r.id];
-            const behind = Number.isFinite(r.aheadMi) && r.aheadMi < -0.3;
+            const behind = mode !== 'swap' && Number.isFinite(r.aheadMi) && r.aheadMi < -0.3;
             return (
               <li key={`${r.source}:${r.id}`} className={`nb-item${open === r.id ? ' open' : ''}${behind ? ' behind' : ''}`}>
                 <button className="nb-main" onClick={() => expand(r)} aria-expanded={open === r.id}>
@@ -156,7 +159,11 @@ export default function NearbyPicker({
                     {Number.isFinite(r.rating) && <span className="nb-rate">★ {r.rating.toFixed(1)}{r.userRatingCount ? <small> ({r.userRatingCount})</small> : null}</span>}
                     {priceGlyph(r.priceLevel) && <span className="nb-price">{priceGlyph(r.priceLevel)}</span>}
                     {Number.isFinite(r.offRouteMi) && scope === 'route'
-                      ? <span className="nb-dist">{u.miNum(r.offRouteMi)} {u.miUnit} {t('off route')}{behind ? ` · ${t('behind you')}` : Number.isFinite(r.aheadMi) ? ` · ${u.miNum(r.aheadMi)} ${u.miUnit} ${t('ahead')}` : ''}</span>
+                      ? <span className="nb-dist">{u.miNum(r.offRouteMi)} {u.miUnit} {t('off route')}{
+                          mode === 'swap' && Number.isFinite(r.aheadMi) ? ` · ${u.miNum(Math.abs(r.aheadMi))} ${u.miUnit} ${t('from this stop')}`
+                          : behind ? ` · ${t('behind you')}`
+                          : Number.isFinite(r.aheadMi) ? ` · ${u.miNum(r.aheadMi)} ${u.miUnit} ${t('ahead')}` : ''
+                        }</span>
                       : Number.isFinite(r.distMi) && <span className="nb-dist">{u.miNum(r.distMi)} {u.miUnit}</span>}
                     {ob && <span className={`nb-open ${ob.cls}`}>{ob.txt}</span>}
                     {r.verified !== false && r.source === 'google' && <span className="nb-ver">✓</span>}

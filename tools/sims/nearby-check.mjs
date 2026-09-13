@@ -149,7 +149,9 @@ const grill = swapRows.find((r) => /Basecamp Grill/.test(r));
 check(ridge && /Open at your ETA/.test(ridge), `open-at-ETA is judged against the stop's arrival ("${(ridge || '').match(/(Open|Closed) at your ETA/)?.[0]}")`);
 check(grill && /Open at your ETA/.test(grill), 'all-day place reads open at your ETA');
 const oldMill = swapRows.find((r) => /Old Mill/.test(r));
-check(oldMill && /behind you/.test(oldMill), 'a place behind the start is marked behind you');
+const fromStop = Number((oldMill || '').match(/([\d.]+) mi from this stop/)?.[1]);
+check(fromStop >= 3, `swap rows measure road distance FROM the stop being replaced, not ahead/behind (${fromStop} mi)`);
+check(!/behind you/.test(swapRows.join(' ')), 'no swap row says "behind you"');
 await page.locator('.nearby-swap .nb-item', { hasText: 'Ridge Diner' }).locator('.nb-main').click();
 await page.waitForSelector('.nearby-swap .nb-actions', { timeout: 4000 });
 await page.waitForTimeout(900); // the detour measurement
