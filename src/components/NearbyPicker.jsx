@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CATEGORIES, searchNearby, enrichAlong, openAt, detourCost, priceGlyph } from '../engine/nearby.js';
+import { CATEGORIES, CUISINES, cuisineLabel, searchNearby, enrichAlong, openAt, detourCost, priceGlyph } from '../engine/nearby.js';
 import { geocode } from '../engine/geocode.js';
 import { useT, useUnits } from '../engine/settings.jsx';
 
@@ -30,6 +30,7 @@ export default function NearbyPicker({
   const t = useT();
   const u = useUnits();
   const [cat, setCat] = useState(initialCategory);
+  const [sub, setSub] = useState(null); // cuisine under Food
   const [q, setQ] = useState('');
   const [scope, setScope] = useState(chain ? 'route' : 'near'); // near | route
   const [rows, setRows] = useState(null);
@@ -48,7 +49,7 @@ export default function NearbyPicker({
       let res;
       try {
         res = await searchNearby({
-          category: cat, query: q.trim(), near,
+          category: cat, subtype: cat === 'food' ? sub : null, query: q.trim(), near,
           radiusMi: scope === 'route' ? 60 : 25,
           route: scope === 'route' && chain ? chain.map((p) => [p.lng, p.lat]) : null,
         });
@@ -82,7 +83,7 @@ export default function NearbyPicker({
   };
 
   // chips and scope search at once; typing is debounced
-  useEffect(() => { run(); }, [cat, scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { run(); }, [cat, sub, scope]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     clearTimeout(timer.current);
     if (!q.trim()) return undefined;
@@ -120,10 +121,18 @@ export default function NearbyPicker({
           <button
             key={c.id} role="tab" aria-selected={cat === c.id}
             className={`nb-chip${cat === c.id ? ' active' : ''}`}
-            onClick={() => { setQ(''); setCat(cat === c.id ? null : c.id); }}
+            onClick={() => { setQ(''); setSub(null); setCat(cat === c.id ? null : c.id); }}
           ><i aria-hidden="true">{c.glyph}</i>{t(c.label)}</button>
         ))}
       </div>
+      {cat === 'food' && (
+        <div className="nb-chips nb-sub" role="tablist" aria-label={t('Kind of food')}>
+          <button role="tab" aria-selected={!sub} className={`nb-chip${!sub ? ' active' : ''}`} onClick={() => setSub(null)}>{t('Any')}</button>
+          {CUISINES.map((c) => (
+            <button key={c.id} role="tab" aria-selected={sub === c.id} className={`nb-chip${sub === c.id ? ' active' : ''}`} onClick={() => setSub(sub === c.id ? null : c.id)}>{t(c.label)}</button>
+          ))}
+        </div>
+      )}
       <div className="nb-row">
         <input
           className="nb-q"
@@ -156,6 +165,8 @@ export default function NearbyPicker({
                 <button className="nb-main" onClick={() => expand(r)} aria-expanded={open === r.id}>
                   <span className="nb-name">{r.name}</span>
                   <span className="nb-facts">
+                    {/* what kind of place, first — the fact a rider scans a food list for */}
+                    {cuisineLabel(r.primaryType, r.types) && <span className="nb-cuisine">{cuisineLabel(r.primaryType, r.types)}</span>}
                     {Number.isFinite(r.rating) && <span className="nb-rate">★ {r.rating.toFixed(1)}{r.userRatingCount ? <small> ({r.userRatingCount})</small> : null}</span>}
                     {priceGlyph(r.priceLevel) && <span className="nb-price">{priceGlyph(r.priceLevel)}</span>}
                     {Number.isFinite(r.offRouteMi) && scope === 'route'

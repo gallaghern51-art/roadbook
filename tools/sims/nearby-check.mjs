@@ -49,7 +49,8 @@ function places(body) {
   const cat = body.category;
   const mk = (id, name, [lng, lat], extra) => ({ id, name, detail: `${name} Rd, Granite WY`, lat, lng, rating: 4.4, userRatingCount: 120, priceLevel: 'PRICE_LEVEL_MODERATE', status: 'OPERATIONAL', hours: ['Mon: 6 AM–2 PM'], periods: allDay, openNow: true, googleMapsUri: 'https://maps.google.com/?q=x', ...extra });
   if (cat === 'fuel') return [mk('g1', 'Sinclair Granite', on1, { rating: 4.1 }), mk('g2', 'Exxon Ridge', on2), mk('g3', 'Maverik North', off)];
-  if (cat === 'food') return [mk('f1', 'Ridge Diner', on2, { periods: early, openNow: false }), mk('f2', 'Basecamp Grill', on1), mk('f3', 'Old Mill Cafe', behind)];
+  if (cat === 'food' && body.subtype === 'barbecue_restaurant') return [mk('b1', 'Smokehouse 14', on1, { primaryType: 'barbecue_restaurant', types: ['barbecue_restaurant', 'restaurant'] })];
+  if (cat === 'food') return [mk('f1', 'Ridge Diner', on2, { periods: early, openNow: false, primaryType: 'diner', types: ['diner', 'restaurant'] }), mk('f2', 'Basecamp Grill', on1, { primaryType: 'bar_and_grill', types: ['bar_and_grill'] }), mk('f3', 'Old Mill Cafe', behind, { primaryType: 'mexican_restaurant', types: ['mexican_restaurant'] })];
   if (cat === 'coffee') return [mk('c1', 'Granite Roasters', on1)];
   return [mk('x1', 'Somewhere', on1)];
 }
@@ -140,7 +141,7 @@ check(idx === 1, `inserted by route order — between Basecamp and Granite Diner
 const diner = page.locator('.wp-row', { hasText: 'Granite Diner' });
 await diner.locator('.rm.swap').click();
 await page.waitForSelector('.nearby-swap', { timeout: 5000 });
-check(await page.locator('.nearby-swap .nb-chip.active').textContent() === '🍽Food', 'swap opens on the Food chip for a diner');
+check(await page.locator('.nearby-swap .nb-chips:not(.nb-sub) .nb-chip.active').textContent() === '🍽Food', 'swap opens on the Food chip for a diner');
 await page.waitForSelector('.nearby-swap .nb-item', { timeout: 6000 });
 const swapRows = await page.locator('.nearby-swap .nb-item').allTextContents();
 const ridge = swapRows.find((r) => /Ridge Diner/.test(r));
@@ -152,6 +153,16 @@ const oldMill = swapRows.find((r) => /Old Mill/.test(r));
 const fromStop = Number((oldMill || '').match(/([\d.]+) mi from this stop/)?.[1]);
 check(fromStop >= 3, `swap rows measure road distance FROM the stop being replaced, not ahead/behind (${fromStop} mi)`);
 check(!/behind you/.test(swapRows.join(' ')), 'no swap row says "behind you"');
+// cuisine at a glance, and a cuisine chip that narrows the search
+check(/Diner/.test(ridge) && /Bar & grill/.test(grill) && /Mexican/.test(oldMill), 'every food row wears its cuisine (Diner · Bar & grill · Mexican)');
+check(await page.locator('.nearby-swap .nb-sub .nb-chip').count() >= 8, 'a cuisine chip row appears under Food');
+await page.locator('.nearby-swap .nb-sub .nb-chip', { hasText: 'BBQ' }).click();
+await page.waitForFunction(() => document.querySelectorAll('.nearby-swap .nb-item').length === 1, null, { timeout: 6000 });
+check(nearbyCalls.at(-1).subtype === 'barbecue_restaurant', 'the BBQ chip sends a strict cuisine type');
+check(/Smokehouse 14/.test(await page.locator('.nearby-swap .nb-item').textContent()) && /BBQ/.test(await page.locator('.nearby-swap .nb-item').textContent()), 'and the list narrows to BBQ, tagged BBQ');
+await page.screenshot({ path: SHOT('nearby-cuisine') });
+await page.locator('.nearby-swap .nb-sub .nb-chip', { hasText: 'Any' }).click();
+await page.waitForFunction(() => document.querySelectorAll('.nearby-swap .nb-item').length === 3, null, { timeout: 6000 });
 await page.locator('.nearby-swap .nb-item', { hasText: 'Ridge Diner' }).locator('.nb-main').click();
 await page.waitForSelector('.nearby-swap .nb-actions', { timeout: 4000 });
 await page.waitForTimeout(900); // the detour measurement

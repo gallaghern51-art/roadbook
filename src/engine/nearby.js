@@ -28,22 +28,67 @@ export const CATEGORIES = [
   { id: 'help', label: 'Help', glyph: '✚' },
 ];
 
+// Under Food: what KIND of food, at a glance. Ids are Google Places (New)
+// types, so a chip is a strict `includedType` on the server and the tag on a
+// row comes straight from the place's `primaryType` — nothing is guessed from
+// the name. "Any" is the Food chip alone.
+export const CUISINES = [
+  { id: 'diner', label: 'Diner' },
+  { id: 'breakfast_restaurant', label: 'Breakfast' },
+  { id: 'hamburger_restaurant', label: 'Burgers' },
+  { id: 'barbecue_restaurant', label: 'BBQ' },
+  { id: 'pizza_restaurant', label: 'Pizza' },
+  { id: 'mexican_restaurant', label: 'Mexican' },
+  { id: 'steak_house', label: 'Steak' },
+  { id: 'seafood_restaurant', label: 'Seafood' },
+  { id: 'bar_and_grill', label: 'Bar & grill' },
+  { id: 'italian_restaurant', label: 'Italian' },
+  { id: 'chinese_restaurant', label: 'Chinese' },
+  { id: 'sandwich_shop', label: 'Sandwiches' },
+];
+
+const CUISINE_WORDS = {
+  american_restaurant: 'American', diner: 'Diner', breakfast_restaurant: 'Breakfast', brunch_restaurant: 'Brunch',
+  hamburger_restaurant: 'Burgers', fast_food_restaurant: 'Fast food', barbecue_restaurant: 'BBQ', pizza_restaurant: 'Pizza',
+  mexican_restaurant: 'Mexican', steak_house: 'Steakhouse', seafood_restaurant: 'Seafood', bar_and_grill: 'Bar & grill',
+  bar: 'Bar', pub: 'Pub', italian_restaurant: 'Italian', chinese_restaurant: 'Chinese', thai_restaurant: 'Thai',
+  japanese_restaurant: 'Japanese', sushi_restaurant: 'Sushi', indian_restaurant: 'Indian', vietnamese_restaurant: 'Vietnamese',
+  korean_restaurant: 'Korean', greek_restaurant: 'Greek', mediterranean_restaurant: 'Mediterranean', french_restaurant: 'French',
+  vegan_restaurant: 'Vegan', vegetarian_restaurant: 'Vegetarian', sandwich_shop: 'Sandwiches', bakery: 'Bakery',
+  cafe: 'Café', coffee_shop: 'Coffee', ice_cream_shop: 'Ice cream', food_court: 'Food court', meal_takeaway: 'Takeaway',
+  restaurant: '', // bare "restaurant" says nothing — leave the tag off
+};
+
+/** "Mexican", "BBQ", "Steakhouse" — from Google's primaryType (or the first cuisine-ish type). */
+export function cuisineLabel(primaryType, types = []) {
+  const pick = (t) => (t in CUISINE_WORDS ? CUISINE_WORDS[t] : null);
+  const fromPrimary = pick(primaryType);
+  if (fromPrimary) return fromPrimary;
+  for (const t of types ?? []) { const w = pick(t); if (w) return w; }
+  if (primaryType && /_restaurant$/.test(primaryType)) {
+    const w = primaryType.replace(/_restaurant$/, '').replace(/_/g, ' ');
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }
+  return '';
+}
+
 /**
  * @param {object} o
  * @param {string|null} o.category  one of CATEGORIES[].id, or null for free text
+ * @param {string|null} [o.subtype] a CUISINES[].id under Food
  * @param {string} [o.query]
  * @param {{lat:number,lng:number}} o.near
  * @param {number} [o.radiusMi]
  * @param {Array<[number,number]>} [o.route]  [lng,lat] vertices → along-route mode
  */
-export async function searchNearby({ category, query, near, radiusMi = 25, route = null, limit = 8 }) {
+export async function searchNearby({ category, subtype = null, query, near, radiusMi = 25, route = null, limit = 8 }) {
   if (Date.now() < skipUntil) throw new Error('nearby backoff');
   let res;
   try {
     res = await fetch(FN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, query, near, radiusMi, route, limit }),
+      body: JSON.stringify({ category, subtype, query, near, radiusMi, route, limit }),
     });
   } catch (e) {
     skipUntil = Date.now() + 5 * 60_000;

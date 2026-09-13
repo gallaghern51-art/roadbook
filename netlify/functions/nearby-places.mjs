@@ -23,6 +23,10 @@ import { searchPlacesGoogle } from '../lib/places-core.mjs';
 
 // Category → Google Places (New) type. Strict filtering, so a town-centre pin
 // or a convenience store can never come back as a fuel stop.
+// Cuisine chips under Food — each is a Google type in its own right, so the
+// filter is strict and the row's tag is the place's own primaryType.
+const CUISINES = new Set(['diner', 'breakfast_restaurant', 'hamburger_restaurant', 'barbecue_restaurant', 'pizza_restaurant', 'mexican_restaurant', 'steak_house', 'seafood_restaurant', 'bar_and_grill', 'italian_restaurant', 'chinese_restaurant', 'sandwich_shop']);
+
 const TYPES = {
   fuel: { type: 'gas_station', query: 'gas station' },
   food: { type: 'restaurant', query: 'restaurant' },
@@ -70,7 +74,10 @@ export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad JSON' }, { status: 400 }); }
 
-  const cat = body?.category ? TYPES[body.category] : null;
+  let cat = body?.category ? TYPES[body.category] : null;
+  if (cat && body.category === 'food' && CUISINES.has(body.subtype)) {
+    cat = { type: body.subtype, query: body.subtype.replace(/_restaurant$/, '').replace(/_/g, ' ') };
+  }
   const text = String(body?.query ?? '').trim();
   if (!cat && text.length < 2) return Response.json([]);
   const near = body?.near;

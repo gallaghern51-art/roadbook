@@ -29,8 +29,12 @@ import { cascadeDates } from './dates.js';
 export const isTemplateTrip = (trip) => !!trip?.meta?.template;
 export const isTemplateRec = (rec) => isTemplateTrip(rec?.trip);
 
-/** The library's real trips — what Home lists and what the trip switcher walks. */
-export const libraryTrips = (lib) => (lib?.trips ?? []).filter((r) => !isTemplateRec(r));
+/** The library's real trips — what Home lists and what the trip switcher walks.
+ *  Templates and quick rides (meta.quick — see quickRide.js) each get their own row. */
+export const libraryTrips = (lib) => (lib?.trips ?? []).filter((r) => !isTemplateRec(r) && !r?.trip?.meta?.quick);
+export const libraryQuickRides = (lib) => (lib?.trips ?? [])
+  .filter((r) => !!r?.trip?.meta?.quick)
+  .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
 
 /** The rider's saved templates, newest first. */
 export const libraryTemplates = (lib) => (lib?.trips ?? [])
