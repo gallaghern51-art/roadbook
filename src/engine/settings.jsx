@@ -1007,20 +1007,134 @@ const ES = {
   // landing page / accounts
   'Plan the ride.': 'Planifica la ruta.',
   'Then ride the plan.': 'Después ródala.',
-  'Describe the trip in a sentence and get back a routed, dated, hour-by-hour plan — graded for whether it can actually be ridden, and yours to argue with until it can.':
-    'Describe el viaje en una frase y recibe un plan trazado, con fechas y hora a hora — calificado según si de verdad se puede rodar, y tuyo para discutirlo hasta que se pueda.',
-  'Drafted by AI, settled by you': 'Lo redacta la IA, lo decides tú',
-  'Riders, days, region, pace. The Copilot proposes changes as edits you can see, apply, and undo — never a black box that rewrites your trip.':
-    'Motoristas, días, región, ritmo. El Copiloto propone cambios como ediciones que puedes ver, aplicar y deshacer — nunca una caja negra que reescribe tu viaje.',
-  'Graded before you turn a wheel': 'Calificado antes de arrancar',
-  'Fuel gaps against your bike’s real range, daylight, dwell time, and hard arrival times — every day carries a grade and tells you what is wrong with it.':
-    'Huecos de combustible frente a la autonomía real de tu moto, luz del día, tiempo de parada y horas de llegada obligadas — cada día lleva su nota y te dice qué falla.',
-  'Turn-by-turn built for a bike': 'Navegación pensada para la moto',
-  'Ride Mode is full navigation: course-up chase camera, spoken turns, posted speed limits, fuel-range countdown, and how far ahead or behind the plan you are running.':
-    'El Modo Ruta es navegación completa: cámara orientada al rumbo, indicaciones habladas, límites de velocidad señalizados, cuenta atrás de autonomía y cuánto vas por delante o por detrás del plan.',
-  'One plan, whole crew': 'Un plan, todo el grupo',
-  'Share a code. Everyone rides the same roadbook, edits arrive as proposals, and the road captain has the final call.':
+
+  // landing page — the front door (Sep 13, 2026)
+  'No account needed to start. Everything works offline on this device; create an account later and your trips come with you.':
+    'No hace falta cuenta para empezar. Todo funciona sin conexión en este dispositivo; crea una cuenta más tarde y tus viajes se van contigo.',
+  'What Roadbook does': 'Qué hace Roadbook',
+  'How it works': 'Cómo funciona',
+  'A sentence in. A ride you can trust out.': 'Entra una frase. Sale una ruta de fiar.',
+  'Say where, how long, and how you like to ride.': 'Di adónde, cuánto tiempo y cómo te gusta rodar.',
+  'The builder searches real places, measures every option on the road, and shows the trade-offs — miles, riding time, fuel gaps, the climb — before anything is created. You pick the route; only then does the trip exist.':
+    'El constructor busca lugares reales, mide cada opción sobre la carretera y te enseña las diferencias — millas, tiempo en moto, huecos de combustible, el desnivel — antes de crear nada. Tú eliges la ruta; solo entonces existe el viaje.',
+  'See what would go wrong. Fix it in one tap.': 'Ve qué fallaría. Arréglalo con un toque.',
+  'Days carry a grade and say exactly what is wrong: a 214-mile gap on a 180-mile tank, a check-in you would miss by twelve minutes. Every change — yours or the Copilot’s — is an edit you can see, apply, and undo.':
+    'Cada día lleva una nota y dice exactamente qué falla: un hueco de 214 millas con un depósito de 180, un check-in al que llegarías doce minutos tarde. Cada cambio — tuyo o del Copiloto — es una edición que puedes ver, aplicar y deshacer.',
+  'Ride it from the handlebars.': 'Ródalo desde el manillar.',
+  'Ride Mode is full navigation: course-up chase camera, spoken turns, posted speed limits, live traffic on the motorcycle route, and how far ahead or behind the plan you are running. Skip a stop, add a fuel stop ahead by voice, and the plan follows.':
+    'El Modo Ruta es navegación completa: cámara orientada al rumbo, giros hablados, límites de velocidad señalizados, tráfico en vivo sobre la ruta de moto y cuánto vas por delante o por detrás del plan. Salta una parada, añade gasolina más adelante con la voz, y el plan te sigue.',
+  'You': 'Tú',
+  'Thursday · grade C': 'Jueves · nota C',
+  'between fuel stops · your range is': 'entre gasolineras · tu autonomía es',
+  'Copilot proposes': 'El Copiloto propone',
+  'Add fuel': 'Añadir gasolina',
+  'Move lunch': 'Mover el almuerzo',
+  'Thursday → A': 'Jueves → A',
+  'Built for the bike': 'Hecho para la moto',
+  'The things a map app cannot know.': 'Lo que una app de mapas no puede saber.',
+  'Fuel against your real range': 'Combustible frente a tu autonomía real',
+  'Every leg is checked against the range you set for your bike, not a default. A gap it cannot cover is red before you leave.':
+    'Cada tramo se comprueba contra la autonomía que fijaste para tu moto, no un valor por defecto. Un hueco que no cubre está en rojo antes de salir.',
+  'Ferry departures, hotel check-ins, dinner reservations. Timed commitments become constraints the grade respects and the ride announces.':
+    'Salidas de ferry, check-ins de hotel, reservas de cena. Los compromisos con hora se vuelven restricciones que la nota respeta y la ruta anuncia.',
+  'Real places, verified': 'Lugares reales, verificados',
+  'Every stop is a live listing with hours and a phone number, or a pin you placed on purpose. The AI never invents a gas station.':
+    'Cada parada es una ficha real con horario y teléfono, o un pin que colocaste a propósito. La IA nunca se inventa una gasolinera.',
+  'Crew by code': 'Grupo por código',
+  'Share one code. Everyone rides the same roadbook, edits arrive as proposals, and the road captain has the final call.':
     'Comparte un código. Todos ruedan con el mismo roadbook, las ediciones llegan como propuestas y el capitán tiene la última palabra.',
+  'Offline first': 'Sin conexión, primero',
+  'The roadbook lives on your phone. No bars in the canyon, no problem — and an account backs it up when you have signal.':
+    'El roadbook vive en tu móvil. Sin cobertura en el cañón, sin problema — y una cuenta lo respalda cuando tengas señal.',
+  'GPX with your ETAs': 'GPX con tus horas de llegada',
+  'Export the plan to any GPS with the planned arrival time on every waypoint, and the calendar file for the crew.':
+    'Exporta el plan a cualquier GPS con la hora de llegada prevista en cada punto, y el archivo de calendario para el grupo.',
+  'Start from a template': 'Empieza desde una plantilla',
+  'Or hand a proven route to the AI.': 'O entrégale a la IA una ruta probada.',
+  'stops': 'paradas',
+  'Your roadbook, on every phone': 'Tu roadbook, en cualquier móvil',
+  'Give the plan a second home.': 'Dale al plan un segundo hogar.',
+  'Your trips live on this device first. An account backs the whole library up — delete the app, change phones, or lose the bike bag, and it is still there when you sign in.':
+    'Tus viajes viven primero en este dispositivo. Una cuenta respalda toda la biblioteca — borra la app, cambia de móvil o pierde la alforja, y sigue ahí cuando inicies sesión.',
+  'Sign in on a new phone and your trips come down.': 'Inicia sesión en un móvil nuevo y tus viajes bajan solos.',
+  'Saved places, your bike and its range, your riding style.': 'Lugares guardados, tu moto y su autonomía, tu estilo de rodar.',
+  'Crews still join with a code — no email needed in the car park.': 'Los grupos siguen uniéndose con un código — sin correo en el aparcamiento.',
+  'Real roads, real places, and a roadbook that stays on your phone until you decide it needs an account.':
+    'Carreteras reales, lugares reales y un roadbook que se queda en tu móvil hasta que decidas que necesita una cuenta.',
+  'Landing': 'Portada',
+
+  // landing page — AI-first (Sep 13, 2026)
+  'Tell it the ride.': 'Cuéntale la ruta.',
+  'It builds the roadbook.': 'Él construye el roadbook.',
+  'Not a chatbot bolted onto a map. Roadbook’s planner searches real places live, routes every option on real roads for a motorcycle, checks fuel, daylight and your check-ins, and shows you the trade-offs before a single stop is committed. Then it rides with you.':
+    'No es un chatbot pegado a un mapa. El planificador de Roadbook busca lugares reales en vivo, traza cada opción por carreteras reales para moto, comprueba combustible, luz y tus check-ins, y te enseña las diferencias antes de comprometer una sola parada. Después rueda contigo.',
+  'Searches real places, live': 'Busca lugares reales, en vivo',
+  'Measures every option on motorcycle roads': 'Mide cada opción por carreteras de moto',
+  'Grades every day before you commit': 'Califica cada día antes de que te comprometas',
+  'Rides with you, turn by turn': 'Rueda contigo, giro a giro',
+  'What the planner does': 'Qué hace el planificador',
+  'It does the research a good road captain would.': 'Hace la investigación que haría un buen capitán de ruta.',
+  'Fuel, food, beds and sights come from live listings with hours, ratings and phone numbers. A stop it cannot verify is flagged for you to re-pick — never invented.':
+    'Gasolina, comida, camas y lugares salen de fichas en vivo con horarios, valoraciones y teléfono. Una parada que no puede verificar se marca para que la vuelvas a elegir — nunca se inventa.',
+  'The Pollard · verified · 4.6 ★ · open until 10 PM': 'The Pollard · verificado · 4.6 ★ · abierto hasta las 10 PM',
+  'Measures every option on the road': 'Mide cada opción sobre la carretera',
+  'Up to three routes at a time, on motorcycle roads at your group’s pace: miles, riding time, the longest day, the biggest fuel gap against your range, the climb, and what each detour costs.':
+    'Hasta tres rutas a la vez, por carreteras de moto al ritmo de tu grupo: millas, tiempo en moto, el día más largo, el mayor hueco de combustible frente a tu autonomía, el desnivel y lo que cuesta cada desvío.',
+  'Shows the trade-offs, then waits': 'Enseña las diferencias, y espera',
+  'Why a route works, how it fits your group, what it costs you. Change one stop, keep the roads and change the stops, keep the stops and change the roads, or shorten it. Nothing is created until you say so.':
+    'Por qué funciona una ruta, cómo encaja con tu grupo, qué te cuesta. Cambia una parada, mantén las carreteras y cambia las paradas, mantén las paradas y cambia las carreteras, o acórtala. No se crea nada hasta que tú lo digas.',
+  'Keeps working after the trip exists': 'Sigue trabajando cuando el viaje ya existe',
+  'The Copilot proposes edits you can see, apply and undo. Ask it to re-plan the roads and it locks your booked beds and timed commitments first. It learns which places you pick — privately.':
+    'El Copiloto propone ediciones que puedes ver, aplicar y deshacer. Pídele replantear las carreteras y primero bloquea tus camas reservadas y compromisos con hora. Aprende qué lugares eliges — en privado.',
+  'Add fuel · Sinclair, Ten Sleep': 'Añadir gasolina · Sinclair, Ten Sleep',
+  'Why it is different': 'Por qué es distinto',
+  'Other planners draw a line. Roadbook builds a plan.': 'Otros planificadores dibujan una línea. Roadbook construye un plan.',
+  'A chatbot on a map': 'Un chatbot sobre un mapa',
+  'Names a gas station from memory.': 'Nombra una gasolinera de memoria.',
+  'Looks it up, checks it is open, and snaps the stop to it.': 'La busca, comprueba que está abierta y ancla la parada a ella.',
+  'Draws one line and calls it a route.': 'Dibuja una línea y la llama ruta.',
+  'Measures three on motorcycle roads and grades every day.': 'Mide tres por carreteras de moto y califica cada día.',
+  'Rewrites your trip when you ask for a change.': 'Reescribe tu viaje cuando pides un cambio.',
+  'Proposes an edit you can see, apply and undo.': 'Propone una edición que puedes ver, aplicar y deshacer.',
+  'Stops helping once the plan is made.': 'Deja de ayudar cuando el plan está hecho.',
+  'Rides with you: turn by turn, fuel range, gate margins, live traffic on the motorcycle route.': 'Rueda contigo: giro a giro, autonomía, márgenes de horas obligadas, tráfico en vivo sobre la ruta de moto.',
+  'Describe the ride. I’ll research real stops, measure route choices, and show you the pieces before anything is created.': 'Describe la ruta. Investigaré paradas reales, mediré opciones de ruta y te enseñaré las piezas antes de crear nada.',
+  'Explore the trip': 'Explorar el viaje',
+  'Keep route, change stops': 'Mantener ruta, cambiar paradas',
+  'Keep stops, change roads': 'Mantener paradas, cambiar carreteras',
+  'Shorten it': 'Acortarla',
+
+  // landing page — Direction C, The Long Way Round (Sep 13, 2026)
+  'Tell Roadbook the ride in a sentence. It researches the stops, measures the roads on a motorcycle, grades every day, and then rides the plan with you.':
+    'Cuéntale la ruta a Roadbook en una frase. Investiga las paradas, mide las carreteras en moto, califica cada día y luego rueda el plan contigo.',
+  'See how it works': 'Ver cómo funciona',
+  'Six weeks out': 'Seis semanas antes',
+  'The sentence.': 'La frase.',
+  '“Five days Missoula to Sturgis, back roads, no tolls, in by four on Friday.” That is the whole brief. The planner narrates while it works — searching places, routing options, checking fuel against your range — because it is doing research, not typing from memory.':
+    '«Cinco días de Missoula a Sturgis, carreteras secundarias, sin peajes, llegar antes de las cuatro el viernes». Ese es todo el encargo. El planificador narra mientras trabaja — busca lugares, traza opciones, comprueba el combustible frente a tu autonomía — porque está investigando, no escribiendo de memoria.',
+  'The same evening': 'Esa misma tarde',
+  'Three ways to do it.': 'Tres formas de hacerlo.',
+  'All three cross the Beartooth; they differ on the Bighorns and on how hard Friday works. One is graded A with fifty minutes to spare at the gate. That is the one you send the crew.':
+    'Las tres cruzan el Beartooth; se diferencian en los Bighorn y en cuánto aprieta el viernes. Una tiene nota A con cincuenta minutos de margen en la hora obligada. Esa es la que mandas al grupo.',
+  'Two weeks out': 'Dos semanas antes',
+  'The plan gets a planner.': 'El plan tiene planificador.',
+  'A rider drops out. “Re-time everything from Cody.” The Copilot proposes the edits, locks the beds already booked, and shows the delta on every line. Apply, and Thursday is an A again.':
+    'Un motorista se baja. «Recalcula todo desde Cody». El Copiloto propone las ediciones, bloquea las camas ya reservadas y enseña el cambio en cada línea. Aplica, y el jueves vuelve a ser una A.',
+  'The week of': 'La semana del viaje',
+  'The board.': 'El tablero.',
+  'Prep is the map-less status board: the trip’s grade with its top issues, bookings, packing, a budget built from the trip’s own nights and miles, and the crew.':
+    'Prep es el tablero de estado sin mapa: la nota del viaje con sus problemas principales, reservas, equipaje, un presupuesto hecho con las noches y millas del propio viaje, y el grupo.',
+  'Day two': 'Día dos',
+  'The Beartooth.': 'El Beartooth.',
+  'Ride Mode is full navigation for a bike: course-up chase camera, spoken turns, the posted limit as a sign, fuel range counting down, the next gate’s margin. Miss a stop and the plan follows you.':
+    'El Modo Ruta es navegación completa para moto: cámara orientada al rumbo, giros hablados, el límite señalizado como una señal, autonomía en cuenta atrás, el margen de la siguiente hora obligada. Sáltate una parada y el plan te sigue.',
+  'Next year': 'El año que viene',
+  'The ride gets ridden again.': 'La ruta se vuelve a rodar.',
+  'Save the trip as a template and hand it to a friend. Their copy arrives with fresh dates and nothing booked, ready for the AI to change what they like.':
+    'Guarda el viaje como plantilla y dásela a un amigo. Su copia llega con fechas nuevas y sin reservas, lista para que la IA cambie lo que quiera.',
+  'saved as a template': 'guardado como plantilla',
+  'Start a trip from it': 'Empezar un viaje desde ella',
+  'beartooth-bighorns-template.json → a friend’s Import': 'beartooth-bighorns-template.json → el Importar de un amigo',
 
   'Account': 'Cuenta',
   'Sign in': 'Iniciar sesión',
