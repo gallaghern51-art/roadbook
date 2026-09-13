@@ -36,5 +36,7 @@ Public `pk.` token, default public scopes, nothing secret. URL restrictions (Map
 - `warmTilesAhead` is a no-op on Mapbox (its tile URLs come from TileJSON; mapbox-gl's tile cache holds the corridor).
 - No iOS simulator pass in this session — worth doing on the deploy preview: POI tap vs pan on a real touch stack, the PoiCard above the mode bar, Mapbox glyph loading, and the chase camera over Mapbox's darker imagery.
 
-## Next (owner, same day)
-"I'm not a fan of our location modal… why would we link out to Google Maps? We should have our own detail page built like Google's." → a Roadbook place sheet: photo, rating/count, price, today's hours + weekly table, address, tap-to-call, website, plus the route facts Google cannot show (ETA at the stop, detour cost, gate margins, fuel verdict, open-at-arrival), and Add / Swap / Ride here. The Maps link goes away.
+## Done after the merge (same day)
+- **iOS simulator pass** (iPhone 17 Pro, Safari, the deployed build): Mapbox renders, pinch/pan never fires a tap, a real POI touch opens the card above the mode bar, Mapbox glyphs load, Ride Mode's chase camera reads over Mapbox imagery.
+- **Roadbook's own place page** (`PlaceSheet.jsx`, `place-details.mjs`, `place-photo.mjs`, `src/engine/places.js`) replaces the Google Maps link on the POI card and the picker row — see the CLAUDE.md note. Along the way: POI lookups are location-RESTRICTED (a bias returned Mirch Masalas 500 miles away), and the 44pt phone button rule is re-asserted after the design pass's 38px override.
+- Still linking out: the AI builder's expanded place rows (`TripConstructionChat.jsx`) — a follow-up.

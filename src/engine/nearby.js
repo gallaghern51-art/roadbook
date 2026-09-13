@@ -88,14 +88,14 @@ export function cuisineLabel(primaryType, types = [], prefer = null) {
  * @param {number} [o.radiusMi]
  * @param {Array<[number,number]>} [o.route]  [lng,lat] vertices → along-route mode
  */
-export async function searchNearby({ category, subtype = null, query, near, radiusMi = 25, route = null, limit = 8 }) {
+export async function searchNearby({ category, subtype = null, query, near, radiusMi = 25, route = null, limit = 8, restrict = false }) {
   if (Date.now() < skipUntil) throw new Error('nearby backoff');
   let res;
   try {
     res = await fetch(FN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, subtype, query, near, radiusMi, route, limit }),
+      body: JSON.stringify({ category, subtype, query, near, radiusMi, route, limit, restrict }),
     });
   } catch (e) {
     skipUntil = Date.now() + 5 * 60_000;

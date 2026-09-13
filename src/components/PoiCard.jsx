@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { searchNearby, poiCategory, poiGlyph, priceGlyph, cuisineLabel } from '../engine/nearby.js';
+import PlaceSheet from './PlaceSheet.jsx';
+import { searchNearby, poiCategory, poiGlyph, cuisineLabel } from '../engine/nearby.js';
 import { haversineMiles } from '../engine/tripEngine.js';
 import { useT, useUnits } from '../engine/settings.jsx';
 
@@ -10,6 +11,7 @@ import { useT, useUnits } from '../engine/settings.jsx';
 // against Places near that point and shows the match when one is close and
 // plausibly the same business. No match is not an error: the OSM place is
 // still real, it just lands unverified, the same as any hand-placed pin.
+// The surface is PlaceSheet — Roadbook's own place page, not a link out.
 //
 //   poi     { name, cls, subclass, lat, lng }
 //   day     the selected day, or null (then Add is disabled with a reason)
@@ -30,7 +32,10 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
     (async () => {
       try {
         const words = String(poi.name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-        const lookup = (category) => searchNearby({ category, query: poi.name, near: { lat: poi.lat, lng: poi.lng }, radiusMi: 2, limit: 5 });
+        // restrict, not bias: a 2-mile bias still returns the best-named match
+        // anywhere in the country (field-caught: Mirch Masala in Billings came
+        // back as five other Mirch Masalas, none within 500 miles)
+        const lookup = (category) => searchNearby({ category, query: poi.name, near: { lat: poi.lat, lng: poi.lng }, radiusMi: 2, limit: 5, restrict: true });
         const pick = (rows) => rows
           .map((r) => ({ r, d: haversineMiles({ lat: poi.lat, lng: poi.lng }, r) }))
           .filter(({ r, d }) => d <= MATCH_MI && (!words.length || words.some((w) => String(r.name).toLowerCase().includes(w))))
@@ -47,48 +52,28 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
     return () => { dead = true; };
   }, [poi.name, poi.lat, poi.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const place = match
-    ? { name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, source: 'google', verified: 'google' }
+    ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, source: 'google', verified: 'google' }
     : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm' };
   const cuisine = match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '';
 
+  const dist = match ? `${u.miNum(haversineMiles(poi, match))} ${u.miUnit}` : '';
   return (
-    <div className="poi-card" role="dialog" aria-label={poi.name}>
-      <div className="poi-head">
-        <span className="poi-glyph" aria-hidden="true">{glyph}</span>
-        <div className="poi-title">
-          <b>{poi.name}</b>
-          <small>{[cuisine, poi.subclass || poi.cls].filter(Boolean).join(' · ')}</small>
-        </div>
-        <button className="mini-edit" onClick={onClose} aria-label={t('Close')}>✕</button>
-      </div>
-      <div className="poi-facts">
-        {match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
-        {match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
-        {match && (
-          <>
-            {Number.isFinite(match.rating) && <span className="nb-rate">★ {match.rating.toFixed(1)}{match.userRatingCount ? <small> ({match.userRatingCount})</small> : null}</span>}
-            {priceGlyph(match.priceLevel) && <span className="nb-price">{priceGlyph(match.priceLevel)}</span>}
-            {match.openNow != null && <span className={`nb-open ${match.openNow ? 'ok' : 'bad'}`}>{match.openNow ? t('Open now') : t('Closed now')}</span>}
-            <span className="nb-ver">✓ {t('Google')}</span>
-            {match.detail && <span className="nb-addr">{match.detail}</span>}
-          </>
-        )}
-      </div>
-      <div className="poi-actions">
-        <button className="btn gold" disabled={!day || match === undefined} onClick={() => onAdd(place, { fuel: cat === 'fuel' })}>
-          {cat === 'fuel' ? `⛽ ${t('Add as fuel stop')}` : `＋ ${t('Add to this day')}`}
-        </button>
-        {match?.googleMapsUri && <a className="btn" href={match.googleMapsUri} target="_blank" rel="noreferrer">{t('Maps')}</a>}
-        {!day && <small className="poi-hint">{t('Pick a day to add it')}</small>}
-      </div>
-      {match && <div className="nb-attrib">{t('Place facts from Google')} · {u.miNum(haversineMiles(poi, match))} {u.miUnit}</div>}
-    </div>
+    <PlaceSheet
+      place={place}
+      glyph={glyph}
+      kicker={[cuisine, poi.subclass || poi.cls].filter(Boolean).join(' · ')}
+      note={match === undefined ? t('Checking with Google…') : match === null ? t('No Google listing found here — it will be added as an unverified stop.') : null}
+      facts={match && dist ? <span className="nb-note">{t('Listing')} {dist} {t('from the pin')}</span> : null}
+      onClose={onClose}
+      actions={(
+        <>
+          <button className="btn gold" disabled={!day || match === undefined} onClick={() => onAdd(place, { fuel: cat === 'fuel' })}>
+            {cat === 'fuel' ? `⛽ ${t('Add as fuel stop')}` : `＋ ${t('Add to this day')}`}
+          </button>
+          {!day && <small className="poi-hint">{t('Pick a day to add it')}</small>}
+        </>
+      )}
+    />
   );
 }
