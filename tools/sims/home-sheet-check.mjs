@@ -25,7 +25,8 @@ const ROW = (id, name, lat, lng, extra = {}) => ({
 const FOOD = ['Cowboy Cafe', 'Pony Bar', 'Granite Diner', 'Bighorn Grill', 'Ten Sleep Kitchen', 'Basin Chophouse']
   .map((n, i) => ROW(`g-${i}`, n, 44.03 + i * 0.01, -107.97 - i * 0.01));
 
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM ?? '/opt/pw-browsers/chromium';
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/opt/pw-browsers/chromium');
 const PORT = process.env.RB_PORT ?? '5199';
 const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 

@@ -10,7 +10,8 @@ let pass = 0, fail = 0;
 const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); ok ? pass++ : fail++; };
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM ?? '/opt/pw-browsers/chromium';
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM
+  ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/opt/pw-browsers/chromium');
 const PORT = process.env.RB_PORT ?? '5199';
 const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 
