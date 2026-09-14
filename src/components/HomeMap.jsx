@@ -33,7 +33,35 @@ const featureToPoi = (f, at) => {
   return { name: p.name ?? p['name:latin'] ?? p.name_en ?? 'Unnamed place', cls: p.class ?? '', subclass: p.subclass ?? p.maki ?? '', lng: c[0], lat: c[1], ...(elevFt != null ? { elevFt } : {}) };
 };
 
-export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false }) {
+// The rider on the map: Google's grammar — a blue dot with a white ring, and a
+// translucent cone for the direction they face when a heading is known (GPS
+// course while moving, the compass when standing still). A mapbox Marker with
+// map-aligned rotation, so the cone stays geographic when the map is turned.
+function RiderDot({ map, me }) {
+  const markerRef = useRef(null);
+  useEffect(() => {
+    if (!map) return undefined;
+    const el = document.createElement('div');
+    el.className = 'hm-me';
+    el.innerHTML = '<div class="hm-me-cone"></div><div class="hm-me-dot"></div>';
+    const m = new mapboxgl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat([0, 0]);
+    markerRef.current = m;
+    return () => { m.remove(); markerRef.current = null; };
+  }, [map]);
+  useEffect(() => {
+    const m = markerRef.current;
+    if (!m) return;
+    if (!me) { m.remove(); return; }
+    m.setLngLat([me.lng, me.lat]);
+    const el = m.getElement();
+    el.classList.toggle('has-heading', Number.isFinite(me.heading));
+    m.setRotation(Number.isFinite(me.heading) ? me.heading : 0);
+    if (!el.isConnected) m.addTo(map);
+  }, [map, me?.lat, me?.lng, me?.heading]);
+  return null;
+}
+
+export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -145,6 +173,7 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
 
   return (
     <div className="hm-map" ref={divRef}>
+      {mapObj && <RiderDot map={mapObj} me={me} />}
       {mapObj && <PlacePins map={mapObj} pins={pins ?? []} onTap={onPinTap} />}
       {/* the dropped pin: a needle on the exact spot, draggable, with ✓ / ✕ */}
       {mapObj && drop && <DropPin map={mapObj} drop={drop} onMove={onDropMove} onMoveEnd={onDropMoveEnd} onConfirm={onDropConfirm} onCancel={onDropCancel} confirmLabel={dropLabel} />}
