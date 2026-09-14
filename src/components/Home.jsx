@@ -194,6 +194,20 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * detentsFor(surface)[sheet]);
+  // The fab column floats off the sheet's REAL height, not the detent fraction:
+  // at `min` the sheet is the handle plus the phone's home-indicator inset
+  // (56 + 34px on an iPhone), while 6% of the viewport is ~52px — so the
+  // locate button sat under the handle and every tap at it opened the sheet.
+  const sheetRef = useRef(null);
+  const [sheetH, setSheetH] = useState(null);
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setSheetH(Math.round(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const sheetLift = sheetH ?? sheetPx;
   // The handle says what pressing it does, for whatever is in the sheet. It read
   // "Your trips · 4" over an open Find-a-place picker before, which named the
   // wrong surface and the wrong action at the same time.
@@ -286,11 +300,15 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
 
   return (
-    <div className="home home-map" style={{ '--hm-sheet': `${sheetPx}px` }}>
+    <div className="home home-map" style={{ '--hm-sheet': `${sheetLift}px` }}>
       <HomeMap
         fix={fix} me={me}
         focus={focus}
-        pins={pins}
+        // the card's place is a pin too: a searched or tapped place showed a
+        // card with nothing on the map where it was (owner: "when I look up a
+        // location it doesn't drop a pin"); the picker's pins win while they
+        // are up, and a dropped needle is its own marker
+        pins={pins.length || dropped ? pins : place && !place.poi.placed ? [{ id: 'place', lat: place.poi.lat, lng: place.poi.lng, name: place.poi.name, glyph: place.row ? (CATEGORIES.find((c) => c.id === poiCategory(place.row.primaryType, place.row.primaryType))?.glyph ?? '📍') : poiGlyph(place.poi.cls, place.poi.subclass), cat: place.row ? poiCategory(place.row.primaryType, place.row.primaryType) : poiCategory(place.poi.cls, place.poi.subclass), hot: true }] : []}
         fitAt={fitAt}
         sheetPx={sheetPx}
         drop={dropped}
@@ -382,7 +400,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         />
       )}
 
-      <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
+      <div ref={sheetRef} className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
         <button
           className="hm-handle"
           aria-label={handle.aria}

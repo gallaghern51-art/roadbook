@@ -4569,6 +4569,12 @@ input:focus, textarea:focus, select:focus {
 .home.home-map { position: relative; height: 100vh; height: 100dvh; overflow: hidden; }
 .hm-map { position: absolute; inset: 0; }
 .hm-map .mapboxgl-ctrl-bottom-left { margin-bottom: 0; }
+/* The home map's floating chrome is dark glass over imagery in EITHER theme —
+   under the light theme its ink went carbon on that glass and the pill, chips
+   and buttons vanished (owner, phone: "the contrast is way off"). */
+.home-map .hm-top, .home-map .hm-fabs, .home-map .hm-near, .home-map .map-area-btn.hm-area {
+  --ink: #f6f3eb; --ink-dim: #cecece; --ink-faint: #8f9aa0; --line: #2e383d; --line-strong: #46535a;
+}
 .hm-top { position: absolute; left: 12px; right: 12px; top: calc(var(--viewport-safe-top) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; }
 .hm-pillrow { display: flex; align-items: center; gap: 10px; }
 .hm-brand, .hm-tripsbtn { display: none; }

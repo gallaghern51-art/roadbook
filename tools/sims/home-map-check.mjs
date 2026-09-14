@@ -230,7 +230,7 @@ async function run(width, label) {
   await page.waitForSelector('.hm-place', { timeout: 5000 });
   const s4 = await page.evaluate(() => ({ text: document.querySelector('.hm-place').innerText, pins: document.querySelectorAll('.pl-pin').length, btns: [...document.querySelectorAll('.hm-place-actions .btn')].map((b) => b.textContent.trim()) }));
   check(/Cowboy Cafe/.test(s4.text) && /★ 4\.4/.test(s4.text) && /Open now/.test(s4.text) && /Today 7:00 AM/.test(s4.text), 'picking a row makes it the sheet\'s card with its facts');
-  check(s4.btns[0] === 'Ride here' && s4.btns[1] === 'Add to a trip' && s4.btns[2] === 'Details' && s4.pins === 0, 'Ride here · Add to a trip · Details; the pins are gone');
+  check(s4.btns[0] === 'Ride here' && s4.btns[1] === 'Add to a trip' && s4.btns[2] === 'Details' && s4.pins === 1, `Ride here · Add to a trip · Details; the picker's pins give way to the card's one pin (${s4.pins})`);
   await page.screenshot({ path: SHOT(`home-map-place-${width}`) });
 
   // 4. Add to a trip → the day whose route passes it, in route order, verified
@@ -313,6 +313,19 @@ async function run(width, label) {
     const sheetTop = await page.evaluate(() => document.querySelector('.hm-sheet').getBoundingClientRect().top);
     const locBottom = await page.evaluate(() => document.querySelector('.hm-locate').getBoundingClientRect().bottom);
     check(geo.w >= 44 && (phone ? (locBottom <= sheetTop + 2 && locBottom > sheetTop - 80) : locBottom > vh - 80), `the locate button sits at the bottom right, just above the sheet (bottom ${Math.round(locBottom)}, sheet top ${Math.round(sheetTop)})`);
+    if (phone) {
+      // at `min` with a phone's home-indicator inset the sheet is taller than
+      // its 6% detent — the column follows the sheet's REAL height (owner: "the
+      // locator button drops below the bottom trip tab")
+      await page.addStyleTag({ content: ':root { --viewport-safe-bottom: 34px; }' });
+      await page.evaluate(() => window.__homePoiTap(null));
+      await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'min', null, { timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      const mn = await page.evaluate(() => ({ state: document.querySelector('.hm-sheet').dataset.state, top: document.querySelector('.hm-sheet').getBoundingClientRect().top, loc: document.querySelector('.hm-locate').getBoundingClientRect().bottom, h: document.querySelector('.hm-sheet').getBoundingClientRect().height }));
+      check(mn.state === 'min' && mn.h >= 88 && mn.loc <= mn.top + 2, `at min with a 34px inset the locate button still clears the sheet (button bottom ${Math.round(mn.loc)}, sheet top ${Math.round(mn.top)}, sheet ${Math.round(mn.h)}px)`);
+      await page.evaluate(() => { const st = [...document.querySelectorAll('style')].find((x) => /viewport-safe-bottom: 34px/.test(x.textContent)); st?.remove(); });
+      await page.locator('.hm-handle').click(); await page.waitForTimeout(400);
+    }
     // frame my trips: only while no trip is in view, and it brings them back
     check(await page.locator('.hm-frame').count() === 0, 'no Frame-my-trips button while a trip is in view');
     await page.evaluate(() => window.__homeMap.jumpTo({ center: [-74, 40.7], zoom: 9 }));
@@ -346,6 +359,19 @@ async function run(width, label) {
   await page.waitForTimeout(900);
   const s8 = await page.evaluate(() => { const c = window.__homeMap.getCenter(); return { name: document.querySelector('.hm-place b')?.textContent, center: [c.lng, c.lat], search: !!document.querySelector('.hm-search') }; });
   check(s8.name === 'Granite Diner' && !s8.search && Math.abs(s8.center[1] - 44.06) < 0.02 && Math.abs(s8.center[0] + 107.95) < 0.02, 'Show closes the search, opens the card and flies the map there');
+  // the card's place is a pin on the map (owner: "when I look up a location it doesn't drop a pin")
+  await page.waitForFunction(() => document.querySelectorAll('.pl-pin').length === 1, null, { timeout: 3000 }).catch(() => {});
+  const s8p = await page.evaluate(() => { const el = document.querySelector('.pl-pin'); return el ? { n: document.querySelectorAll('.pl-pin').length, name: el.querySelector('.pl-label')?.textContent, hot: el.classList.contains('hot'), lat: Number(el.dataset.lat) } : null; });
+  check(s8p && s8p.n === 1 && s8p.name === 'Granite Diner' && s8p.hot && Math.abs(s8p.lat - 44.06) < 0.02, `a searched place is a hot pin at its spot (${JSON.stringify(s8p)})`);
+  // the home chrome reads on imagery in the LIGHT theme too (owner: "the contrast is way off")
+  const contrast = await page.evaluate(() => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    const lum = (c) => { const m = c.match(/\d+/g) || [0, 0, 0]; return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255; };
+    const r = {}; for (const [k, q] of [['pill', '.hm-pill'], ['chip', '.hm-chip'], ['near', '.hm-near'], ['locate', '.hm-locate']]) { const el = document.querySelector(q); if (el) r[k] = +lum(getComputedStyle(el).color).toFixed(2); }
+    document.documentElement.removeAttribute('data-theme');
+    return r;
+  });
+  check(Object.values(contrast).length >= 3 && Object.values(contrast).every((l) => l > 0.6), `light theme: the pill, chips and buttons keep light ink on the dark glass (${JSON.stringify(contrast)})`);
   await page.locator('.hm-place .mini-edit').click();
   await page.locator('.hm-pill').click();
   await page.fill('.hm-input', '4 riders, 3 days, Granite loop, back roads');
