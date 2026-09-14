@@ -259,12 +259,17 @@ await page.waitForTimeout(600);
   await page.keyboard.press('Escape');
 }
 
-// ---- 5. Ride Mode sheet: the full picker, from the bike, fuel by default ----
+// ---- 5. Ride Mode sheet: the full picker, from the bike, NO chip lit until the rider taps one ----
 if (!(await page.locator('.ride-sheet .nearby').count())) { await page.locator('.ride-bar').click(); await page.waitForSelector('.ride-sheet .nearby', { timeout: 5000 }); }
+await page.waitForTimeout(600);
+const callsBeforeChip = nearbyCalls.length;
+const quiet = await page.evaluate(() => ({ lit: document.querySelectorAll('.ride-sheet .nb-chip.active').length, rows: document.querySelectorAll('.ride-sheet .nb-item').length }));
+check(quiet.lit === 0 && quiet.rows === 0, 'opening the sheet lights no chip and searches for nothing (owner: no auto-selected fuel/food)');
+await page.locator('.ride-sheet .nb-chip', { hasText: 'Fuel' }).click();
 await page.waitForSelector('.ride-sheet .nb-item', { timeout: 6000 });
 const rideReq = nearbyCalls.filter((c) => c.category === 'fuel').at(-1);
 const [, lat0] = lerp(A, B, 0.1);
-check(rideReq.category === 'fuel' && Math.abs(rideReq.near.lat - lat0) < 0.01, 'the sheet picker opens on Fuel, searching from the bike');
+check(nearbyCalls.length > callsBeforeChip && rideReq.category === 'fuel' && Math.abs(rideReq.near.lat - lat0) < 0.01, 'tapping Fuel searches from the bike');
 const rideRows = await page.locator('.ride-sheet .nb-item').allTextContents();
 check(rideRows.some((r) => /ahead/.test(r)), 'ride rows say how far ahead each place is');
 await page.locator('.ride-sheet .nb-item', { hasText: 'Exxon' }).locator('.nb-main').click();

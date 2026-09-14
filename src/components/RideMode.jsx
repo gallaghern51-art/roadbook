@@ -1860,7 +1860,7 @@ export default function RideMode({ onClose }) {
                     fromAlong={geoProj?.along ?? 0}
                     nextStop={nextWp && Number.isFinite(nextWp.lat) ? { lat: nextWp.lat, lng: nextWp.lng } : null}
                     routePrefs={routePrefs}
-                    initialCategory="fuel"
+                    initialCategory={null} // no chip lit and no search until the rider picks one (owner: "do not auto select fuel/food when you click the bottom tab")
                     onRows={(pins) => setRidePins(pins)}
                     tapped={pinTap}
                     onPick={(r, { fuel }) => { setRidePins([]); addStop(r, fuel); }}
