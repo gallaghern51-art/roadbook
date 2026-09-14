@@ -16,6 +16,7 @@ import ChatPanel from './components/ChatPanel.jsx';
 import DetailModal from './components/DetailModal.jsx';
 import NewTripModal from './components/NewTripModal.jsx';
 import RideMode from './components/RideMode.jsx';
+import RideSafety, { rideAckCurrent } from './components/RideSafety.jsx';
 import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import HelpGuide from './components/HelpGuide.jsx';
@@ -109,6 +110,13 @@ export default function App() {
   const [legal, setLegal] = useState(null); // 'privacy' | 'terms' — the legal sheet, on the door or in the app
   const [newTrip, setNewTrip] = useState(null); // { tab, prompt } while the modal is open
   const [rideOpen, setRideOpen] = useState(false);
+  // Ride Mode is gated on the safety acknowledgement, and the gate is on the
+  // MOUNT: until it is answered RideMode never renders, so no GPS watch, wake
+  // lock, map or steps fetch starts behind a screen the rider has not read.
+  // Re-read on every open rather than held in state, so a version bump or a
+  // cleared store gates the very next ride.
+  const [rideAck, setRideAck] = useState(false);
+  const openRide = () => { setRideAck(rideAckCurrent()); setRideOpen(true); };
   const [panelCollapsed, setPanelCollapsed] = useState(false); // desktop: fold the side panel away, map takes the room
   const t = useT();
   const u = useUnits();
@@ -636,7 +644,7 @@ export default function App() {
           dispatch({ type: 'select_day', dayId: null });
         }}
       >{t('Prep')}</button>
-      <button className="ride-seat" onClick={() => setRideOpen(true)}>
+      <button className="ride-seat" onClick={openRide}>
         <svg viewBox="0 0 16 16" className="play-tri" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor" /></svg>
         {t('Ride')}
       </button>
@@ -785,9 +793,9 @@ export default function App() {
             const trip = buildQuickTrip({ start, dest, routePrefs, defaults: tripDefaults(profile.profile) });
             dispatch({ type: 'create_trip', trip });
             setScreen('trip'); setMode('plan'); setPanelOpen(false);
-            setRideOpen(true);
+            openRide();
           }}
-          onRideAgain={(id) => { if (id !== state.lib.activeId) dispatch({ type: 'switch_trip', id }); setScreen('trip'); setMode('plan'); setPanelOpen(false); setRideOpen(true); }}
+          onRideAgain={(id) => { if (id !== state.lib.activeId) dispatch({ type: 'switch_trip', id }); setScreen('trip'); setMode('plan'); setPanelOpen(false); openRide(); }}
           onPromoteQuick={(id) => {
             const rec = state.lib.trips.find((r) => r.id === id);
             if (!rec) return;
@@ -843,7 +851,7 @@ export default function App() {
             <button className="mast-back" title={t('Your trips')} aria-label={t('Your trips')} onClick={() => setScreen('home')}>‹</button>
             <div className="mast-id">
               <h1 className="brand">
-                <button onClick={() => setScreen('home')} title={t('Your trips')}><RoadbookBrand /></button>
+                <button onClick={() => setScreen('home')} title={t('Your trips')}><RoadbookBrand beta /></button>
               </h1>
               <span className="sub">
                 <span className="mast-trip">{state.trip.meta.title}</span>
@@ -941,7 +949,9 @@ export default function App() {
             onCreated={() => { setNewTrip(null); setMode('plan'); setPanelOpen(true); }}
           />
         )}
-        {rideOpen && <RideMode onClose={() => setRideOpen(false)} />}
+        {rideOpen && (rideAck
+          ? <RideMode onClose={() => setRideOpen(false)} />
+          : <RideSafety onAccept={() => setRideAck(true)} onCancel={() => setRideOpen(false)} onLegal={openLegal} />)}
         {joinSheet}
         {sheets}
       </div>

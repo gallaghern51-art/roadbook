@@ -1,5 +1,6 @@
 // Voice + zoom regression sim: stubbed speech engine, scripted fixes, zoom reads.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
@@ -90,6 +91,7 @@ await page.addInitScript(() => {
   };
 });
 
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 await page.waitForSelector('.trip-card', { timeout: 15000 });
   { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } } // the desktop home keeps the library in a closed drawer

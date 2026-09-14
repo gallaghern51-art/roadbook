@@ -1,6 +1,7 @@
 // Masthead stays ONE row at 375px (incl. map-full), ride bar wears the bigger
 // type without wrapping taller.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 let pass = 0, fail = 0;
@@ -42,6 +43,7 @@ await page.addInitScript(() => {
     window.__geoCb?.(window.__lastFix);
   };
 });
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 { const guest = page.locator('.land-skip'); if (await guest.isVisible().catch(() => false)) await guest.click(); } // the signed-out landing gate on a checkout with Supabase keys
 await page.waitForSelector('.trip-card', { timeout: 15000 });

@@ -10,6 +10,7 @@
 //   node tools/sims/home-map-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import { routeMapbox, isMockTile } from './fixtures/mapbox-mock.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
@@ -75,6 +76,7 @@ async function run(width, label) {
     const stub = { getCurrentPosition: (ok) => ok({ coords: { latitude: me.lat, longitude: me.lng, accuracy: 5, speed: 0, heading: 0 }, timestamp: Date.now() }), watchPosition: (ok) => { window.__geoCb = ok; return 1; }, clearWatch: () => {} };
     Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
   }, ME);
+  await seedRideAck(page); // Ride Mode's safety gate is answered once per device
   await page.goto('http://localhost:5199/');
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();

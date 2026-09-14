@@ -14,6 +14,41 @@ export const SUPPORT = 'support@calaf.ai';
 export const LEGAL_EFFECTIVE_DATE = 'September 13, 2026';
 export const SITE = 'roadbook-app.netlify.app';
 
+// ---------- the Ride Mode safety gate ----------
+// Shown full-screen before Ride Mode's first navigation, and again whenever
+// RIDE_SAFETY_VERSION moves. It lives HERE, beside the Terms' "Ride at your own
+// risk" clause, because it is the same promise said where a rider will actually
+// read it — a warning buried in a policy nobody opened is not a warning — and
+// keeping them in one file is what stops the two drifting apart.
+//
+// Bump RIDE_SAFETY_VERSION whenever the rules below change in substance: the
+// acknowledgement is stored with the version it was given for, so a changed
+// rule asks again rather than riding on a tick from a year ago.
+export const RIDE_SAFETY_VERSION = 1;
+export const RIDE_SAFETY = {
+  title: 'Before you ride',
+  intro: 'Ride Mode is a screen on a moving motorcycle. Four things, once.',
+  rules: [
+    {
+      h: 'Mount the phone.',
+      p: 'In a mount on the bars, not in your hand and not in a pocket. If you have no mount, use the plan and the voice and leave the phone away.',
+    },
+    {
+      h: 'Set the route before you roll.',
+      p: 'Pick the day, start navigation, then ride. Planning, searching and adding stops are for when the bike is stopped.',
+    },
+    {
+      h: 'Glance, don\u2019t read.',
+      p: 'The voice carries the turns. The screen is there to confirm one at a glance \u2014 never to be read at speed.',
+    },
+    {
+      h: 'Roadbook can be wrong.',
+      p: 'Roads close, stations shut, hours change, and the planner can name a place that is not there. Fuel range, arrival times and gate margins are estimates from a plan, not promises about the road. Verify anything you are relying on.',
+    },
+  ],
+  foot: 'You are responsible for riding safely and lawfully. Roadbook is an aid to your judgment, not a substitute for it.',
+};
+
 // [{ h, p: [paragraphs], ul: [items] }]
 export const PRIVACY = {
   title: 'Privacy Policy',

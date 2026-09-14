@@ -3,6 +3,7 @@
 // must use it directly; nav and live reroutes must use it before Google.
 // Neither path may fall through to another routing engine.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const REVIEW = (n) => new URL(`../../.impeccable/review/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
@@ -127,6 +128,7 @@ await page.addInitScript(() => {
     window.__geoCb?.(window.__lastFix);
   };
 });
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 const guestEntry = page.locator('.land-skip');
 if (await guestEntry.isVisible().catch(() => false)) await guestEntry.click();

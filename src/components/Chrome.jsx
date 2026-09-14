@@ -1,7 +1,20 @@
 import React from 'react';
 import { useSettings, useT } from '../engine/settings.jsx';
 
-export function RoadbookBrand() {
+/** The label on the beta chip, and the one switch that takes it off the whole
+    app. Roadbook is pre-launch: the front door, the app chrome and the legal
+    sheet all say so, because a rider who finds a wrong fuel stop should already
+    know what they are holding. Set it to '' to retire the chip everywhere. */
+export const BETA_LABEL = 'beta';
+
+/** The Roadbook wordmark: the route mark and ROADBOOK, BOOK in rally orange.
+
+    `beta` adds an outlined chip after it. Only the surfaces where a rider is
+    deciding whether to trust the thing pass it — the landing mast, the app
+    masthead, the desktop nav bar and the legal sheet — not the landing footer,
+    where the line beside it is already "Roadbook is a product of Calaf, Inc."
+    and a status marker would just be more type. */
+export function RoadbookBrand({ beta = false }) {
   return (
     <span className="roadbook-lockup">
       <svg className="roadbook-mark" viewBox="0 0 36 36" aria-hidden="true">
@@ -11,6 +24,7 @@ export function RoadbookBrand() {
         <path className="mark-finish" d="M25.4 8.4v5.5m0-5.2h4l-1.3 1.5 1.3 1.5h-4" />
       </svg>
       <span className="roadbook-wordmark">ROAD<span className="yr">BOOK</span></span>
+      {beta && BETA_LABEL ? <span className="beta-chip">{BETA_LABEL}</span> : null}
     </span>
   );
 }

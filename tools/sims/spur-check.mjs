@@ -4,6 +4,7 @@
 // latches it, (2) Go next survives a projection rewind, (3) masthead back
 // button + contrasted actions.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
 const hav = (a, b) => {
@@ -81,6 +82,7 @@ await page.addInitScript(() => {
   };
 });
 
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 const guestEntry = page.locator('.land-skip');
 if (await guestEntry.isVisible().catch(() => false)) await guestEntry.click();

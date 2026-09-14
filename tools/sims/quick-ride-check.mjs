@@ -5,6 +5,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/quick-ride-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
@@ -49,6 +50,7 @@ await page.route('**/*', (r) => {
   if (u.includes('router.project-osrm.org')) return r.fulfill({ json: { code: 'Ok', routes: [{ distance: 1, duration: 1, legs: [{ steps: [] }] }] } });
   return r.abort();
 });
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();
