@@ -81,6 +81,59 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
   useEffect(() => { locate(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The rider ON the map (owner, Sep 13 2026: "When I click the locate button
+  // it never shows the locator dot of me and if possible direction facing"):
+  // a live watch while Home is open — cheap, and it is what makes the dot
+  // move — plus the compass once the locate button has been tapped (iOS only
+  // grants DeviceOrientation from a user gesture). GPS course counts only when
+  // moving; standing still, the compass says which way the bike points.
+  const [live, setLive] = useState(null);       // { lat, lng, accuracy, heading|null } from watchPosition
+  const [compass, setCompass] = useState(null); // degrees clockwise from north, or null
+  useEffect(() => {
+    if (!navigator.geolocation?.watchPosition) return undefined;
+    let id;
+    try {
+      id = navigator.geolocation.watchPosition(
+        (p) => setLive({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, heading: Number.isFinite(p.coords.heading) && (p.coords.speed ?? 0) > 1 ? p.coords.heading : null }),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 5000 },
+      );
+    } catch { return undefined; }
+    return () => { try { navigator.geolocation.clearWatch(id); } catch {} };
+  }, []);
+  const compassOn = useRef(false);
+  const startCompass = async () => {
+    if (compassOn.current || typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return;
+    try {
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') return;
+      }
+    } catch { return; }
+    compassOn.current = true;
+    let last = 0;
+    const onOrient = (e) => {
+      const now = Date.now();
+      if (now - last < 120) return; // ~8 Hz is plenty for a cone
+      last = now;
+      const h = Number.isFinite(e.webkitCompassHeading) ? e.webkitCompassHeading : (e.absolute && Number.isFinite(e.alpha) ? (360 - e.alpha) % 360 : null);
+      if (h != null) setCompass(h);
+    };
+    window.addEventListener('deviceorientationabsolute', onOrient, true);
+    window.addEventListener('deviceorientation', onOrient, true);
+  };
+  const me = useMemo(() => {
+    const p = live ?? (fix && fix.name === 'Current location' ? fix : null);
+    if (!p) return null;
+    return { lat: p.lat, lng: p.lng, accuracy: p.accuracy, heading: live?.heading ?? compass ?? null };
+  }, [live, fix, compass]);
+  const goToMe = async () => {
+    setFixTried(true);
+    startCompass();
+    const f = await locate();
+    if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() });
+  };
+
   const [sheet, setSheet] = useState('peek'); // min | peek | up
   const [dragH, setDragH] = useState(null);   // the sheet's height while the handle is being dragged
   const [basemap, setBasemap] = useState('sat');
@@ -200,7 +253,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   return (
     <div className="home home-map" style={{ '--hm-sheet': `${sheetPx}px` }}>
       <HomeMap
-        fix={fix}
+        fix={fix} me={me}
         focus={focus}
         pins={pins}
         fitAt={fitAt}
@@ -257,7 +310,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
             </svg>
           </button>
         )}
-        <button className="hm-round hm-locate" onClick={async () => { setFixTried(true); const f = await locate(); if (f) setFocus({ lat: f.lat, lng: f.lng, at: Date.now() }); }} aria-label={t('Near me')}><LocateGlyph /></button>
+        <button className="hm-round hm-locate" onClick={goToMe} aria-label={t('Near me')}><LocateGlyph /></button>
       </div>
       {chip && moved && !place && (
         <button className="map-area-btn hm-area" onClick={() => { setArea({ ...near, at: Date.now() }); setMoved(false); }}>{t('Search this area')}</button>
@@ -283,7 +336,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       </div>
       {dropped
         ? <div className="hm-drop-hint mono" role="status" aria-live="polite">◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {t('✓ to use it')}</div>
-        : fix && <div className="hm-near mono">{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</div>}
+        : fix && <button type="button" className="hm-near mono" onClick={goToMe} title={t('Near me')}>{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</button>}
 
       {searching && (
         <HomeSearch

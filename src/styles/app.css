@@ -4580,7 +4580,14 @@ input:focus, textarea:focus, select:focus {
 /* the bottom-right column floats just above the sheet (the root carries --hm-sheet) and follows it between detents */
 .hm-fabs { position: absolute; right: 12px; bottom: calc(var(--hm-sheet, 0px) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; transition: bottom 0.22s ease; }
 .map-area-btn.hm-area { top: calc(var(--viewport-safe-top) + 128px); z-index: 4; }
-.hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 6px 10px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); }
+.hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; min-height: 36px; padding: 6px 12px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); cursor: pointer; }
+.hm-near:hover { color: var(--ink); border-color: var(--ink-faint); }
+/* the rider: Google's blue dot with a white ring, and a cone for the direction
+   they face once a heading is known (map-aligned, so it stays geographic) */
+.hm-me { width: 0; height: 0; position: relative; pointer-events: none; }
+.hm-me-dot { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; background: #2f7bff; border: 3px solid #ffffff; box-shadow: 0 0 0 6px rgba(47, 123, 255, 0.22), 0 2px 8px rgba(0, 0, 0, 0.5); }
+.hm-me-cone { position: absolute; left: -30px; top: -64px; width: 60px; height: 64px; display: none; background: linear-gradient(to top, rgba(47, 123, 255, 0.55), rgba(47, 123, 255, 0)); clip-path: polygon(50% 100%, 0 0, 100% 0); }
+.hm-me.has-heading .hm-me-cone { display: block; }
 .hm-sheet {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; height: 42%;
   background: var(--asphalt-1); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;

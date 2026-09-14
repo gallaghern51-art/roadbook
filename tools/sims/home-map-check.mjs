@@ -139,6 +139,19 @@ async function run(width, label) {
   await page.locator('.hm-layers .bs-toggle').click();
   await page.locator('.hm-layers button', { hasText: /^Satellite$/ }).click();
   await page.waitForFunction(() => /satellite-streets/.test(window.__homeMap?.getStyle?.()?.name ?? ''), null, { timeout: 15000 }).catch(() => {});
+  // the rider IS on the map: a dot at the fix, a cone once a heading arrives, and Near you re-centres
+  const me1 = await page.evaluate((ME) => { const el = document.querySelector('.hm-me'); if (!el) return null; const r = el.getBoundingClientRect(); const p = window.__homeMap.project([ME.lng, ME.lat]); const mr = document.querySelector('.hm-map').getBoundingClientRect(); return { dot: !!el.querySelector('.hm-me-dot'), dx: Math.abs(r.left - mr.left - p.x), dy: Math.abs(r.top - mr.top - p.y), heading: el.classList.contains('has-heading'), nearIsButton: document.querySelector('.hm-near')?.tagName === 'BUTTON' }; }, ME);
+  check(me1 && me1.dot && me1.dx < 3 && me1.dy < 3 && !me1.heading, `the rider's dot sits on their fix (${me1?.dx?.toFixed(1)}px, ${me1?.dy?.toFixed(1)}px off), no cone before a heading`);
+  check(me1?.nearIsButton, 'Near you is a button');
+  await page.evaluate((ME) => window.__geoCb?.({ coords: { latitude: ME.lat + 0.002, longitude: ME.lng, accuracy: 5, speed: 9, heading: 90 }, timestamp: Date.now() }), ME);
+  await page.waitForTimeout(300);
+  const me2 = await page.evaluate((ME) => { const el = document.querySelector('.hm-me'); const r = el.getBoundingClientRect(); const p = window.__homeMap.project([ME.lng, ME.lat + 0.002]); const mr = document.querySelector('.hm-map').getBoundingClientRect(); return { dx: Math.abs(r.left - mr.left - p.x), dy: Math.abs(r.top - mr.top - p.y), heading: el.classList.contains('has-heading'), rot: /rotateZ\(90deg\)/.test(el.style.transform), cone: getComputedStyle(el.querySelector('.hm-me-cone')).display }; }, ME);
+  check(me2.dx < 3 && me2.dy < 3 && me2.heading && me2.rot && me2.cone !== 'none', `a moving fix moves the dot and turns the cone to the heading (rotateZ 90°, cone ${me2.cone})`);
+  await page.evaluate(() => window.__homeMap.jumpTo({ center: [-107.5, 43.5], zoom: 8 }));
+  await page.locator('.hm-near').click();
+  await page.waitForFunction((ME) => { const c = window.__homeMap.getCenter(); return Math.abs(c.lat - ME.lat) < 0.03 && Math.abs(c.lng - ME.lng) < 0.03; }, ME, { timeout: 5000 }).then(() => true).catch(() => false).then((ok) => check(ok, 'tapping Near you brings the camera back to the rider'));
+  await page.waitForFunction(() => !window.__homeMap.isMoving(), null, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(400); // moveend → onCenter, so the next search looks where the map now is
   await page.screenshot({ path: SHOT(`home-map-${width}`) });
 
   // 2. the sheet handle (phone)
