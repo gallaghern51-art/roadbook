@@ -122,12 +122,48 @@ export function tappableLayerIds(map) {
 // touring zooms, and the casing from zoom 6. Line paint changes are safe at
 // any time after load (the placement gotcha is symbol layers only); called
 // from the same idle handler as the shield pass so it survives setStyle.
-// The satellite road emphasis (lighter, wider, dark-cased roads over the
-// imagery) was REMOVED on Sep 13, 2026 — owner, from a phone screenshot of
-// the home map over Manhattan: "get rid of the satellite overlay we've done,
-// it's a mess. Just use the natural one it had before." Satellite-streets is
-// drawn exactly as Mapbox ships it now. The route's own white casing and the
-// SAT_SAFE phase colours stay: they are on the route, not the road.
+// ---- satellite: the mountain road you are riding to, still visible ----
+// Satellite-streets draws secondary/tertiary roads at 30% opacity below z13
+// and under a pixel wide at touring zooms, so over the Beartooth US-212 is
+// shields floating on rock. The first answer (Sep 13, 2026) repainted EVERY
+// road class white, wider and dark-cased at every zoom — and turned the home
+// map over Manhattan into a white web; the owner pulled it ("it's a mess").
+// This is the targeted version, measured side by side against stock on both
+// Manhattan and the Beartooth: two layers only (primary, secondary-tertiary),
+// zooms 7–13, a 2–3px width floor and opacity lifted to 0.9. Mapbox's own
+// colours, no casing, and nothing touched at street zoom, where the imagery
+// IS the road. In a city the change is barely visible; in the mountains the
+// pass road becomes a line.
+const LIFT_ROAD = /^(road|bridge|tunnel)-(primary|secondary-tertiary)$/;
+// primary roads (the pass road) get the full floor; secondary/tertiary — the city grid — a lighter one
+const LIFT_OPACITY = { primary: ['interpolate', ['linear'], ['zoom'], 7, 0.9, 12, 0.9, 14, 1, 15, 0], secondary: ['interpolate', ['linear'], ['zoom'], 7, 0.6, 12, 0.65, 13, 0.3, 15, 0] };
+const LIFT_FLOOR = { primary: [7, 1.4, 9, 2.4, 12, 3.2], secondary: [7, 0.9, 9, 1.5, 12, 2.2] };
+// A zoom curve cannot be nested inside another zoom curve (the SDK drops the
+// property silently), so the floor is spliced onto the style's OWN stops from
+// z14 up rather than wrapped around them.
+function liftedWidth(stock, floor) {
+  const own = [];
+  if (Array.isArray(stock) && stock[0] === 'interpolate' && JSON.stringify(stock[2]) === '["zoom"]') {
+    for (let i = 3; i + 1 < stock.length; i += 2) if (typeof stock[i] === 'number' && stock[i] >= 14 && typeof stock[i + 1] === 'number') own.push(stock[i], stock[i + 1]);
+  }
+  return ['interpolate', ['exponential', 1.5], ['zoom'], ...floor, ...(own.length ? own : [14, 6, 18, 28, 22, 280])];
+}
+export function liftSatelliteRoads(map) {
+  let style;
+  try { style = map.getStyle(); } catch { return 0; }
+  if (!/satellite/i.test(style?.name ?? '')) return 0;
+  let touched = 0;
+  for (const layer of style.layers ?? []) {
+    if (layer.type !== 'line' || !LIFT_ROAD.test(layer.id)) continue;
+    try {
+      const k = /primary/.test(layer.id) ? 'primary' : 'secondary';
+      map.setPaintProperty(layer.id, 'line-width', liftedWidth(map.getPaintProperty(layer.id, 'line-width'), LIFT_FLOOR[k]));
+      map.setPaintProperty(layer.id, 'line-opacity', LIFT_OPACITY[k]);
+      touched += 1;
+    } catch { /* the style moved on under us */ }
+  }
+  return touched;
+}
 
 // ---- the basemap's own route shields ----
 // We draw shields on the route (RouteShields.jsx) at OUR spacing, on the road

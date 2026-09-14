@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, tappableLayerIds, ensureTerrain } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, tappableLayerIds, ensureTerrain, liftSatelliteRoads } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
 import { attachLongPress } from '../engine/mapGestures.js';
 import DropPin from './DropPin.jsx';
@@ -72,7 +72,7 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
       setMapObj(map);
       // no route of ours on this map, so the basemap's road numbers stay —
       // they are the only way a rider names US-212 from the home screen
-      map.once('idle', () => { ensureTerrain(map, terrainRef.current); });
+      map.once('idle', () => { liftSatelliteRoads(map); ensureTerrain(map, terrainRef.current); });
       for (const id of tappableLayerIds(map)) {
         map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -108,7 +108,7 @@ export default function HomeMap({ fix, focus, pins, fitAt, sheetPx = 0, drop = n
     if (appliedRef.current === style) return;
     appliedRef.current = style;
     map.setStyle(style);
-    map.once('idle', () => { ensureTerrain(map, terrainRef.current); });
+    map.once('idle', () => { liftSatelliteRoads(map); ensureTerrain(map, terrainRef.current); });
   }, [basemap]);
   const terrainAppliedRef = useRef(false);
   useEffect(() => {

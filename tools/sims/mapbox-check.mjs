@@ -74,7 +74,7 @@ async function open(styleStatus) {
   check(rc.casing === '#ffffff', `on satellite the route casing is WHITE (roads are dark-cased) — ${rc.casing}`);
   check(rc.colors.length > 0 && !rc.colors.includes('#cecece') && !rc.colors.includes('#7a7a7a'), `no grey phase colour on satellite (${[...new Set(rc.colors)].join(', ')})`);
   const rw = await page.evaluate(() => window.__map.getPaintProperty('road-primary', 'line-width'));
-  check(!(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9)), 'satellite roads are left exactly as Mapbox drew them (the emphasis pass is gone)');
+  check(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9), `satellite: primary roads carry the targeted width floor (the Beartooth stays a line; no colour or casing change)`);
   check(st.logo && /Mapbox/.test(st.attrib), 'the Mapbox wordmark and © credit are on the map (Product Terms attribution)');
   check(mbLog.some((u) => /api\.mapbox\.com\/styles\/v1\/mapbox\/satellite-streets-v12\?sdk=js-3.*access_token=pk\./.test(u)), 'the style was fetched from api.mapbox.com by the SDK with a public token');
   check(mbLog.some((u) => /api\.mapbox\.com\/v4\/mapbox\.mapbox-streets-v8.*access_token=/.test(u)) && mbLog.some((u) => /api\.mapbox\.com\/v4\/mapbox\.satellite\.json.*access_token=/.test(u)), 'both mapbox:// sources resolved to v4 TileJSON requests with the token');
