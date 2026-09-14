@@ -122,36 +122,44 @@ export function tappableLayerIds(map) {
 // touring zooms, and the casing from zoom 6. Line paint changes are safe at
 // any time after load (the placement gotcha is symbol layers only); called
 // from the same idle handler as the shield pass so it survives setStyle.
-const ROAD_MAIN = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?$/;
-const ROAD_CASE = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?-case$/;
-const FADE = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 0]; // the style's own: at street zoom the imagery IS the road
-// widths a step under our route line (3–4.5px + casing), so the road never
-// out-weighs the route drawn on it
-const MAJOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 3, 1, 6, 1.8, 9, 2.6, 12, 3.6, 18, 22, 22, 220];
-const MINOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 6, 0, 8, 1.3, 10, 2, 12, 2.8, 18, 20, 22, 200];
-export function emphasizeSatelliteRoads(map) {
+// ---- satellite: the mountain road you are riding to, still visible ----
+// Satellite-streets draws secondary/tertiary roads at 30% opacity below z13
+// and under a pixel wide at touring zooms, so over the Beartooth US-212 is
+// shields floating on rock. The first answer (Sep 13, 2026) repainted EVERY
+// road class white, wider and dark-cased at every zoom — and turned the home
+// map over Manhattan into a white web; the owner pulled it ("it's a mess").
+// This is the targeted version, measured side by side against stock on both
+// Manhattan and the Beartooth: two layers only (primary, secondary-tertiary),
+// zooms 7–13, a 2–3px width floor and opacity lifted to 0.9. Mapbox's own
+// colours, no casing, and nothing touched at street zoom, where the imagery
+// IS the road. In a city the change is barely visible; in the mountains the
+// pass road becomes a line.
+const LIFT_ROAD = /^(road|bridge|tunnel)-(primary|secondary-tertiary)$/;
+// primary roads (the pass road) get the full floor; secondary/tertiary — the city grid — a lighter one
+const LIFT_OPACITY = { primary: ['interpolate', ['linear'], ['zoom'], 7, 0.9, 12, 0.9, 14, 1, 15, 0], secondary: ['interpolate', ['linear'], ['zoom'], 7, 0.6, 12, 0.65, 13, 0.3, 15, 0] };
+const LIFT_FLOOR = { primary: [7, 1.4, 9, 2.4, 12, 3.2], secondary: [7, 0.9, 9, 1.5, 12, 2.2] };
+// A zoom curve cannot be nested inside another zoom curve (the SDK drops the
+// property silently), so the floor is spliced onto the style's OWN stops from
+// z14 up rather than wrapped around them.
+function liftedWidth(stock, floor) {
+  const own = [];
+  if (Array.isArray(stock) && stock[0] === 'interpolate' && JSON.stringify(stock[2]) === '["zoom"]') {
+    for (let i = 3; i + 1 < stock.length; i += 2) if (typeof stock[i] === 'number' && stock[i] >= 14 && typeof stock[i + 1] === 'number') own.push(stock[i], stock[i + 1]);
+  }
+  return ['interpolate', ['exponential', 1.5], ['zoom'], ...floor, ...(own.length ? own : [14, 6, 18, 28, 22, 280])];
+}
+export function liftSatelliteRoads(map) {
   let style;
   try { style = map.getStyle(); } catch { return 0; }
   if (!/satellite/i.test(style?.name ?? '')) return 0;
   let touched = 0;
   for (const layer of style.layers ?? []) {
-    if (layer.type !== 'line') continue;
-    const major = /motorway-trunk|primary/.test(layer.id);
+    if (layer.type !== 'line' || !LIFT_ROAD.test(layer.id)) continue;
     try {
-      if (ROAD_MAIN.test(layer.id)) {
-        map.setPaintProperty(layer.id, 'line-color', 'hsl(40, 12%, 86%)'); // light, not white: white is the route's casing
-        map.setPaintProperty(layer.id, 'line-opacity', FADE);
-        map.setPaintProperty(layer.id, 'line-width', major ? MAJOR_W : MINOR_W);
-        touched += 1;
-      } else if (ROAD_CASE.test(layer.id)) {
-        // the casing is a HOLLOW line (gap = the road, width = the rim)
-        map.setLayerZoomRange(layer.id, major ? 5 : 8, 24);
-        map.setPaintProperty(layer.id, 'line-color', 'hsla(0, 0%, 0%, 0.8)');
-        map.setPaintProperty(layer.id, 'line-opacity', FADE);
-        map.setPaintProperty(layer.id, 'line-gap-width', major ? MAJOR_W : MINOR_W);
-        map.setPaintProperty(layer.id, 'line-width', ['interpolate', ['exponential', 1.5], ['zoom'], 5, 1, 12, 1.6, 22, 2.4]);
-        touched += 1;
-      }
+      const k = /primary/.test(layer.id) ? 'primary' : 'secondary';
+      map.setPaintProperty(layer.id, 'line-width', liftedWidth(map.getPaintProperty(layer.id, 'line-width'), LIFT_FLOOR[k]));
+      map.setPaintProperty(layer.id, 'line-opacity', LIFT_OPACITY[k]);
+      touched += 1;
     } catch { /* the style moved on under us */ }
   }
   return touched;
@@ -191,8 +199,7 @@ export function hideNativeRoadShields(map) {
 
 // The light-gray "return"/"prep" phases disappear on a light basemap — swap in dark tones.
 export const LIGHT_SAFE = { return: '#1a1a1a', prep: '#5a5a5a' };
-// …and on SATELLITE, where the roads themselves are drawn light with a dark
-// casing (emphasizeSatelliteRoads), a grey route reads as just another road
+// …and on SATELLITE a grey route reads as just another road
 // (owner: "the contrast against the grey route [is] impossible to see your
 // route vs regular road"). Saturated stand-ins: the route is the one thing on
 // a satellite map that is not a colour the ground has.

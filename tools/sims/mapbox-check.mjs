@@ -10,6 +10,7 @@
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import { BASEMAPS, MAPBOX_STYLES, basemapStyle, isStyleLoadError, STYLE_FALLBACK, warmTilesAhead } from '../../src/engine/basemaps.js';
 import { routeMapbox, isMockTile, mbLog } from './fixtures/mapbox-mock.mjs';
+const PORT = process.env.RB_PORT || 5199;
 
 let pass = 0, fail = 0;
 const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); ok ? pass++ : fail++; };
@@ -40,12 +41,12 @@ async function open(styleStatus) {
     if (routeMapbox(r, { styleStatus })) return undefined;
     if (isMockTile(u)) return r.fulfill({ status: 204 });
     if (u.includes('/.netlify/functions/nearby-places')) return r.fulfill({ json: [] });
-    if (u.includes('localhost:5199')) return r.continue();
+    if (u.includes(`localhost:${PORT}`)) return r.continue();
     return r.abort();
   });
   // a token for a checkout that has none in .env.local (the mock ignores its value)
   await page.addInitScript(() => { try { localStorage.setItem('moto.mapboxToken', 'pk.test-token'); } catch {} });
-  await page.goto('http://localhost:5199/');
+  await page.goto(`http://localhost:${PORT}/`);
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();
   await page.waitForSelector('.trip-card', { timeout: 15000 });
@@ -73,7 +74,7 @@ async function open(styleStatus) {
   check(rc.casing === '#ffffff', `on satellite the route casing is WHITE (roads are dark-cased) — ${rc.casing}`);
   check(rc.colors.length > 0 && !rc.colors.includes('#cecece') && !rc.colors.includes('#7a7a7a'), `no grey phase colour on satellite (${[...new Set(rc.colors)].join(', ')})`);
   const rw = await page.evaluate(() => window.__map.getPaintProperty('road-primary', 'line-width'));
-  check(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9), 'satellite: primary roads carry our width floor (the Beartooth Highway hairline fix)');
+  check(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9), `satellite: primary roads carry the targeted width floor (the Beartooth stays a line; no colour or casing change)`);
   check(st.logo && /Mapbox/.test(st.attrib), 'the Mapbox wordmark and © credit are on the map (Product Terms attribution)');
   check(mbLog.some((u) => /api\.mapbox\.com\/styles\/v1\/mapbox\/satellite-streets-v12\?sdk=js-3.*access_token=pk\./.test(u)), 'the style was fetched from api.mapbox.com by the SDK with a public token');
   check(mbLog.some((u) => /api\.mapbox\.com\/v4\/mapbox\.mapbox-streets-v8.*access_token=/.test(u)) && mbLog.some((u) => /api\.mapbox\.com\/v4\/mapbox\.satellite\.json.*access_token=/.test(u)), 'both mapbox:// sources resolved to v4 TileJSON requests with the token');

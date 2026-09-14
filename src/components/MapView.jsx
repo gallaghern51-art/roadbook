@@ -7,7 +7,7 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, SAT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, emphasizeSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, SAT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, liftSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
 import StopSheet from './StopSheet.jsx';
 import DropPin from './DropPin.jsx';
@@ -486,7 +486,7 @@ export default function MapView() {
     // back. Once IDLE: mapbox-gl's placement pass is still running at load and
     // right after a style swap, and flipping a symbol layer's visibility under
     // it throws (an uncaught TypeError in continuePlacement).
-    map.once('idle', () => { hideNativeRoadShields(map); emphasizeSatelliteRoads(map); });
+    map.once('idle', () => { hideNativeRoadShields(map); liftSatelliteRoads(map); });
     // POI symbols are tappable: say so with the cursor (delegated listeners
     // survive setStyle; register each layer id once)
     for (const id of tappableLayerIds(map)) {
