@@ -60,6 +60,7 @@ export default function RideSafety({ onAccept, onCancel, onLegal }) {
   return (
     <div className="ride-safety" role="dialog" aria-modal="true" aria-labelledby="rs-title">
       <div className="rs-inner">
+        <div className="rs-scroll">
         <header className="rs-head">
           <span className="rs-eyebrow">{t('Ride Mode')}</span>
           <h2 id="rs-title">{RIDE_SAFETY.title}</h2>
@@ -79,7 +80,9 @@ export default function RideSafety({ onAccept, onCancel, onLegal }) {
         </ol>
 
         <p className="rs-foot">{RIDE_SAFETY.foot}</p>
+        </div>
 
+        <div className="rs-dock">
         <div className="rs-actions">
           <button ref={acceptRef} type="button" className="btn gold rs-go" onClick={accept}>
             {t('I understand — start navigation')}
@@ -92,6 +95,7 @@ export default function RideSafety({ onAccept, onCancel, onLegal }) {
           <span aria-hidden="true"> · </span>
           <button type="button" onClick={() => onLegal?.('privacy')}>{t('Privacy Policy')}</button>
         </p>
+        </div>
       </div>
     </div>
   );
