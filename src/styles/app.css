@@ -3216,12 +3216,17 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
 }
 .day-chip.today { border-style: dashed; }
 .day-chip.active { border-color: var(--rally); color: var(--rally); border-style: solid; }
-.ride-sheet .rm-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.ride-sheet .rm-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); width: 64px; flex: none; }
-.ride-sheet .rm-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+/* Glove-sized: the basemap and density segments are hit at speed (owner,
+   Sep 14: "need to be bigger… for rider to hit while riding") — the label sits
+   above a full-width row of 56pt buttons instead of beside a row of 30pt ones. */
+.ride-sheet .rm-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 12px; }
+.ride-sheet .rm-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+.ride-sheet .rm-seg { display: flex; gap: 6px; }
 .ride-sheet .rm-seg button {
-  font-family: var(--display); font-size: 13px; font-weight: 600; letter-spacing: 0.05em;
-  border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; color: var(--ink-dim);
+  flex: 1 1 0; min-width: 0; min-height: 56px; padding: 0 6px;
+  font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: 0.04em;
+  border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ride-sheet .rm-seg button.active { background: var(--rally); border-color: var(--rally); color: #000000; }
 .ride-sheet .end-nav {

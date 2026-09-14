@@ -17,7 +17,6 @@ import {
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
 import { STYLE_FALLBACK, MAPBOX_TOKEN, warmTilesAhead, hideNativeRoadShields, liftSatelliteRoads, NAV_SAT, NAV_AMBER, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
-import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
 import RoadShield from './RoadShield.jsx';
@@ -190,7 +189,10 @@ function locateOnSteps(steps, pos, cursor) {
 // The road ahead is BLUE on satellite (the ground never is; Mapbox's own roads
 // are orange there) and amber everywhere else; the road behind is grey on both.
 const NAV_DONE = 'rgba(122, 122, 122, 0.65)';
-const navPalette = (styleKey) => (styleKey === 'hybrid' || styleKey === 'sat' ? NAV_SAT : NAV_AMBER);
+// Blue on satellite AND on Streets (owner, Sep 14: "on street mode ride mode
+// color for the route should be that blue color" — it was amber there);
+// amber stays for Dark and Light, where it was tuned.
+const navPalette = (styleKey) => (styleKey === 'hybrid' || styleKey === 'sat' || styleKey === 'streets' ? NAV_SAT : NAV_AMBER);
 const solidAhead = (p) => ['interpolate', ['linear'], ['line-progress'], 0, p.ahead, 1, p.ahead];
 const EMPTY_LINE = { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
 
@@ -1909,18 +1911,9 @@ export default function RideMode({ onClose }) {
                   </div>
                 )}
 
-                <div className="sheet-block">
-                  <div className="sheet-label">{t('Days')}</div>
-                  <div className="day-chips">
-                    {trip.days.map((d) => (
-                      <button
-                        key={d.id}
-                        className={`day-chip${d.id === day.id ? ' active' : ''}${d.date === today ? ' today' : ''}`}
-                        onClick={() => { setDayId(d.id); setSheetOpen(false); setFollow(true); }}
-                      >{d.dow} {fmtDayDate(d.date)}</button>
-                    ))}
-                  </div>
-                </div>
+                {/* No Days strip here (owner, Sep 14: "you'd only be in the day
+                    you're in anyways") — the ride is today's day; switching days
+                    is a planning act and lives in PLAN. */}
 
                 <div className="sheet-block sheet-settings">
                   <div className="rm-row">
