@@ -122,40 +122,12 @@ export function tappableLayerIds(map) {
 // touring zooms, and the casing from zoom 6. Line paint changes are safe at
 // any time after load (the placement gotcha is symbol layers only); called
 // from the same idle handler as the shield pass so it survives setStyle.
-const ROAD_MAIN = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?$/;
-const ROAD_CASE = /^(road|bridge|tunnel)-(motorway-trunk|primary|secondary-tertiary)(-2)?-case$/;
-const FADE = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 0]; // the style's own: at street zoom the imagery IS the road
-// widths a step under our route line (3–4.5px + casing), so the road never
-// out-weighs the route drawn on it
-const MAJOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 3, 1, 6, 1.8, 9, 2.6, 12, 3.6, 18, 22, 22, 220];
-const MINOR_W = ['interpolate', ['exponential', 1.5], ['zoom'], 6, 0, 8, 1.3, 10, 2, 12, 2.8, 18, 20, 22, 200];
-export function emphasizeSatelliteRoads(map) {
-  let style;
-  try { style = map.getStyle(); } catch { return 0; }
-  if (!/satellite/i.test(style?.name ?? '')) return 0;
-  let touched = 0;
-  for (const layer of style.layers ?? []) {
-    if (layer.type !== 'line') continue;
-    const major = /motorway-trunk|primary/.test(layer.id);
-    try {
-      if (ROAD_MAIN.test(layer.id)) {
-        map.setPaintProperty(layer.id, 'line-color', 'hsl(40, 12%, 86%)'); // light, not white: white is the route's casing
-        map.setPaintProperty(layer.id, 'line-opacity', FADE);
-        map.setPaintProperty(layer.id, 'line-width', major ? MAJOR_W : MINOR_W);
-        touched += 1;
-      } else if (ROAD_CASE.test(layer.id)) {
-        // the casing is a HOLLOW line (gap = the road, width = the rim)
-        map.setLayerZoomRange(layer.id, major ? 5 : 8, 24);
-        map.setPaintProperty(layer.id, 'line-color', 'hsla(0, 0%, 0%, 0.8)');
-        map.setPaintProperty(layer.id, 'line-opacity', FADE);
-        map.setPaintProperty(layer.id, 'line-gap-width', major ? MAJOR_W : MINOR_W);
-        map.setPaintProperty(layer.id, 'line-width', ['interpolate', ['exponential', 1.5], ['zoom'], 5, 1, 12, 1.6, 22, 2.4]);
-        touched += 1;
-      }
-    } catch { /* the style moved on under us */ }
-  }
-  return touched;
-}
+// The satellite road emphasis (lighter, wider, dark-cased roads over the
+// imagery) was REMOVED on Sep 13, 2026 — owner, from a phone screenshot of
+// the home map over Manhattan: "get rid of the satellite overlay we've done,
+// it's a mess. Just use the natural one it had before." Satellite-streets is
+// drawn exactly as Mapbox ships it now. The route's own white casing and the
+// SAT_SAFE phase colours stay: they are on the route, not the road.
 
 // ---- the basemap's own route shields ----
 // We draw shields on the route (RouteShields.jsx) at OUR spacing, on the road
@@ -191,8 +163,7 @@ export function hideNativeRoadShields(map) {
 
 // The light-gray "return"/"prep" phases disappear on a light basemap — swap in dark tones.
 export const LIGHT_SAFE = { return: '#1a1a1a', prep: '#5a5a5a' };
-// …and on SATELLITE, where the roads themselves are drawn light with a dark
-// casing (emphasizeSatelliteRoads), a grey route reads as just another road
+// …and on SATELLITE a grey route reads as just another road
 // (owner: "the contrast against the grey route [is] impossible to see your
 // route vs regular road"). Saturated stand-ins: the route is the one thing on
 // a satellite map that is not a colour the ground has.

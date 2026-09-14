@@ -15,7 +15,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/poi-tap-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
-import { poiLayerIds, tappableLayerIds, hideNativeRoadShields, emphasizeSatelliteRoads } from '../../src/engine/basemaps.js';
+import { poiLayerIds, tappableLayerIds, hideNativeRoadShields } from '../../src/engine/basemaps.js';
 import { poiIsNatural, poiGlyph } from '../../src/engine/nearby.js';
 import { MAPBOX_MINI } from './fixtures/mapbox-mini.mjs';
 import { routeMapbox, isMockTile, fakeMap } from './fixtures/mapbox-mock.mjs';
@@ -38,13 +38,8 @@ const check = (ok, label) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); 
   check(poiIsNatural('landform', 'mountain') && poiIsNatural('park_like', 'park') && poiIsNatural('water', '') && poiIsNatural('natural', 'peak'), 'a peak, a park, a lake and a summit are natural');
   check(!poiIsNatural('park_like', 'zoo') && !poiIsNatural('park_like', 'campsite') && !poiIsNatural('food_and_drink', 'restaurant') && !poiIsNatural('lodging', 'lodging'), 'a zoo, a campsite, a diner and a motel are listed businesses');
   check(poiGlyph('landform', 'mountain') === '⛰' && poiGlyph('park_like', 'park') === '🌲' && poiGlyph('water', 'lake') === '🌊', 'natural glyphs: peak, park, water');
-  // satellite roads: the hairline becomes a lit, cased line
-  const n2 = emphasizeSatelliteRoads(fm);
-  const w = fm.paint['road-primary']?.['line-width'];
-  check(n2 === 2 && Array.isArray(w) && w[0] === 'interpolate' && w[w.indexOf(9) + 1] >= 2.4, `satellite: primary roads get a width floor at touring zooms (${n2} layers, ${w?.[w.indexOf(9) + 1]}px at z9)`);
-  check(fm.zoom['road-primary-case']?.[0] === 5 && Array.isArray(fm.paint['road-primary-case']?.['line-gap-width']) && /hsla\(0, 0%, 0%/.test(fm.paint['road-primary-case']['line-color']), 'and a dark hollow casing from zoom 5');
-  check(fm.paint['road-simple'] === undefined && fm.paint['road-label'] === undefined, 'nothing else in the style is touched');
-  check(emphasizeSatelliteRoads(fakeMap({ ...MAPBOX_MINI, name: 'Mapbox Streets' })) === 0, 'Streets is left as Mapbox drew it');
+  // satellite roads are drawn exactly as Mapbox ships them (the emphasis pass was removed Sep 13, 2026)
+  check(fm.paint['road-primary'] === undefined && fm.paint['road-primary-case'] === undefined && fm.paint['road-simple'] === undefined, 'nothing in the satellite style\'s roads is repainted');
 }
 
 const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
