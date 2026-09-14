@@ -42,6 +42,10 @@ always centered on the route and the group decision around it.
   Conversation / Route plan views on a phone.
 - Landing and Home use generous editorial space; in-product surfaces become
   denser and more instrumental.
+- The signed-out landing is authored dark and stays dark regardless of the
+  rider's theme: its proof is the night instruments drawn as still lifes, and
+  signal orange carries the most weight on blue-black. The theme choice
+  belongs to the workspace behind the door.
 - Light and dark themes must be screenshot-tested at 375px and desktop width.
 
 ## Motion

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /.netlify/
+Sitemap: https://roadbook-app.netlify.app/sitemap.xml

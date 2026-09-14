@@ -436,3 +436,38 @@ enabled = true
 # declarative_schema_path = "./schemas"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ---------------------------------------------------------------------------
+# Production overrides for `supabase config push --project-ref hnlyqidixkxlgdwvraau`.
+# Everything above is the LOCAL dev config; a bare push would overwrite the
+# hosted project's site URL, redirect list, MFA and OTP settings with those
+# dev values (Sep 13, 2026 — the dry run showed exactly that). These pin the
+# hosted values so a push changes only what the repo is meant to own: the
+# auth email templates and the Resend SMTP block. RESEND_SMTP_KEY must be in
+# the environment when pushing or the SMTP password lands empty.
+[remotes.production]
+project_id = "hnlyqidixkxlgdwvraau"
+
+[remotes.production.auth]
+site_url = "https://roadbook-app.netlify.app"
+additional_redirect_urls = ["https://roadbook-app.netlify.app/**"]
+
+[remotes.production.auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[remotes.production.auth.email]
+max_frequency = "1m0s"
+otp_length = 8
+
+# SMTP on the hosted project is Resend with a sending-only key restricted to
+# calaf.ai ("Roadbook — Supabase auth SMTP v2"); RESEND_SMTP_KEY must be in the
+# environment of whoever pushes (.env.local holds it locally, gitignored).
+[remotes.production.auth.email.smtp]
+enabled = true
+
+
+# With custom SMTP the hosted project's email limit is ours; the default 2/hour
+# is Supabase's built-in-sender cap and blocks a crew signing up together.
+[remotes.production.auth.rate_limit]
+email_sent = 30
