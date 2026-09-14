@@ -20,28 +20,16 @@ import { chromium } from 'playwright-core';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PUB = join(ROOT, 'public');
-const BG = '#1a1a1a';
+const BG = '#14110d';
 
-// The mark itself: the SAME artwork as the in-app lockup (RoadbookBrand in
-// src/components/Chrome.jsx — a 36-unit box: the route in rally orange, a
-// turquoise departure dot, a finish FLAG in ink), scaled so the mark's own
-// frame fills the tile. The tile IS the frame, so the inner rect is dropped.
-// Stroke widths scale with it (2.2 → ~38px at 512). Kept in sync with
-// public/icon.svg by hand — change one, change both, re-run this script.
-//
-// Sep 14, 2026 — owner, home-screen screenshot: "the icon is a flag at end,
-// did it get updated?" It had not: the PNGs still carried the Aug 12 dot-and-
-// ring finish from before the mark got its flag.
-const S = 17.5;                              // 36-box units → px
-const DX = (512 - 26 * S) / 2 - 5 * S;       // centre the mark's 26×27 frame
-const DY = (512 - 27 * S) / 2 - 4.5 * S;
+// The mark itself, sized to a 512 box: a route running between two points —
+// gold departure dot, cream destination ring. Kept in sync with icon.svg.
 const MARK = `
-  <g transform="translate(${DX} ${DY}) scale(${S})" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M9 26.5c2.8-1.1 3.8-4.6 6.3-5.4 2.9-.9 4 2 6.3.7 2.2-1.2.9-4.2 3.3-6.2 1.4-1.1 2.2-2.7 2.2-5.1"
-          fill="none" stroke="#f53f1f" stroke-width="2.2"/>
-    <circle cx="9" cy="26.5" r="1.7" fill="#56c5c8"/>
-    <path d="M25.4 8.4v5.5m0-5.2h4l-1.3 1.5 1.3 1.5h-4" fill="none" stroke="#ffffff" stroke-width="1.35"/>
-  </g>
+  <path d="M 96 400 C 160 400 140 280 220 280 C 300 280 260 160 360 150 C 400 146 420 170 416 200"
+        fill="none" stroke="#e8622c" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="96" cy="400" r="40" fill="#e5a83b"/>
+  <circle cx="416" cy="200" r="28" fill="#f0e3c8"/>
+  <circle cx="416" cy="200" r="52" fill="none" stroke="#f0e3c8" stroke-width="10" opacity="0.45"/>
 `;
 
 // scale: 1 fills the tile (iOS rounds its own corners); < 1 insets the mark
@@ -65,7 +53,7 @@ const TARGETS = [
 ];
 
 const browser = await chromium.launch({
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM ?? '/opt/pw-browsers/chromium',
+  executablePath: '/opt/pw-browsers/chromium',
   args: ['--enable-unsafe-swiftshader'],
 });
 
