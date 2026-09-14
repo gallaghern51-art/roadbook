@@ -86,7 +86,7 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
       place={place}
       glyph={glyph}
       kicker={placed ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi)) : [cuisine, elev, (poi.subclass || poi.cls).replace(/_/g, ' ')].filter(Boolean).join(' · ')}
-      note={placed ? t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.') : natural ? t('A place on the map, not a listed business — it will be added as a placed pin.') : match === undefined ? t('Checking with Google…') : match === null ? t('No Google listing found here — it will be added as an unverified stop.') : null}
+      note={placed ? t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.') : natural ? t('A place on the map, not a listed business — it will be added as a placed pin.') : match === undefined ? t('Checking the listing…') : match === null ? t('No listing found here — it will be added as an unverified stop.') : null}
       facts={placed ? <span className="tag placed">◎ {t('placed')}</span> : match && dist ? <span className="nb-note">{t('Listing')} {dist} {t('from the pin')}</span> : null}
       onClose={onClose}
       actions={(

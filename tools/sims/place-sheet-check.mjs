@@ -180,7 +180,7 @@ async function run(width, label) {
   // 3. a POI with no listing still gets the sheet, with the honest note and no facts
   await page.evaluate(() => window.__poiTap({ properties: { name: 'Nowhere Cafe', class: 'food_and_drink', maki: 'cafe' }, geometry: { coordinates: [-108.0, 44.0] } }));
   await page.waitForSelector('.place-sheet', { timeout: 6000 });
-  await page.waitForFunction(() => /No Google listing/.test(document.querySelector('.place-sheet')?.innerText ?? ''), null, { timeout: 8000 });
+  await page.waitForFunction(() => /No listing found/.test(document.querySelector('.place-sheet')?.innerText ?? ''), null, { timeout: 8000 });
   const s3 = await page.evaluate(() => ({ text: document.querySelector('.place-sheet').innerText, img: !!document.querySelector('.place-sheet .ps-hero') }));
   check(/Nowhere Cafe/.test(s3.text) && !s3.img && !/Google$/.test(s3.text) && !/★/.test(s3.text), 'an unlisted POI gets a plain sheet: name, note, no photo, no borrowed facts');
   await page.keyboard.press('Escape');

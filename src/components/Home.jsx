@@ -601,15 +601,15 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
         {placed && <span className="tag placed" title={t('A spot placed on the map on purpose — not a listed business.')}>◎ {t('placed')}</span>}
         {placed && <span className="nb-note">{t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.')}</span>}
         {natural && <span className="nb-note">{t('A place on the map, not a listed business — it will be added as a placed pin.')}</span>}
-        {!placed && !natural && match === undefined && <span className="nb-note">{t('Checking with Google…')}</span>}
-        {!placed && !natural && match === null && <span className="nb-note">{t('No Google listing found here — it will be added as an unverified stop.')}</span>}
+        {!placed && !natural && match === undefined && <span className="nb-note">{t('Checking the listing…')}</span>}
+        {!placed && !natural && match === null && <span className="nb-note">{t('No listing found here — it will be added as an unverified stop.')}</span>}
         {match && (
           <>
             {Number.isFinite(match.rating) && <span className="nb-rate">★ {match.rating.toFixed(1)}{match.userRatingCount ? <small> ({match.userRatingCount})</small> : null}</span>}
             {priceGlyph(match.priceLevel) && <span className="nb-price">{priceGlyph(match.priceLevel)}</span>}
             {match.openNow != null && <span className={`nb-open ${match.openNow ? 'ok' : 'bad'}`}>{match.openNow ? t('Open now') : t('Closed now')}</span>}
             {hours && <span className="ps-today">{t('Today')} {hoursOnly(hours[todayIndex()])}</span>}
-            <span className="nb-ver">✓ {t('Google')}</span>
+            <span className="nb-ver">✓ {t('Verified')}</span>
           </>
         )}
       </div>

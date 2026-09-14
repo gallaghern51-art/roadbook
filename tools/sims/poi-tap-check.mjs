@@ -191,7 +191,7 @@ async function run(width, label) {
   await page.waitForTimeout(700);
   const body = await page.locator('.place-sheet').innerText();
   check(calls.length === before, 'no Places request went out for a pass');
-  check(/placed pin/.test(body) && !/Checking with Google|unverified/.test(body), 'the card says it is a place on the map, not a failed lookup');
+  check(/placed pin/.test(body) && !/Checking the listing|unverified/.test(body), 'the card says it is a place on the map, not a failed lookup');
   const pg = await page.locator('.place-sheet .poi-glyph').textContent();
   const pk = await page.locator('.place-sheet .ps-kicker').textContent().catch(() => '');
   check(pg === '⛰' && /10,947 ft/.test(pk), `a peak wears the mountain glyph and its elevation (${pg} · ${pk})`);

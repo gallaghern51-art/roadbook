@@ -102,7 +102,7 @@ function ConceptDetail({ concept, onRefine, onReject }) {
             <div className="concept-stop-row">
               <span className={`stop-kind ${stop.kind}`}>{kindLabel[stop.kind] || 'Stop'}</span>
               <span className="stop-copy">
-                <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified with Google Places"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
+                <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified listing"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
                 {stop.detail && <small>{stop.detail}</small>}
               </span>
               {i > 0 && i < concept.locations.length - 1 && (

@@ -278,7 +278,7 @@ async function run(width, label) {
     await page.waitForSelector('.hm-place', { timeout: 8000 });
     await page.waitForTimeout(600);
     const txt = await page.locator('.hm-place').innerText();
-    check(calls.length === before && /placed pin/.test(txt) && !/Checking with Google|unverified/.test(txt), 'a forest is a placed pin: no Places call, no "no listing"');
+    check(calls.length === before && /placed pin/.test(txt) && !/Checking the listing|unverified/.test(txt), 'a forest is a placed pin: no Places call, no "no listing"');
     check(!(await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).isDisabled()) && (await page.locator('.hm-place .poi-glyph').textContent()) === '🌲', 'Ride here is live at once and it wears the park glyph');
     await page.locator('.hm-place .mini-edit').click();
     await page.waitForTimeout(300);
