@@ -277,6 +277,10 @@ async function run(width, label) {
   }
   await page.evaluate(() => window.__homePoiTap({ properties: { name: 'Cowboy Cafe', class: 'food_and_drink', maki: 'restaurant' }, geometry: { coordinates: [-107.9702, 44.0302] } }));
   await page.waitForSelector('.hm-place .nb-ver', { timeout: 8000 });
+  // a place tapped ON the map is emphasised where the map already draws it — a
+  // ring, no second glyph or name — while a searched place keeps its full pin
+  const halo = await page.evaluate(() => { const el = document.querySelector('.pl-pin'); return el ? { n: document.querySelectorAll('.pl-pin').length, halo: el.classList.contains('pl-halo'), glyphShown: getComputedStyle(el.querySelector('.pl-glyph')).display !== 'none', labelShown: getComputedStyle(el.querySelector('.pl-label')).display !== 'none', w: el.getBoundingClientRect().width } : null; });
+  check(halo && halo.n === 1 && halo.halo && !halo.glyphShown && !halo.labelShown && halo.w >= 40, `a tapped POI gets a halo around the map's own icon, not a second pin (${JSON.stringify(halo)})`);
   check(/Cowboy Cafe/.test(await page.locator('.hm-place').innerText()) && /from you/.test(await page.locator('.hm-place').innerText()), 'a tapped POI resolves against Google and reads its distance from you');
   await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
   await page.waitForSelector('.hm-ride-confirm', { timeout: 5000 });

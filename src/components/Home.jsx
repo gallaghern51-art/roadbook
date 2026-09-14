@@ -311,11 +311,15 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       <HomeMap
         fix={fix} me={me}
         focus={focus}
-        // the card's place is a pin too: a searched or tapped place showed a
-        // card with nothing on the map where it was (owner: "when I look up a
-        // location it doesn't drop a pin"); the picker's pins win while they
-        // are up, and a dropped needle is its own marker
-        pins={pins.length || dropped ? pins : place && !place.poi.placed ? [{ id: 'place', lat: place.poi.lat, lng: place.poi.lng, name: place.poi.name, glyph: place.row ? (CATEGORIES.find((c) => c.id === poiCategory(place.row.primaryType, place.row.primaryType))?.glyph ?? '📍') : poiGlyph(place.poi.cls, place.poi.subclass), cat: place.row ? poiCategory(place.row.primaryType, place.row.primaryType) : poiCategory(place.poi.cls, place.poi.subclass), hot: true }] : []}
+        // the card's place is a pin too: a searched place showed a card with
+        // nothing on the map where it was (owner: "when I look up a location
+        // it doesn't drop a pin"). A place TAPPED on the map is already drawn
+        // by the map, so it gets a halo around the basemap's own icon rather
+        // than a second, bigger one on top (owner: "what's the point of
+        // creating a bigger Whole Foods icon rather than just emphasizing the
+        // one already on the map"). The picker's pins win while they are up,
+        // and a dropped needle is its own marker.
+        pins={pins.length || dropped ? pins : place && !place.poi.placed ? [{ id: 'place', lat: place.poi.lat, lng: place.poi.lng, name: place.poi.name, glyph: place.row ? (CATEGORIES.find((c) => c.id === poiCategory(place.row.primaryType, place.row.primaryType))?.glyph ?? '📍') : poiGlyph(place.poi.cls, place.poi.subclass), cat: place.row ? poiCategory(place.row.primaryType, place.row.primaryType) : poiCategory(place.poi.cls, place.poi.subclass), hot: true, halo: !place.row }] : []}
         fitAt={fitAt}
         sheetPx={sheetPx}
         drop={dropped}
