@@ -106,11 +106,11 @@ async function run(width, label) {
   const s1 = await page.evaluate(() => {
     const m = window.__homeMap; const sh = document.querySelector('.hm-sheet').getBoundingClientRect(); const c = m.getCenter();
     const fields = [...document.querySelectorAll('input,textarea,select')].filter((e) => !['checkbox', 'radio', 'range'].includes(e.type)).map((e) => parseFloat(getComputedStyle(e).fontSize));
-    return { style: m.getStyle().name, center: [c.lng, c.lat], zoom: m.getZoom(), sheet: { top: sh.top, h: sh.height, w: sh.width, left: sh.left }, pill: document.querySelector('.hm-pill')?.textContent, chips: document.querySelectorAll('.hm-chip').length, cards: document.querySelectorAll('.hm-trips-row .trip-card').length, verbs: [...document.querySelectorAll('.hm-verbs .btn')].length, near: document.querySelector('.hm-near')?.textContent, under16: fields.filter((v) => v < 16).length, wider: document.documentElement.scrollWidth > innerWidth, logo: !!document.querySelector('.hm-map .mapboxgl-ctrl-logo') };
+    return { style: m.getStyle().name, center: [c.lng, c.lat], zoom: m.getZoom(), sheet: { top: sh.top, h: sh.height, w: sh.width, left: sh.left }, pill: document.querySelector('.hm-pill')?.textContent, chips: document.querySelectorAll('.hm-chip').length, chipText: [...document.querySelectorAll('.hm-chip')].map((e) => e.textContent).join('|'), cards: document.querySelectorAll('.hm-trips-row .trip-card').length, verbs: [...document.querySelectorAll('.hm-verbs .btn')].length, near: document.querySelector('.hm-near')?.textContent, under16: fields.filter((v) => v < 16).length, wider: document.documentElement.scrollWidth > innerWidth, logo: !!document.querySelector('.hm-map .mapboxgl-ctrl-logo') };
   });
   check(/satellite-streets/.test(s1.style), `the home map is Mapbox satellite-streets (${s1.style})`);
   check(Math.abs(s1.center[1] - ME.lat) < 0.01 && Math.abs(s1.center[0] - ME.lng) < 0.01 && s1.zoom >= 12, `the camera landed on the rider (${s1.center.map((n) => n.toFixed(3)).join(', ')} z${s1.zoom.toFixed(1)}) and says so (${s1.near})`);
-  check(/Where do you want to ride\?/.test(s1.pill) && s1.chips === 7, 'the pill keeps the old hero\'s words; seven category chips');
+  check(/Where do you want to ride\?/.test(s1.pill) && s1.chips === 6 && !s1.chipText.includes('Coffee'), 'the pill keeps the old hero\'s words; six category chips, no Coffee on the map');
   check(s1.verbs === 0, 'no verb buttons: the pill is the one door');
   check(s1.cards >= 1, 'your trips ride in the sheet');
   if (phone) check(s1.sheet.h > 300 && s1.sheet.h < 380 && s1.sheet.top > 400, `on a phone the sheet PEEKS (${Math.round(s1.sheet.h)}px of 820) and the map owns the rest`);

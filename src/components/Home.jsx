@@ -231,7 +231,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           <button className="hm-round" onClick={onSettings} aria-label={t('Settings')}><SettingsIcon /></button>
         </div>
         <div className="hm-chips" role="tablist">
-          {CATEGORIES.map((c) => (
+          {/* Coffee stays a category in the picker and the mid-ride quick add; the
+              home map's strip is the six a rider looks for from the front door
+              (owner, Sep 13 2026: "Remove the coffee stop chip from the map") */}
+          {CATEGORIES.filter((c) => c.id !== 'coffee').map((c) => (
             <button key={c.id} role="tab" aria-selected={chip === c.id} className={`hm-chip${chip === c.id ? ' active' : ''}`}
               onClick={() => { setPlace(null); setChip(chip === c.id ? null : c.id); }}>
               <i aria-hidden="true">{c.glyph}</i> {t(c.label)}
