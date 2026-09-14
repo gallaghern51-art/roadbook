@@ -196,6 +196,26 @@ async function run(width, label) {
   const s3 = await page.evaluate(() => ({ rows: document.querySelectorAll('.hm-sheet .nb-item').length, pins: document.querySelectorAll('.pl-pin').length, active: document.querySelector('.hm-chip.active')?.textContent }));
   check(s3.rows === 3 && s3.pins === 3 && /Food/.test(s3.active), `Food: ${s3.rows} rows in the sheet, ${s3.pins} pins on the map`);
   check(calls.at(-1)?.category === 'food' && Math.abs(calls.at(-1)?.near?.lat - ME.lat) < 0.05, 'the search is typed and near where the map is looking');
+  // the pins stay ON their places through a zoom-out — they are absolutely
+  // positioned markers, not a column of relatively positioned buttons that
+  // stacked 50px apart and drifted off the map on every zoom (field report)
+  const drift = async () => page.evaluate(() => {
+    const m = window.__homeMap; const box = m.getContainer().getBoundingClientRect();
+    return [...document.querySelectorAll('.pl-pin')].map((el) => {
+      const r = el.getBoundingClientRect();
+      // the marker is anchored at its bottom centre
+      const lng = Number(el.dataset.lng), lat = Number(el.dataset.lat);
+      const p = m.project([lng, lat]);
+      return Math.hypot(r.left + r.width / 2 - (box.left + p.x), r.bottom - (box.top + p.y));
+    });
+  });
+  const d0 = await drift();
+  await page.evaluate(() => window.__homeMap.zoomTo(window.__homeMap.getZoom() - 3, { duration: 0 }));
+  await page.waitForTimeout(300);
+  const d1 = await drift();
+  check(d0.length === 3 && Math.max(...d0) < 2 && Math.max(...d1) < 2, `pins sit on their coordinates before (${d0.map((x) => x.toFixed(1))}) and after a zoom-out (${d1.map((x) => x.toFixed(1))})`);
+  await page.evaluate(() => window.__homeMap.zoomTo(window.__homeMap.getZoom() + 3, { duration: 0 }));
+  await page.waitForTimeout(300);
   await page.locator('.hm-sheet .nb-item', { hasText: 'Cowboy Cafe' }).locator('.nb-main').click();
   await page.waitForSelector('.hm-sheet .nb-actions .btn.gold', { timeout: 5000 });
   await page.locator('.hm-sheet .nb-actions .btn.gold').click();

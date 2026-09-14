@@ -881,6 +881,8 @@ export default function MapView() {
       // not overwrite the stop's (it did: no stop tooltip ever showed on a
       // marker the route ran through)
       if (e.originalEvent?.target?.closest?.('.wp-marker')) return;
+      // a tap's synthetic mousemove must not flash the leg tooltip either
+      if (isTouch()) return;
       map.getCanvas().style.cursor = stateRef.current.selectedDayId === dayId && !isTouch()
         ? 'grab' : 'pointer';
       const day = stateRef.current.trip.days.find((d) => d.id === dayId);
@@ -987,8 +989,12 @@ export default function MapView() {
           .setLngLat([w.lng, w.lat])
           .addTo(map);
 
-        // hover: quick detail tooltip with ETA · click: full stop modal
-        el.addEventListener('mouseenter', () => {
+        // hover: quick detail tooltip with ETA · click: full stop modal.
+        // Pointer-typed: a finger has no hover, and the synthetic mouseenter
+        // a touch tap fires flashed the tooltip for one frame before the
+        // stop sheet took over (field-caught on the Lead marker).
+        el.addEventListener('pointerenter', (ev) => {
+          if (ev.pointerType !== 'mouse') return;
           const tl = dayTimeline(day, routedRef.current?.[day.id]);
           const s = tl.stops.find((x) => x.id === w.id);
           hoverPopupRef.current
@@ -1000,7 +1006,7 @@ export default function MapView() {
               <div class="pp-note">${t('Click for the stop card')}</div>`)
             .addTo(map);
         });
-        el.addEventListener('mouseleave', () => hoverPopupRef.current?.remove());
+        el.addEventListener('pointerleave', () => hoverPopupRef.current?.remove());
         // tap: the stop's card (ETA, the leg in, its tag; Edit is one tap on)
         el.addEventListener('click', (ev) => {
           ev.stopPropagation();

@@ -84,7 +84,7 @@ function StopDetail({ day, waypointId, trip, dispatch, routedLegsByDay, close })
     <>
       <div className="modal-head">
         <div>
-          <div className="eyebrow">{day.dow} · <span style={{ color: phase?.color }}>{t(phaseLabel(trip, day.phase))}</span> · {t('stop')} {idx + 1} {t('of')} {day.waypoints.length}</div>
+          <div className="eyebrow">{t('Day')} {trip.days.indexOf(day) + 1} · {day.dow} · <span style={{ color: phase?.color }}>{t(phaseLabel(trip, day.phase))}</span> · {t('stop')} {idx + 1} {t('of')} {day.waypoints.length}</div>
           <h3>{tt(w.name)}</h3>
         </div>
         <button className="btn" onClick={close}>✕</button>

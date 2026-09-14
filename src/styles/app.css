@@ -4411,8 +4411,11 @@ input:focus, textarea:focus, select:focus {
    A glyph in a turquoise roundel — route intelligence, the same hue the
    picker's circles used — with the name underneath, both readable on
    satellite. anchor: bottom, so the roundel's tip sits on the place. */
+/* No `position: relative` here: the element IS the mapboxgl marker, which
+   positions itself absolutely — a relative pin fell into document flow and
+   the pins stacked 50px apart, drifting off their places on every zoom. */
 .pl-pin {
-  position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
   background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: #fff;
   transform-origin: 50% 100%;
 }

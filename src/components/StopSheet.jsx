@@ -33,7 +33,11 @@ export default function StopSheet({ day, waypoint: w, trip, routedLegs, onEdit, 
   const glyph = w.fuel ? GLYPH.fuel : (GLYPH[w.kind] ?? '📍');
   // the address is Google's (details fill it in); the note is the rider's and rides in the facts
   const place = { name: tt(w.name), lat: w.lat, lng: w.lng, detail: '', ...(w.placeId && w.verified !== false ? { placeId: w.placeId } : {}) };
-  const kicker = `${day.dow} · ${t(phaseLabel(trip, day.phase))} · ${t('stop')} ${idx + 1} ${t('of')} ${day.waypoints.length}`;
+  // "stop 1 of 7" counts THIS day's stops — the card names the day it counts
+  // in (Day 1 · Thu), because a phase like Return spans several days and
+  // "Return · stop 1 of 7" beside "Return · stop 1 of 8" read as a mismatch
+  const dayNo = trip.days.indexOf(day) + 1;
+  const kicker = `${t('Day')} ${dayNo} · ${day.dow} · ${t(phaseLabel(trip, day.phase))} · ${t('stop')} ${idx + 1} ${t('of')} ${day.waypoints.length}`;
   return (
     <PlaceSheet
       place={place}

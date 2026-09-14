@@ -93,7 +93,11 @@ async function run(width, label) {
   });
   await page.waitForTimeout(400);
   // create_trip fills the library; the rider opens it from the sheet
-  if (!(await page.locator('.modebar').isVisible().catch(() => false))) { await page.locator('.trip-card.active').first().click(); }
+  if (!(await page.locator('.modebar').isVisible().catch(() => false))) {
+    // on a desktop the trips live in the Your trips drawer (PR #100)
+    const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(300); }
+    await page.locator('.trip-card.active').first().click();
+  }
   await page.waitForSelector('.modebar', { timeout: 15000 });
   await page.waitForTimeout(800);
   const lib = () => page.evaluate(() => { const l = JSON.parse(localStorage.getItem('moto.trips.v1')); return l.trips.find((r) => r.id === l.activeId).trip; });
@@ -113,8 +117,12 @@ async function run(width, label) {
 
   // 1. a VERIFIED stop: the card with the timeline's facts + Google's details
   hits.details = 0; hits.photo = 0;
+  // count every hover tooltip that is ever ATTACHED — a finger has no hover,
+  // and the tap used to flash the desktop tooltip for a frame before the card
+  await page.evaluate(() => { window.__tips = 0; new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.classList?.contains('mapboxgl-popup')) window.__tips++; }).observe(document.body, { childList: true, subtree: true }); });
   await tapMarker('Granite Diner');
   await page.waitForSelector('.place-sheet', { timeout: 6000 });
+  if (phone) check(await page.evaluate(() => window.__tips) === 0, 'a touch tap never flashes the hover tooltip on its way to the card');
   await page.waitForFunction(() => /★ 4\.6/.test(document.querySelector('.place-sheet')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
   await page.waitForTimeout(300);
   const s1 = await page.evaluate(() => {
@@ -122,7 +130,7 @@ async function run(width, label) {
     const cells = [...el.querySelectorAll('.ss-strip .ts-cell')].map((c) => `${c.querySelector('.l').textContent}=${c.querySelector('.n').textContent}`);
     return { h3: el.querySelector('h3')?.textContent, kicker: el.querySelector('.ps-kicker')?.textContent, text: el.innerText, cells, tag: el.querySelector('.ss-tags .tag')?.className ?? '', img: !!el.querySelector('.ps-hero img'), btns: [...el.querySelectorAll('.ps-foot .btn')].map((b) => b.textContent.trim()), naming: document.querySelectorAll('.sheet input').length, editor: document.querySelectorAll('.modal .fld input').length };
   });
-  check(s1.h3 === 'Granite Diner' && /Wed/.test(s1.kicker) && /stop 2 of 4/.test(s1.kicker), `the marker opens the stop's card (${s1.h3} · ${s1.kicker})`);
+  check(s1.h3 === 'Granite Diner' && /^Day 1 · Wed/.test(s1.kicker) && /stop 2 of 4/.test(s1.kicker), `the marker opens the stop's card (${s1.h3} · ${s1.kicker})`);
   check(s1.cells.some((c) => /^Arrive=\d/.test(c)) && s1.cells.some((c) => /^On the ground=30/.test(c)) && s1.cells.some((c) => /^Leg in=.*mi/.test(c)), `the timeline's facts: ${s1.cells.join(' · ')}`);
   check(/verified/.test(s1.tag) && /★ 4\.6/.test(s1.text) && /Today/.test(s1.text) && s1.img && hits.details === 1 && hits.photo === 1, `a verified stop wears ✓ and fetches its details once (rating, hours, photo — ${hits.details} details / ${hits.photo} photo)`);
   check(/Pie stop/.test(s1.text), 'the stop\'s own note is on the card');
