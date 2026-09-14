@@ -170,6 +170,61 @@ async function run(width, label) {
     await tapHandle();
     await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek', null, { timeout: 3000 }).catch(() => {});
     check((await st()).state === 'peek', 'a second tap brings the trips row back');
+    // The fab column RIDES the sheet, it does not chase it (Sep 14, 2026 —
+    // owner: "there's a lag on the locator buttons on side when you expand
+    // bottom and it lags the bottom trips tab"). --hm-sheet went through React
+    // state and the column had its own 0.22s transition on top, so the locate
+    // button arrived a fifth of a second after the sheet at every detent.
+    // Sampled every frame of the expand, the gap must never open up.
+    await tapHandle();
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'min' && document.querySelector('.hm-sheet').getBoundingClientRect().height < 80, null, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    // Sampled from a ResizeObserver registered AFTER the app's, so each sample
+    // reads the frame the browser is about to PAINT (a rAF sample runs before
+    // the app's own observer and would measure a state that never appears).
+    const gaps = await page.evaluate(() => new Promise((res) => {
+      const sheet = document.querySelector('.hm-sheet');
+      const out = [];
+      const ro = new ResizeObserver(() => {
+        const s = sheet.getBoundingClientRect();
+        const l = document.querySelector('.hm-locate').getBoundingClientRect();
+        out.push(Math.round(s.top - l.bottom));
+      });
+      ro.observe(sheet);
+      const h = document.querySelector('.hm-handle'); const r = h.getBoundingClientRect();
+      const fire = (type) => h.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, pointerId: 1, pointerType: 'touch', isPrimary: true }));
+      fire('pointerdown'); fire('pointerup');
+      setTimeout(() => { ro.disconnect(); res(out.slice(1)); }, 700);
+    }));
+    check(gaps.length > 8 && gaps.every((g) => g >= 8 && g <= 16), `the locate column rides the sheet frame by frame through an expand (gaps ${gaps.join(' ')})`);
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek', null, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    // and it follows the finger through a drag, with no transition of its own
+    const dragGaps = await page.evaluate(() => new Promise((res) => {
+      const sheet = document.querySelector('.hm-sheet');
+      const out = [];
+      const ro = new ResizeObserver(() => {
+        const s = sheet.getBoundingClientRect();
+        const l = document.querySelector('.hm-locate').getBoundingClientRect();
+        out.push(Math.round(s.top - l.bottom));
+      });
+      ro.observe(sheet);
+      const h = document.querySelector('.hm-handle'); const r = h.getBoundingClientRect();
+      const fire = (type, y) => h.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.x + r.width / 2, clientY: y, pointerId: 1, pointerType: 'touch', isPrimary: true }));
+      const y0 = r.y + r.height / 2;
+      let dy = 0;
+      fire('pointerdown', y0);
+      const step = () => {
+        dy += 40; fire('pointermove', y0 - dy);
+        if (dy < 240) requestAnimationFrame(step);
+        else requestAnimationFrame(() => { fire('pointerup', y0 - dy); setTimeout(() => { ro.disconnect(); res(out.slice(1)); }, 0); });
+      };
+      requestAnimationFrame(step);
+    }));
+    check(dragGaps.length >= 5 && dragGaps.every((g) => g >= 8 && g <= 16), `and follows the finger through a drag (gaps ${dragGaps.join(' ')})`);
+    await page.waitForTimeout(400);
+    // back to peek for the drag test below (a tap toggles min ↔ the surface)
+    while ((await st()).state !== 'peek') { await tapHandle(); await page.waitForTimeout(350); }
     // drag the handle UP: the library — templates, Start from, the trips as a grid
     await page.evaluate(() => {
       const h = document.querySelector('.hm-handle'); const r = h.getBoundingClientRect();

@@ -4612,7 +4612,12 @@ input:focus, textarea:focus, select:focus {
 .basemap-switch.hm-layers { top: calc(var(--viewport-safe-top) + 128px); right: 12px; left: auto; z-index: 4; }
 .basemap-switch.hm-layers.closed { left: auto; }
 /* the bottom-right column floats just above the sheet (the root carries --hm-sheet) and follows it between detents */
-.hm-fabs { position: absolute; right: 12px; bottom: calc(var(--hm-sheet, 0px) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; transition: bottom 0.22s ease; }
+/* NO transition on `bottom`: --hm-sheet is rewritten on every frame of the
+   sheet's own height animation (and on every frame of a drag), so a transition
+   here was a second animation chasing the first — the column arrived ~0.22s
+   after the sheet each time and trailed the finger (owner: "there's a lag on
+   the locator buttons on side when you expand bottom"). */
+.hm-fabs { position: absolute; right: 12px; bottom: calc(var(--hm-sheet, 0px) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; }
 .map-area-btn.hm-area { top: calc(var(--viewport-safe-top) + 128px); z-index: 4; }
 .hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; min-height: 36px; padding: 6px 12px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); cursor: pointer; }
 .hm-near:hover { color: var(--ink); border-color: var(--ink-faint); }
@@ -4627,7 +4632,7 @@ input:focus, textarea:focus, select:focus {
   background: var(--asphalt-1); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
   box-shadow: var(--shadow-float); display: flex; flex-direction: column; transition: height 0.25s ease;
 }
-.hm-sheet.dragging { transition: none; }
+.hm-sheet[data-drag] { transition: none; } /* the drag writes height straight onto the element; React owns neither attribute */
 .hm-handle { touch-action: none; cursor: grab; }
 .hm-verbs .btn.hm-more { flex: 0 0 48px; width: 48px; padding: 0; }
 .hm-sheet[data-state='min'] .hm-body { overflow: hidden; }
