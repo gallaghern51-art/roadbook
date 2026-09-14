@@ -237,12 +237,19 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 150, bottom: sheetPx + 24, left: 32, right: 72 }, duration: 700, maxZoom: 11 });
   };
 
+  // The sheet only ever RISES for the rider's own tap on the handle. A card or
+  // a picker that needs room lifts a minimised sheet to peek for its own sake,
+  // and puts it back where it was when it closes (owner: "when you exit out
+  // it expands the trips tab… it should stay lowered").
+  const sheetBeforeRaise = useRef(null);
+  const raiseFor = () => setSheet((s) => { if (s !== 'min') return s; if (sheetBeforeRaise.current == null) sheetBeforeRaise.current = s; return 'peek'; });
+  const lowerAfter = () => { if (sheetBeforeRaise.current != null) { setSheet(sheetBeforeRaise.current); sheetBeforeRaise.current = null; } };
   const showPlace = (poi, row = null) => {
     setPlace({ poi, row });
     // a card born behind the handle is no card: a minimised sheet (a dropped
-    // pin forces `min`; a rider can too) comes up to the card's own peek. The
-    // drop path still restores the pre-drop position when the card closes.
-    setSheet((s) => (s === 'min' ? 'peek' : s));
+    // pin forces `min`; a rider can too) comes up to the card's own peek and
+    // goes back down when the card closes. The drop path restores its own.
+    raiseFor();
     setFocus({ lat: poi.lat, lng: poi.lng, at: Date.now() });
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };
@@ -323,7 +330,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         onDropConfirm={confirmDrop}
         onDropCancel={cancelDrop}
         dropLabel={t('Use this spot')}
-        onPoi={(poi) => { if (poi) showPlace(poi); else if (dropped) cancelDrop(); else if (place) setPlace(null); else if (!chip) stepDown(); }} // a tap on open map: the pin goes, the card closes, or the sheet steps down
+        onPoi={(poi) => { if (poi) showPlace(poi); else if (dropped) cancelDrop(); else if (place) { setPlace(null); lowerAfter(); } else if (!chip) stepDown(); }} // a tap on open map: the pin goes, the card closes, or the sheet steps down
       />
 
       <div className="hm-top">
@@ -342,7 +349,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               (owner, Sep 13 2026: "Remove the coffee stop chip from the map") */}
           {CATEGORIES.filter((c) => c.id !== 'coffee').map((c) => (
             <button key={c.id} role="tab" aria-selected={chip === c.id} className={`hm-chip${chip === c.id ? ' active' : ''}`}
-              onClick={() => { setPlace(null); const open = chip !== c.id; setChip(open ? c.id : null); if (open && sheet === 'min') setSheet('peek'); }}>
+              onClick={() => { setPlace(null); const open = chip !== c.id; setChip(open ? c.id : null); if (open) raiseFor(); else lowerAfter(); }}>
               <i aria-hidden="true">{c.glyph}</i> {t(c.label)}
             </button>
           ))}
@@ -416,7 +423,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               poi={place.poi} row={place.row} fix={fix} defaults={quickDefaults}
               onRide={rideTo}
               onAdd={(p) => setAddTo(p)}
-              onClose={() => { setPlace(null); if (place.poi.placed) cancelDrop(); }}
+              onClose={() => { setPlace(null); if (place.poi.placed) cancelDrop(); else lowerAfter(); }}
             />
           ) : chip ? (
             <NearbyPicker
@@ -429,7 +436,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               area={area}
               onRows={(rows, { fit }) => { setPins(rows); if (fit) { setFitAt(Date.now()); setMoved(false); } }}
               onPick={(row) => showPlace(rowToPoi(row), row)}
-              onClose={() => { setChip(null); setPins([]); setArea(null); setMoved(false); }}
+              onClose={() => { setChip(null); setPins([]); setArea(null); setMoved(false); lowerAfter(); }}
             />
           ) : (
             <>
