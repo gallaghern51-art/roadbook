@@ -148,8 +148,11 @@ export default function MapView() {
       // Mapbox's terms want the wordmark and "© Mapbox © OpenStreetMap" ON the
       // map; the compact ⓘ pill and the small logo are the cost of the tiles.
       // Settings carries the full credits too (CREDITS in SettingsModal).
-      attributionControl: { compact: true },
+      // the credit ⓘ goes bottom-left with the wordmark and the scale: the
+      // Copilot fab owns the bottom-right corner and was covering it
+      attributionControl: false,
     });
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
     mapRef.current = map;
     if (import.meta.env.DEV) window.__map = map; // console access while developing
     // On touch, pinch-zoom replaces the +/− control and the screen is too
@@ -160,7 +163,7 @@ export default function MapView() {
       trackUserLocation: true,
     }), 'top-right');
     const scale = new mapboxgl.ScaleControl({ unit: 'imperial' });
-    map.addControl(scale, 'bottom-right');
+    map.addControl(scale, 'bottom-left');
     scaleRef.current = scale;
     // labels are DOM markers with no collision engine — hide them when the
     // camera is too far out for a day's 15 names to be anything but noise
