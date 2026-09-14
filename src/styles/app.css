@@ -3741,22 +3741,23 @@ input:focus, textarea:focus, select:focus {
    marker that spends it teaches riders to ignore it. Leaving it inherited keeps
    BOOK the only rally colour in the lockup, which is BOOK's job.
 
-   Sized in em so it tracks a 20px nav bar and a 28px mast alike, clamped so it
-   never grows into a second logotype. It shrinks out of the flex first, because
-   the wordmark is the thing that must survive a narrow masthead. */
+   Calaf's proportions: about half the wordmark's cap height, centred on it, a
+   1.5px rule with a soft corner and real horizontal padding — a chip, not a
+   tag. Sized in em so a 20px nav bar and a 28px mast get the same shape, and
+   clamped so it never grows into a second logotype. */
 .beta-chip {
-  flex: 0 1 auto; min-width: 0;
+  flex: none;
   align-self: center;
-  margin-left: -3px;
-  padding: 0.22em 0.42em;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  opacity: 0.7;
+  margin-left: 0.22em;
+  padding: 0.16em 0.46em 0.14em;
+  border: 1.5px solid currentColor;
+  border-radius: 0.34em;
+  opacity: 0.82;
   font-family: var(--body);
   font-weight: 700;
-  font-size: clamp(9px, 0.42em, 12px);
-  letter-spacing: 0.09em;
-  line-height: 1.35;
+  font-size: clamp(10px, 0.46em, 14px);
+  letter-spacing: 0.05em;
+  line-height: 1.2;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -4730,6 +4731,7 @@ input:focus, textarea:focus, select:focus {
   .hm-pillrow { flex: 1 1 520px; min-width: 0; }
   .hm-brand { display: block; flex: 0 0 auto; margin-right: 6px; }
   .hm-brand .roadbook-wordmark { font-size: 20px; }
+  .hm-brand .yr { color: var(--rally); }
   .hm-pill { max-width: 520px; height: 44px; }
   .hm-chips { flex: 0 1 auto; padding-bottom: 0; }
   .hm-chip { background: transparent; }

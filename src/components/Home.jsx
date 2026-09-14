@@ -225,6 +225,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 
   const showPlace = (poi, row = null) => {
     setPlace({ poi, row });
+    // a card born behind the handle is no card: a minimised sheet (a dropped
+    // pin forces `min`; a rider can too) comes up to the card's own peek. The
+    // drop path still restores the pre-drop position when the card closes.
+    setSheet((s) => (s === 'min' ? 'peek' : s));
     setFocus({ lat: poi.lat, lng: poi.lng, at: Date.now() });
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };

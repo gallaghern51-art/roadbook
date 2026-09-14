@@ -45,15 +45,29 @@ export function writeRideAck() {
 export default function RideSafety({ onAccept, onCancel, onLegal }) {
   const t = useT();
   const acceptRef = useRef(null);
+  // App hands these down as fresh arrows on every render; read them through a
+  // ref so the mount effect runs ONCE. Keyed on the prop it re-ran on every App
+  // re-render and pulled focus back to the accept button — including while the
+  // legal sheet was open on top, where an Enter would have started the ride
+  // underneath the Terms.
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
 
   // Escape is "not now" — the same as the back button, and the only key that
   // does anything here: accepting is a deliberate press, never a stray Enter.
+  // While the legal sheet is open on top of the gate, Escape belongs to the
+  // sheet (it closes it); without the guard both listeners fired on the one
+  // keydown and the rider lost the gate as well as the Terms.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onCancel?.(); };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('.legal-backdrop')) return;
+      cancelRef.current?.();
+    };
     window.addEventListener('keydown', onKey);
     acceptRef.current?.focus();
     return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  }, []);
 
   const accept = () => { writeRideAck(); onAccept?.(); };
 
