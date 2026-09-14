@@ -85,7 +85,7 @@ export default function PlaceSheet({ place, glyph = '📍', kicker = '', note = 
             {priceGlyph(p.priceLevel) && <span className="nb-price">{priceGlyph(p.priceLevel)}</span>}
             {p.openNow != null && <span className={`nb-open ${p.openNow ? 'ok' : 'bad'}`}>{p.openNow ? t('Open now') : t('Closed now')}</span>}
             {hours && <span className="ps-today">{t('Today')} {hoursOnly(hours[today])}</span>}
-            {placeId && <span className="nb-ver">✓ {t('Google')}</span>}
+            {placeId && <span className="nb-ver">✓ {t('Verified')}</span>}
           </div>
           {note && <p className="nb-note ps-note">{note}</p>}
           {p.summary && <p className="ps-summary">{p.summary}</p>}
