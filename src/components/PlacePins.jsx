@@ -39,10 +39,16 @@ export default function PlacePins({ map, pins, onTap, mode = 'plan' }) {
     }
     for (const [id, p] of want) {
       let rec = marks.get(id);
+      // a HALO marks a place the map already draws (a tapped POI label): a ring
+      // around the basemap's own icon, centred on it, no second glyph or name.
+      // It is a different marker shape (anchor centre), so a pin that changes
+      // kind is rebuilt.
+      const halo = !!p.halo;
+      if (rec && rec.halo !== halo) { rec.marker.remove(); marks.delete(id); rec = undefined; }
       if (!rec) {
         const el = document.createElement('button');
         el.type = 'button';
-        el.className = `pl-pin pl-${mode}`;
+        el.className = `pl-pin pl-${mode}${halo ? ' pl-halo' : ''}`;
         el.setAttribute('data-id', id);
         el.dataset.lng = p.lng; el.dataset.lat = p.lat;
         const g = document.createElement('span'); g.className = 'pl-glyph';
@@ -52,8 +58,8 @@ export default function PlacePins({ map, pins, onTap, mode = 'plan' }) {
         el.addEventListener('click', (ev) => { ev.stopPropagation(); ev._wpHandled = true; tapRef.current?.(id); });
         el.addEventListener('mousedown', (ev) => ev.stopPropagation());
         el.addEventListener('touchstart', (ev) => ev.stopPropagation(), { passive: true });
-        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
-        rec = { p, el, marker, name: null, glyph: null };
+        const marker = new mapboxgl.Marker({ element: el, anchor: halo ? 'center' : 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
+        rec = { p, el, marker, name: null, glyph: null, halo };
         marks.set(id, rec);
       } else if (rec.p.lat !== p.lat || rec.p.lng !== p.lng) {
         rec.marker.setLngLat([p.lng, p.lat]);
