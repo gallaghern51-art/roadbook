@@ -10,6 +10,7 @@
 //   node tools/sims/home-map-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import { routeMapbox, isMockTile } from './fixtures/mapbox-mock.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
@@ -75,6 +76,7 @@ async function run(width, label) {
     const stub = { getCurrentPosition: (ok) => ok({ coords: { latitude: me.lat, longitude: me.lng, accuracy: 5, speed: 0, heading: 0 }, timestamp: Date.now() }), watchPosition: (ok) => { window.__geoCb = ok; return 1; }, clearWatch: () => {} };
     Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
   }, ME);
+  await seedRideAck(page); // Ride Mode's safety gate is answered once per device
   await page.goto('http://localhost:5199/');
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();
@@ -154,32 +156,38 @@ async function run(width, label) {
   await page.waitForTimeout(400); // moveend → onCenter, so the next search looks where the map now is
   await page.screenshot({ path: SHOT(`home-map-${width}`) });
 
-  // 2. the sheet handle (phone)
+  // 2. the sheet handle (phone) — PR #100's grammar: a TAP toggles map/content
+  // (peek ↔ min), `up` is a drag away; home-sheet-check covers the rest
   if (phone) {
-    await page.locator('.hm-handle').click();
-    await page.waitForFunction(() => document.querySelector('.hm-sheet').getBoundingClientRect().height > 600, null, { timeout: 3000 }).catch(() => {});
-    const up = await page.evaluate(() => document.querySelector('.hm-sheet').getBoundingClientRect().height);
-    check(up > 600, `the handle pulls the sheet up (${Math.round(up)}px)`);
-    check(await page.locator('.quick-ride').count() === 0 && await page.locator('.start-grid').count() === 1, 'pulled up, it is the library — templates, Start from — with no second ride button');
-    check(await page.locator('.hm-body .trip-grid .trip-card').count() >= 1, 'pulled up, the trips are a GRID, not a row');
-    await page.locator('.hm-handle').click();
-    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek' && Math.abs(document.querySelector('.hm-sheet').getBoundingClientRect().height - innerHeight * 0.42) < 4, null, { timeout: 3000 }).catch(() => {});
-    await page.waitForTimeout(300);
-    // drag the handle DOWN: the sheet snaps to its minimum — the two verbs and the map
-    // (a pointer sequence on the handle: Playwright's mouse drag does not reach a
-    // touch-action:none button under phone emulation; the iOS simulator is the
-    // real-finger check)
+    const st = () => page.evaluate(() => ({ state: document.querySelector('.hm-sheet').dataset.state, h: document.querySelector('.hm-sheet').getBoundingClientRect().height }));
+    const tapHandle = () => page.evaluate(() => { const h = document.querySelector('.hm-handle'); const r = h.getBoundingClientRect(); const fire = (type) => h.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, pointerId: 1, pointerType: 'touch', isPrimary: true })); fire('pointerdown'); fire('pointerup'); });
+    await page.waitForFunction(() => !window.__homeMap.isMoving(), null, { timeout: 5000 }).catch(() => {});
+    await tapHandle();
+    // the sheet animates its height: wait on the pixels, not the state
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'min' && document.querySelector('.hm-sheet').getBoundingClientRect().height < 80, null, { timeout: 3000 }).catch(() => {});
+    const mn = await st();
+    check(mn.state === 'min' && mn.h < 80, `a tap on the handle shows the map — the sheet drops to the handle alone (${Math.round(mn.h)}px)`);
+    await tapHandle();
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek', null, { timeout: 3000 }).catch(() => {});
+    check((await st()).state === 'peek', 'a second tap brings the trips row back');
+    // drag the handle UP: the library — templates, Start from, the trips as a grid
     await page.evaluate(() => {
       const h = document.querySelector('.hm-handle'); const r = h.getBoundingClientRect();
       const fire = (type, y) => h.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.x + r.width / 2, clientY: y, pointerId: 1, pointerType: 'touch', isPrimary: true }));
-      const y0 = r.y + r.height / 2; fire('pointerdown', y0); fire('pointermove', y0 + 80); fire('pointermove', y0 + 200); fire('pointerup', y0 + 260);
+      const y0 = r.y + r.height / 2; fire('pointerdown', y0); fire('pointermove', y0 - 120); fire('pointermove', y0 - 320); fire('pointerup', y0 - 380);
     });
+    await page.waitForFunction(() => document.querySelector('.hm-sheet').getBoundingClientRect().height > 600, null, { timeout: 3000 }).catch(() => {});
+    const up = await st();
+    check(up.h > 600, `dragging the handle up opens the library (${Math.round(up.h)}px)`);
+    check(await page.locator('.quick-ride').count() === 0 && await page.locator('.start-grid').count() === 1, 'pulled up, it is the library — templates, Start from — with no second ride door');
+    check(await page.locator('.hm-body .trip-grid .trip-card').count() >= 1, 'pulled up, the trips are a GRID, not a row');
+    // a tap on the handle from up shows the map too, and the next brings peek
+    await tapHandle();
     await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'min' && document.querySelector('.hm-sheet').getBoundingClientRect().height < 80, null, { timeout: 3000 }).catch(() => {});
-    const mn = await page.evaluate(() => ({ state: document.querySelector('.hm-sheet').dataset.state, h: document.querySelector('.hm-sheet').getBoundingClientRect().height, verbs: 0 }));
-    check(mn.state === 'min' && mn.h < 80, `dragging the handle down dismisses the sheet to the handle alone (${Math.round(mn.h)}px)`);
-    await page.locator('.hm-handle').click();
+    check((await st()).state === 'min', 'from the library, a tap on the handle still shows the map');
+    await tapHandle();
     await page.waitForFunction(() => document.querySelector('.hm-sheet').dataset.state === 'peek', null, { timeout: 3000 }).catch(() => {});
-    check((await page.evaluate(() => document.querySelector('.hm-sheet').dataset.state)) === 'peek', 'a tap on the handle brings it back to peek');
+    await page.waitForTimeout(300);
     // a tap on open map steps it down
     await page.evaluate(() => window.__homePoiTap(null));
     await page.waitForTimeout(400);

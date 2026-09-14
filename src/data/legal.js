@@ -11,8 +11,43 @@ export const COMPANY = 'Calaf, Inc.';
 export const POSTAL_ADDRESS = '169 Madison Ave STE 51707, New York, NY 10016, United States';
 export const REGISTERED_AGENT = 'Legalinc Corporate Services Inc., 131 Continental Dr, Suite 305, Newark, DE 19713, United States';
 export const SUPPORT = 'support@calaf.ai';
-export const LEGAL_EFFECTIVE_DATE = 'September 13, 2026';
+export const LEGAL_EFFECTIVE_DATE = 'September 14, 2026';
 export const SITE = 'roadbook-app.netlify.app';
+
+// ---------- the Ride Mode safety gate ----------
+// Shown full-screen before Ride Mode's first navigation, and again whenever
+// RIDE_SAFETY_VERSION moves. It lives HERE, beside the Terms' "Ride at your own
+// risk" clause, because it is the same promise said where a rider will actually
+// read it — a warning buried in a policy nobody opened is not a warning — and
+// keeping them in one file is what stops the two drifting apart.
+//
+// Bump RIDE_SAFETY_VERSION whenever the rules below change in substance: the
+// acknowledgement is stored with the version it was given for, so a changed
+// rule asks again rather than riding on a tick from a year ago.
+export const RIDE_SAFETY_VERSION = 1;
+export const RIDE_SAFETY = {
+  title: 'Before you ride',
+  intro: 'Ride Mode is a screen on a moving motorcycle. Four things, once.',
+  rules: [
+    {
+      h: 'Mount the phone.',
+      p: 'In a mount on the bars, not in your hand and not in a pocket. If you have no mount, use the plan and the voice and leave the phone away.',
+    },
+    {
+      h: 'Set the route before you roll.',
+      p: 'Pick the day, start navigation, then ride. Planning, searching and adding stops are for when the bike is stopped.',
+    },
+    {
+      h: 'Glance, don\u2019t read.',
+      p: 'The voice carries the turns. The screen is there to confirm one at a glance \u2014 never to be read at speed.',
+    },
+    {
+      h: 'Roadbook can be wrong.',
+      p: 'Roads close, stations shut, hours change, and the planner can name a place that is not there. Fuel range, arrival times and gate margins are estimates from a plan, not promises about the road. Verify anything you are relying on.',
+    },
+  ],
+  foot: 'You are responsible for riding safely and lawfully. Roadbook is an aid to your judgment, not a substitute for it.',
+};
 
 // [{ h, p: [paragraphs], ul: [items] }]
 export const PRIVACY = {
@@ -45,12 +80,15 @@ export const PRIVACY = {
       'None of these providers receives your name or email from us. Each is bound by its own terms and privacy policy.',
     ] },
     { h: 'What we do not do', ul: [
-      'No advertising, no ad networks, and no sale or rental of personal information.',
+      'No advertising, no ad networks, and no sale or rental of personal information to advertisers, data brokers or anyone else for their own purposes.',
       'No third-party analytics and no tracking cookies. Roadbook uses local storage for your own data and a session token for your own login.',
       'No location history, no ride recording, and no access to your contacts, photos or other apps.',
     ] },
     { h: 'How we use information', p: [
       'To run the product: keep your library, restore it on a new device, plan and route trips, navigate, share trips with a crew and send the emails an account needs (confirmation, password reset, email change). To keep it safe: prevent abuse and enforce the Terms. To improve it: aggregate, non-identifying usage of features. We do not use your trips to train models.',
+    ] },
+    { h: 'Business transfers', p: [
+      'Roadbook is a product of Calaf. If Roadbook, or Calaf, is merged with or acquired by another company, reorganised, or has all or substantially all of its assets — or the Roadbook business line — sold or transferred, including in a bankruptcy or similar proceeding, the information described in this Policy may be transferred to the successor as part of that transaction. Any successor will be bound to handle it under a policy at least as protective as this one, and we will post notice here, and email account holders, before your information becomes subject to a different policy.',
     ] },
     { h: 'Retention and deletion', p: [
       'Data on your device stays until you delete it or the app. Account data stays while the account exists. You can export any trip as a file from the app at any time. To delete your account and everything stored with it, email ' + SUPPORT + ' from the account’s address; we delete within 30 days except where the law requires us to keep a record.',
@@ -87,11 +125,20 @@ export const TERMS = {
     { h: 'Third-party services', p: ['Roadbook is built on services from Mapbox, Google, Anthropic, Supabase, Netlify, Resend, OpenStreetMap contributors and public Valhalla and OSRM instances. Those services may change or become unavailable, which can degrade or interrupt Roadbook, and their content is subject to their own terms. Map data is © Mapbox and © OpenStreetMap contributors; place facts and photos are from Google.'] },
     { h: 'Accounts, sharing and offline use', p: ['Your library is stored on your device first; an account backs it up. Calaf is not responsible for data lost from a device without an account, or for edits made to a shared trip by other members of a crew. The join code is the credential for a shared trip: anyone you give it to can read and propose changes to that trip.'] },
     { h: 'Intellectual property', p: ['Roadbook — its software, design, written content, prompts and other materials — is owned by Calaf and its licensors and protected by intellectual-property law. These Terms grant you a personal, non-transferable, revocable license to use Roadbook as intended. No other license is granted. Highway shield artwork is used under its respective licenses.'] },
-    { h: 'Termination', p: ['You may stop using Roadbook at any time and may ask us to delete your account. Calaf may suspend or terminate access when reasonably necessary to address a violation of these Terms, a legal demand, a security risk or harm. Provisions that by their nature should survive — ownership, disclaimers, limits of liability, indemnity, governing law — survive termination.'] },
+    { h: 'Termination', p: ['You may stop using Roadbook at any time and may ask us to delete your account. Calaf may suspend or terminate access when reasonably necessary to address a violation of these Terms, a legal demand, a security risk or harm. Provisions that by their nature should survive — ownership, disclaimers, limits of liability, indemnity, assignment, governing law and the dispute-resolution agreement — survive termination.'] },
     { h: 'Disclaimers', p: ['To the fullest extent permitted by law, Roadbook is provided “as is” and “as available”. Calaf disclaims implied warranties of merchantability, fitness for a particular purpose, title and non-infringement, and does not warrant that Roadbook will be accurate, uninterrupted, error-free or secure. Some jurisdictions do not permit certain disclaimers, so they apply only to the extent permitted by law.'] },
     { h: 'Limitation of liability', p: ['To the fullest extent permitted by law, Calaf and its suppliers will not be liable for indirect, incidental, special, consequential, exemplary or punitive damages, or for personal injury, property damage, lost time or lost data arising from your use of Roadbook or your reliance on anything it shows. To the fullest extent permitted by law, Calaf’s aggregate liability arising from or related to Roadbook will not exceed the greater of $100 or the amount you paid Calaf for Roadbook in the six months before the event giving rise to the claim.'] },
     { h: 'Indemnity', p: ['To the extent permitted by law, you will defend, indemnify and hold Calaf and its service providers harmless from third-party claims, damages, losses and reasonable costs arising from your riding, your content, your crew’s use of a trip you shared, or your violation of these Terms or of the law.'] },
-    { h: 'Governing law and disputes', p: ['These Terms, and any dispute arising out of or relating to them or to Roadbook, are governed by the laws of the State of Delaware and applicable United States federal law, without regard to conflict-of-laws rules. Before filing a formal claim, you agree to send a description to ' + SUPPORT + ' and attempt in good faith to resolve the dispute for at least 30 days.'] },
+    { h: 'Assignment', p: ['You may not assign or transfer these Terms, or your account, to anyone else. Calaf may assign these Terms, in whole or in part, without your consent to an affiliate, or to a successor in connection with a merger, acquisition, reorganisation, or a sale of all or substantially all of its assets or of the Roadbook business line; the successor takes Calaf’s place under these Terms. Any attempted assignment in violation of this section is void.'] },
+    { h: 'Governing law and disputes', p: [
+      'These Terms, and any dispute arising out of or relating to them or to Roadbook, are governed by the laws of the State of Delaware and applicable United States federal law, including the Federal Arbitration Act, without regard to conflict-of-laws rules.',
+      'Talk first. Before starting arbitration or a lawsuit, you agree to send a written description of the dispute and what you want to ' + SUPPORT + ', and Calaf agrees to do the same by email to your account address, and both of us agree to try in good faith to resolve it for at least 30 days. Most disputes are resolved this way.',
+      'Binding arbitration. If we cannot, you and Calaf agree that any dispute, claim or controversy arising out of or relating to these Terms or to Roadbook — including its formation, enforceability, interpretation or scope, and including claims for personal injury, property damage or wrongful death — will be resolved by binding individual arbitration administered by the American Arbitration Association under its Consumer Arbitration Rules then in effect, and not in court. The arbitrator, not a court, decides whether a dispute is arbitrable. The arbitration will take place in the county where you live, or by video or telephone, or elsewhere by agreement; the arbitrator may award any relief a court could award to you individually. Judgment on the award may be entered in any court with jurisdiction.',
+      'No class actions. You and Calaf agree that each may bring claims against the other only in an individual capacity, and not as a plaintiff or class member in any purported class, consolidated, collective or representative proceeding, and that the arbitrator may not consolidate claims of more than one person or preside over any form of representative proceeding. If this paragraph is found unenforceable as to a particular claim or request for relief, then that claim or request — and only that one — will be severed and decided in court, and the rest stays in arbitration.',
+      'Exceptions. Either of us may bring an individual claim in small-claims court if it qualifies, and either of us may seek an injunction in court to protect intellectual property or to stop unauthorised use of Roadbook. Nothing in this section waives a right that cannot be waived under applicable law.',
+      'Opting out. You may reject the arbitration and class-waiver paragraphs by emailing ' + SUPPORT + ' within 30 days of first accepting these Terms with your name, the email on your account (if any), and a statement that you opt out of arbitration. Opting out does not affect any other part of these Terms.',
+      'Courts. For any dispute that is not arbitrated, you and Calaf agree to the exclusive jurisdiction and venue of the state and federal courts located in the State of Delaware, and each of us waives any objection to that venue. To the fullest extent permitted by law, you and Calaf each waive the right to a trial by jury for any such dispute.',
+    ] },
     { h: 'Changes and notices', p: ['Calaf may update these Terms as the product or the law changes; the revised Terms will show a new effective date, and continuing to use Roadbook after they take effect means you accept them. Calaf communicates with you electronically: in the app, by email to your account address, and by posting notices on ' + SITE + '.'] },
     { h: 'Contact', p: [`Roadbook is operated by ${COMPANY}, a Delaware corporation, at ${POSTAL_ADDRESS}. Questions may be sent to ${SUPPORT}. Legal process may be served through Calaf’s registered agent in Delaware: ${REGISTERED_AGENT}.`] },
   ],

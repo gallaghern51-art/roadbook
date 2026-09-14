@@ -16,6 +16,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/traffic-anchor-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
@@ -135,6 +136,7 @@ async function session(label) {
       window.__geoCb?.(window.__lastFix);
     };
   });
+  await seedRideAck(page); // Ride Mode's safety gate is answered once per device
   await page.goto('http://localhost:5199/');
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();

@@ -1,5 +1,6 @@
 // Light-theme contrast sweep + late-start latch check.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
 const hav = (a, b) => {
@@ -56,6 +57,7 @@ await page.addInitScript(() => {
   Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
   window.__feed = (lat, lng, heading, mps) => { window.__geoCb?.({ coords: { latitude: lat, longitude: lng, accuracy: 5, speed: mps, heading }, timestamp: Date.now() }); };
 });
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) await guest.click();

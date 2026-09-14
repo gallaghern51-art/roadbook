@@ -13,6 +13,7 @@
 //   node tools/sims/pin-drop-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import { routeMapbox, isMockTile } from './fixtures/mapbox-mock.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 import { attachLongPress, HOLD_MS, SWALLOW_MS } from '../../src/engine/mapGestures.js';
 import { labelFromGeocode, labelFromNearby } from '../../netlify/functions/reverse-geocode.mjs';
 
@@ -202,6 +203,7 @@ async function run(width, label) {
     Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
     window.__promptCalled = false; window.prompt = () => { window.__promptCalled = true; return null; };
   }, ME);
+  await seedRideAck(page); // Ride Mode's safety gate is answered once per device
   await page.goto(`${BASE}/`);
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();

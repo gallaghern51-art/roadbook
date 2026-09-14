@@ -38,7 +38,7 @@ export default function LegalSheet({ doc = 'privacy', onClose, onSwitch }) {
             </section>
           ))}
           <footer className="legal-foot">
-            <span className="brand"><RoadbookBrand /></span>
+            <span className="brand"><RoadbookBrand beta /></span>
             <span>© 2026 {COMPANY} All rights reserved. · {POSTAL_ADDRESS}</span>
             <span className="legal-links">
               <button type="button" className={doc === 'privacy' ? 'on' : ''} onClick={() => onSwitch?.('privacy')}>{t('Privacy Policy')}</button>

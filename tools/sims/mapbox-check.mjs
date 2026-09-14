@@ -10,6 +10,7 @@
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 import { BASEMAPS, MAPBOX_STYLES, basemapStyle, isStyleLoadError, STYLE_FALLBACK, warmTilesAhead } from '../../src/engine/basemaps.js';
 import { routeMapbox, isMockTile, mbLog } from './fixtures/mapbox-mock.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 const PORT = process.env.RB_PORT || 5199;
 
 let pass = 0, fail = 0;
@@ -46,6 +47,7 @@ async function open(styleStatus) {
   });
   // a token for a checkout that has none in .env.local (the mock ignores its value)
   await page.addInitScript(() => { try { localStorage.setItem('moto.mapboxToken', 'pk.test-token'); } catch {} });
+  await seedRideAck(page); // Ride Mode's safety gate is answered once per device
   await page.goto(`http://localhost:${PORT}/`);
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();

@@ -1,5 +1,6 @@
 // Mobile balance sweep at 375px: Home, Plan, Prep, Trip settings, Ride states.
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/ui-${n}.png`, import.meta.url).pathname;
 const R = 3958.8;
@@ -71,6 +72,7 @@ await page.addInitScript(() => {
   window.__feed = (lat, lng, heading, mps) => { window.__geoCb?.({ coords: { latitude: lat, longitude: lng, accuracy: 5, speed: mps, heading }, timestamp: Date.now() }); };
 });
 
+await seedRideAck(page); // Ride Mode's safety gate is answered once per device
 await page.goto('http://localhost:5199/');
 const guest = page.locator('.land-skip');
 if (await guest.isVisible().catch(() => false)) {

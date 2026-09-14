@@ -155,6 +155,8 @@ const ES = {
   'Or open the browser menu and choose “Install Roadbook”': 'O abre el menú del navegador y elige “Instalar Roadbook”',
   'Install': 'Instalar',
   'Not now': 'Ahora no',
+  'Ride Mode': 'Modo Ruta',
+  'I understand — start navigation': 'Entendido — iniciar navegación',
   // ride quick-add
   'Nothing ahead on this road.': 'No hay nada adelante en esta carretera.',
   'One option ahead': 'Una opción adelante',
@@ -257,6 +259,8 @@ const ES = {
   'from you': 'de ti',
   'Show the map': 'Ver el mapa',
   'Show more': 'Ver más',
+  'Show the list': 'Ver la lista',
+  'Show the place': 'Ver el lugar',
   'Add': 'Agregar',
   'to…': 'a…',
   'It lands by route order on the day you pick': 'Se coloca en orden de ruta en el día que elijas',

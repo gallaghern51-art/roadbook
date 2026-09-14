@@ -192,7 +192,7 @@ export default function Landing({ onGuest, onHelp, onLegal, recovery, finishAcco
     return (
       <div className="landing focus">
         <header className="landing-mast">
-          <h1 className="brand"><RoadbookBrand /></h1>
+          <h1 className="brand"><RoadbookBrand beta /></h1>
         </header>
         <div className="landing-focus">{card}</div>
         {children}
@@ -203,7 +203,7 @@ export default function Landing({ onGuest, onHelp, onLegal, recovery, finishAcco
   return (
     <div className="landing">
       <header className="landing-mast">
-        <h1 className="brand"><RoadbookBrand /></h1>
+        <h1 className="brand"><RoadbookBrand beta /></h1>
         <nav className="land-nav" aria-label={t('Landing')}>
           <button type="button" className="land-nav-link" onClick={onHelp}>{t('How it works')}</button>
           <button type="button" className="btn land-nav-signin" onClick={() => jumpToAccount('signin')}>{t('Sign in')}</button>

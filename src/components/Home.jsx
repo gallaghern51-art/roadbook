@@ -47,9 +47,19 @@ const readsAsPlan = (q) => /\b(riders?|days?|loop|nights?|weekend|trip)\b/i.test
 // riding… too much trying to do everything at once") — a place → its card →
 // Ride here; a sentence → the AI builder; an empty pill → one standing
 // "Plan a trip with AI" row.
+// The sheet's three positions, per surface. The picker peeks taller than the
+// trips row because it has to hold chips, a cuisine row, a field and a list;
+// the place card is shorter. Every surface answers every detent — the CSS
+// matrix in app.css is the same table, and the handle can always drop any of
+// them to `min` so the map is the screen.
 const SHEET_PX = { min: 0.06, peek: 0.42, up: 0.86 };
+const SURFACE_PX = {
+  pick: { min: 0.06, peek: 0.72, up: 0.92 },
+  place: { min: 0.06, peek: 0.46, up: 0.86 },
+};
+const detentsFor = (surface) => SURFACE_PX[surface] ?? SHEET_PX;
 const DETENTS = ['min', 'peek', 'up'];
-const nearestDetent = (frac) => DETENTS.reduce((best, k) => (Math.abs(SHEET_PX[k] - frac) < Math.abs(SHEET_PX[best] - frac) ? k : best), 'peek');
+const nearestDetent = (frac, px = SHEET_PX) => DETENTS.reduce((best, k) => (Math.abs(px[k] - frac) < Math.abs(px[best] - frac) ? k : best), 'peek');
 
 export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults }) {
   const { state, routedLegsByDay } = useTrip();
@@ -149,7 +159,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   // release; a tap (no travel) steps up, and steps back down from the top
   const onHandleDown = (e) => {
     const vh = window.innerHeight;
-    dragRef.current = { y0: e.clientY, h0: vh * SHEET_PX[sheet], vh, moved: false, id: e.pointerId };
+    dragRef.current = { y0: e.clientY, h0: vh * detentsFor(surfaceRef.current)[sheet], vh, moved: false, id: e.pointerId };
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* a synthetic pointer has no capture */ }
   };
   const onHandleMove = (e) => {
@@ -164,8 +174,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     dragRef.current = null;
     setDragH(null);
     if (!d) return;
-    if (!d.moved) { setSheet((s) => (s === 'up' ? 'peek' : s === 'peek' ? 'up' : 'peek')); return; }
-    setSheet(nearestDetent(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + (d.y0 - e.clientY))) / d.vh));
+    if (!d.moved) { setSheet((s) => (s === 'min' ? 'peek' : 'min')); return; }
+    setSheet(nearestDetent(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + (d.y0 - e.clientY))) / d.vh, detentsFor(surfaceRef.current)));
   };
   const [chip, setChip] = useState(null);      // a category → the picker in the sheet
   const [pins, setPins] = useState([]);
@@ -180,7 +190,28 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const onCenter = (c, { bounds, hand } = {}) => { if (c) setCenter(c); if (bounds) setView(bounds); if (hand) setMoved(true); };
   const [searching, setSearching] = useState(false);
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
-  const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * (place ? 0.34 : chip ? 0.62 : SHEET_PX[sheet]));
+  const surface = place ? 'place' : chip ? 'pick' : null;
+  const surfaceRef = useRef(surface);
+  surfaceRef.current = surface;
+  const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * detentsFor(surface)[sheet]);
+  // The handle says what pressing it does, for whatever is in the sheet. It read
+  // "Your trips · 4" over an open Find-a-place picker before, which named the
+  // wrong surface and the wrong action at the same time.
+  const handle = (() => {
+    if (sheet !== 'min') return { label: t('Show the map'), aria: t('Show the map') };
+    if (surface === 'pick') {
+      const n = pins.length;
+      return {
+        label: <>{t('Show the list')}{n ? <span className="cnt">{n}</span> : null}</>,
+        aria: t('Show the list'),
+      };
+    }
+    if (surface === 'place') return { label: t('Show the place'), aria: t('Show the place') };
+    return {
+      label: <>{t('Your trips')}<span className="cnt">{cards.length}</span></>,
+      aria: t('Your trips'),
+    };
+  })();
   const near = center ?? fix ?? home ?? { lat: 45.9, lng: -108.5 };
   // every stop of every trip in the library — the extent "Frame my trips" flies to
   const tripPts = useMemo(() => trips.flatMap((rec) => rec.trip.days.flatMap((d) => d.waypoints.map((w) => [w.lng, w.lat]))).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y)), [trips]);
@@ -194,6 +225,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 
   const showPlace = (poi, row = null) => {
     setPlace({ poi, row });
+    // a card born behind the handle is no card: a minimised sheet (a dropped
+    // pin forces `min`; a rider can too) comes up to the card's own peek. The
+    // drop path still restores the pre-drop position when the card closes.
+    setSheet((s) => (s === 'min' ? 'peek' : s));
     setFocus({ lat: poi.lat, lng: poi.lng, at: Date.now() });
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };
@@ -275,7 +310,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 
       <div className="hm-top">
         <div className="hm-pillrow">
-          <div className="hm-brand" aria-hidden="true"><RoadbookBrand /></div>
+          <div className="hm-brand" aria-hidden="true"><RoadbookBrand beta /></div>
           <button className="hm-pill" onClick={() => setSearching(true)} aria-label={t('Search a place, or describe a ride')}>
             <SearchGlyph />
             <span>{t('Where do you want to ride?')}</span>
@@ -289,7 +324,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               (owner, Sep 13 2026: "Remove the coffee stop chip from the map") */}
           {CATEGORIES.filter((c) => c.id !== 'coffee').map((c) => (
             <button key={c.id} role="tab" aria-selected={chip === c.id} className={`hm-chip${chip === c.id ? ' active' : ''}`}
-              onClick={() => { setPlace(null); setChip(chip === c.id ? null : c.id); }}>
+              onClick={() => { setPlace(null); const open = chip !== c.id; setChip(open ? c.id : null); if (open && sheet === 'min') setSheet('peek'); }}>
               <i aria-hidden="true">{c.glyph}</i> {t(c.label)}
             </button>
           ))}
@@ -348,7 +383,15 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       )}
 
       <div className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
-        <button className="hm-handle" aria-label={sheet === 'up' ? t('Show the map') : t('Show more')} onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><i /><span className="hm-handle-txt">{sheet === 'up' ? t('Show the map') : <>{t('Your trips')}<span className="cnt">{cards.length}</span></>}</span></button>
+        <button
+          className="hm-handle"
+          aria-label={handle.aria}
+          aria-expanded={sheet !== 'min'}
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
+          onPointerCancel={onHandleUp}
+        ><i /><span className="hm-handle-txt">{handle.label}</span></button>
         <div className="hm-body">
           {place ? (
             <HomePlaceCard

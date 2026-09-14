@@ -19,6 +19,7 @@ import { poiLayerIds, tappableLayerIds, hideNativeRoadShields, liftSatelliteRoad
 import { poiIsNatural, poiGlyph } from '../../src/engine/nearby.js';
 import { MAPBOX_MINI } from './fixtures/mapbox-mini.mjs';
 import { routeMapbox, isMockTile, fakeMap } from './fixtures/mapbox-mock.mjs';
+import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
 let pass = 0, fail = 0;
@@ -102,6 +103,7 @@ async function run(width, label) {
     Object.defineProperty(navigator, 'geolocation', { value: stub, configurable: true });
     window.__feed = (lat, lng, heading, mps) => window.__geoCb?.({ coords: { latitude: lat, longitude: lng, accuracy: 5, speed: mps, heading }, timestamp: Date.now() });
   });
+  await seedRideAck(page); // Ride Mode's safety gate is answered once per device
   await page.goto('http://localhost:5199/');
   const guest = page.locator('.land-skip');
   if (await guest.isVisible().catch(() => false)) await guest.click();
