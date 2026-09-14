@@ -770,6 +770,8 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .bike-picked > div { flex: 1; min-width: 0; }
 .bike-picked b { display: block; font-size: 14px; }
 .bike-picked small { display: block; color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; }
+.bike-spec-editor { display: flex; flex-direction: column; gap: 8px; }
+.bike-spec-editor .set-grid { gap: 10px; }
 .bike-search { display: flex; flex-direction: column; gap: 8px; }
 
 .tagfield { display: flex; flex-direction: column; gap: 6px; }
@@ -4783,7 +4785,14 @@ input:focus, textarea:focus, select:focus {
 .set-block { padding: 10px 0 18px; border-bottom: 1px solid var(--line-soft, var(--line)); scroll-margin-top: 72px; }
 .set-block:last-child { border-bottom: 0; }
 .set-h { margin: 0 0 10px; font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: 0.02em; }
-.set-block .set-section { display: contents; }
+.set-section-lead {
+  margin: 0 0 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: min(68ch, 100%);
+}
+.set-block .set-section { display: flex; flex-direction: column; gap: 12px; }
 /* Big enough for a glove (owner: "make the buttons big enough for someone on
    a bike, like the X button"): every sheet's close and head buttons are 48pt
    on a touch layout; the settings jump links too. */

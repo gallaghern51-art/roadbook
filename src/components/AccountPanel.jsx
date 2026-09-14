@@ -30,7 +30,6 @@ export default function AccountPanel({ auth, backup, onCreateAccount }) {
   if (!account) {
     return (
       <div className="set-account">
-        <span className="set-label">{t('Account')}</span>
         <p className="set-note">
           {t('No account. Your trips live only on this device — deleting the app, clearing the browser, or losing the phone loses them.')}
         </p>
@@ -44,7 +43,6 @@ export default function AccountPanel({ auth, backup, onCreateAccount }) {
 
   return (
     <div className="set-account">
-      <span className="set-label">{t('Account')}</span>
       <p className="acct-who">{displayName(account)}</p>
       {account.email && displayName(account) !== account.email && (
         <p className="set-note acct-mail">{account.email}</p>

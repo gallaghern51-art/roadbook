@@ -26,15 +26,15 @@ import { cacheReport, clearRouteCaches } from '../engine/routing.js';
 // somebody else's phone in the crew inheriting your dark mode.
 
 const SECTIONS = [
-  ['account', 'Account'],
-  ['places', 'Places'],
-  ['riding', 'Riding'],
-  ['display', 'Display'],
-  ['map', 'Map'],
-  ['ride', 'Ride Mode'],
-  ['crew', 'Crew'],
-  ['data', 'Data'],
-  ['about', 'About'],
+  { id: 'account', label: 'Account', lead: 'Account session and backup status.' },
+  { id: 'places', label: 'Places', lead: 'Places used by the planner and trip shortcuts.' },
+  { id: 'riding', label: 'Riding', lead: 'Bike profile, route style, and trip preferences.' },
+  { id: 'display', label: 'Display', lead: 'Theme, language, and units for this screen.' },
+  { id: 'map', label: 'Map', lead: 'Map render defaults and overlays.' },
+  { id: 'ride', label: 'Ride Mode', lead: 'Live navigation behavior while you are riding.' },
+  { id: 'crew', label: 'Crew', lead: 'Shared-trip setup and rider status.' },
+  { id: 'data', label: 'Data', lead: 'Learning signals and local cache controls.' },
+  { id: 'about', label: 'About', lead: 'Product information, credits, and diagnostics.' },
 ];
 
 // Everything the shell layout depends on, read at the moment it is asked for.
@@ -85,7 +85,8 @@ function Seg({ label, value, options, onPick, note }) {
   );
 }
 
-const SECTION_LABEL = Object.fromEntries(SECTIONS);
+const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.id, s.label]));
+const SECTION_LEAD = Object.fromEntries(SECTIONS.map((s) => [s.id, s.lead]));
 
 export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount, onHelp, onLegal }) {
   const s = useSettings();
@@ -126,7 +127,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
             buttons for each is annoying"). The strip stays as jump links that
             scroll to a section, and it follows the scroll. */}
         <div className="set-tabs" role="tablist" aria-label={t('Settings')}>
-          {SECTIONS.map(([id, label]) => (
+          {SECTIONS.map(({ id, label }) => (
             <button
               key={id} type="button" role="tab" aria-selected={tab === id}
               className={tab === id ? 'active' : ''}
@@ -138,6 +139,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
         <div className="modal-body" ref={bodyRef}>
           <section id="set-account" className="set-block" data-set="account">
             <h4 className="set-h">{t(SECTION_LABEL['account'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['account'])}</p>
             <div className="set-section">
               <AccountPanel auth={auth} backup={backup} onCreateAccount={onCreateAccount} />
             </div>
@@ -145,19 +147,21 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           <section id="set-places" className="set-block" data-set="places">
             <h4 className="set-h">{t(SECTION_LABEL['places'])}</h4>
-            <>
+            <p className="set-section-lead">{t(SECTION_LEAD['places'])}</p>
+            <div className="set-section">
               <PlacesPanel
                 profile={profile?.profile}
                 onSave={(p) => profile?.setPlace(p)}
                 onRemove={(id) => profile?.dropPlace(id)}
               />
               <p className="set-note">{backupNote}</p>
-            </>
+            </div>
           </section>
 
           <section id="set-riding" className="set-block" data-set="riding">
             <h4 className="set-h">{t(SECTION_LABEL['riding'])}</h4>
-            <>
+            <p className="set-section-lead">{t(SECTION_LEAD['riding'])}</p>
+            <div className="set-section">
               <RiderPanel
                 profile={profile?.profile}
                 onRiding={(patch) => profile?.setRiding(patch)}
@@ -165,11 +169,12 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 onCosts={(patch) => profile?.setCosts(patch)}
               />
               <p className="set-note">{backupNote}</p>
-            </>
+            </div>
           </section>
 
           <section id="set-display" className="set-block" data-set="display">
             <h4 className="set-h">{t(SECTION_LABEL['display'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['display'])}</p>
             <div className="set-section">
               <Seg
                 label={t('Language')} value={lang} onPick={(v) => set({ lang: v })}
@@ -191,6 +196,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           <section id="set-map" className="set-block" data-set="map">
             <h4 className="set-h">{t(SECTION_LABEL['map'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['map'])}</p>
             <div className="set-section">
               <Seg
                 label={t('Default basemap')} value={basemap} onPick={(v) => set({ basemap: v })}
@@ -212,6 +218,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           <section id="set-ride" className="set-block" data-set="ride">
             <h4 className="set-h">{t(SECTION_LABEL['ride'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['ride'])}</p>
             <div className="set-section">
               <Seg
                 label={t('Spoken directions')} value={voice} onPick={(v) => set({ voice: v })}
@@ -237,6 +244,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           <section id="set-crew" className="set-block" data-set="crew">
             <h4 className="set-h">{t(SECTION_LABEL['crew'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['crew'])}</p>
             <div className="set-section">
               {sync
                 ? <SyncPanel sync={sync} />
@@ -246,6 +254,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           <section id="set-data" className="set-block" data-set="data">
             <h4 className="set-h">{t(SECTION_LABEL['data'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['data'])}</p>
             <div className="set-section">
               <span className="set-label">{t('What this app has learned')}</span>
               <p className="set-note">
@@ -277,6 +286,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
 
           <section id="set-about" className="set-block" data-set="about">
             <h4 className="set-h">{t(SECTION_LABEL['about'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['about'])}</p>
             <div className="set-section">
               <div className="set-row">
                 <span className="set-label">{t('Guide')}</span>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useT, useUnits } from '../engine/settings.jsx';
 import { searchBikes, bikeLabel, rangeFromBike } from '../data/bikes.js';
 
@@ -67,6 +67,16 @@ function BikeField({ bike, onPick, onClear }) {
   const t = useT();
   const [q, setQ] = useState('');
   const hits = searchBikes(q);
+  const showCustomForm = q.trim().length >= 2;
+
+  function addCustomBike(customBike) {
+    onPick({
+      ...customBike,
+      make: customBike.make || t('Custom bike'),
+      source: 'manual',
+    });
+  }
+
   if (bike) {
     return (
       <div className="bike-picked">
@@ -103,11 +113,167 @@ function BikeField({ bike, onPick, onClear }) {
           ))}
         </ul>
       )}
-      {q.trim().length >= 2 && hits.length === 0 && (
+      {showCustomForm && hits.length === 0 && (
         <p className="set-note">
           {t('Not in the catalog — set your tank size and economy below and the range follows from those.')}
         </p>
       )}
+      {showCustomForm && <CustomBikeForm modelSeed={q} onAdd={addCustomBike} />}
+    </div>
+  );
+}
+
+function CustomBikeForm({ modelSeed, onAdd }) {
+  const t = useT();
+  const [model, setModel] = useState(modelSeed || '');
+  const [drive, setDrive] = useState('gas');
+  const [tank, setTank] = useState('5');
+  const [mpg, setMpg] = useState('40');
+  const [rangeMi, setRangeMi] = useState('150');
+
+  useEffect(() => {
+    setModel(modelSeed || '');
+  }, [modelSeed]);
+
+  const canSaveGas = () => Number(tank) > 0 && Number(mpg) > 0;
+  const canSaveElectric = () => Number(rangeMi) > 0;
+  const onSave = () => {
+    const modelName = model.trim() || (modelSeed?.trim() || t('Custom bike'));
+    if (drive === 'electric') {
+      if (!canSaveElectric()) return;
+      onAdd({ model: modelName, electric: true, rangeMi: Number(rangeMi) });
+      return;
+    }
+    if (!canSaveGas()) return;
+    onAdd({ model: modelName, tank: Number(tank), mpg: Number(mpg) });
+  };
+
+  return (
+    <div className="bike-spec-editor">
+      <span className="set-label">{t('Add your own bike')}</span>
+      <label className="fld">
+        {t('Bike name')}
+        <input value={model} placeholder={t('e.g. 2020 Gold Wing')} onChange={(e) => setModel(e.target.value)} />
+      </label>
+      <label className="fld">{t('Powertrain')}
+        <select value={drive} onChange={(e) => setDrive(e.target.value)}>
+          <option value="gas">{t('Gas')}</option>
+          <option value="electric">{t('Electric')}</option>
+        </select>
+      </label>
+      {drive === 'electric' ? (
+        <label className="fld">
+          {t('Claimed range (mi)')}
+          <input
+            type="number"
+            min="1"
+            value={rangeMi}
+            onChange={(e) => setRangeMi(e.target.value)}
+          />
+        </label>
+      ) : (
+        <div className="set-grid">
+          <label className="fld">
+            {t('Tank (gal)')}
+            <input
+              type="number"
+              min="1"
+              step="0.1"
+              value={tank}
+              onChange={(e) => setTank(e.target.value)}
+            />
+          </label>
+          <label className="fld">
+            {t('mpg loaded')}
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={mpg}
+              onChange={(e) => setMpg(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+      <button type="button" className="btn compact" onClick={onSave} disabled={drive === 'electric' ? !canSaveElectric() : !canSaveGas()}>
+        {t('Add this bike')}
+      </button>
+    </div>
+  );
+}
+
+function BikeSpecsEditor({ bike, onApply }) {
+  const t = useT();
+  const [tank, setTank] = useState(() => String(bike?.tank ?? ''));
+  const [mpg, setMpg] = useState(() => String(bike?.mpg ?? ''));
+  const [rangeMi, setRangeMi] = useState(() => String(bike?.rangeMi ?? ''));
+
+  useEffect(() => {
+    setTank(String(bike?.tank ?? ''));
+    setMpg(String(bike?.mpg ?? ''));
+    setRangeMi(String(bike?.rangeMi ?? ''));
+  }, [bike]);
+
+  const canSaveTankAndMpg = () => Number(tank) > 0 && Number(mpg) > 0;
+  const canSaveRange = () => Number(rangeMi) > 0;
+  const onSave = () => {
+    if (bike?.electric) {
+      if (!canSaveRange()) return;
+      onApply({ ...bike, rangeMi: Number(rangeMi), source: 'manual' });
+      return;
+    }
+    if (!canSaveTankAndMpg()) return;
+    onApply({ ...bike, tank: Number(tank), mpg: Number(mpg), source: 'manual' });
+  };
+
+  if (bike?.electric) {
+    return (
+      <div className="bike-spec-editor">
+        <div className="set-grid">
+          <label className="fld">
+            {t('Claimed range (mi)')}
+            <input
+              type="number"
+              min="40"
+              value={rangeMi}
+              onChange={(e) => setRangeMi(e.target.value)}
+            />
+          </label>
+        </div>
+        <button type="button" className="btn compact" onClick={onSave} disabled={!canSaveRange()}>
+          {t('Apply')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bike-spec-editor">
+      <div className="set-grid">
+        <label className="fld">
+          {t('Tank (gal)')}
+          <input
+            type="number"
+            min="1"
+            step="0.1"
+            value={tank}
+            onChange={(e) => setTank(e.target.value)}
+          />
+        </label>
+        <label className="fld">
+          {t('mpg loaded')}
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={mpg}
+            onChange={(e) => setMpg(e.target.value)}
+          />
+        </label>
+      </div>
+      <button type="button" className="btn compact" onClick={onSave} disabled={!canSaveTankAndMpg()}>
+        {t('Apply')}
+      </button>
     </div>
   );
 }
@@ -139,8 +305,26 @@ export default function RiderPanel({ profile, onRiding, onTaste, onCosts }) {
         }}
       />
       {r.bike && (
+        <>
+          <span className="set-label">{t('Bike specs')}</span>
+          <BikeSpecsEditor
+            bike={r.bike}
+            onApply={(nextBike) => {
+              const range = rangeFromBike(nextBike);
+              onRiding({
+                bike: nextBike,
+                ...(range ? { rangeComfort: range.comfort, rangeAbsolute: range.absolute } : {}),
+              });
+            }}
+          />
+        </>
+      )}
+      {r.bike && (
         <p className="set-note">
-          {t('Range below was worked out from the tank and economy above, keeping a 20% reserve. Change either figure if yours differs.')}
+          {r.bike.electric
+            ? t('Range below was worked out from the claimed range above, keeping a 20% reserve. Change that figure if yours differs.')
+            : t('Range below was worked out from the tank and economy above, keeping a 20% reserve. Change either figure if yours differs.')
+          }
         </p>
       )}
 
