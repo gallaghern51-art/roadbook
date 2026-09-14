@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTrip } from '../engine/store.js';
 import { tripFeasibility } from '../engine/timeline.js';
 import { tripSummary, haversineMiles } from '../engine/tripEngine.js';
@@ -145,7 +145,6 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
 
   const [sheet, setSheet] = useState('peek'); // min | peek | up
-  const [dragH, setDragH] = useState(null);   // the sheet's height while the handle is being dragged
   const [basemap, setBasemap] = useState('sat');
   const [terrain3d, setTerrain3d] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
@@ -156,7 +155,26 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const stepDown = () => setSheet((s) => (s === 'up' ? 'peek' : 'min'));
   const stepUp = () => setSheet((s) => (s === 'min' ? 'peek' : 'up'));
   // the handle: a drag follows the finger and snaps to the nearest position on
-  // release; a tap (no travel) steps up, and steps back down from the top
+  // release; a tap (no travel) steps up, and steps back down from the top.
+  //
+  // The drag is written straight onto the sheet element — height inline,
+  // `data-drag` for the transition-off rule — rather than through state: a
+  // setState per pointermove re-rendered the whole home (map props, pins, the
+  // trips grid) sixty times a second, which is what made the sheet judder
+  // under the finger and the fab column trail it. React owns neither of those
+  // two attributes, so a re-render mid-drag cannot clobber them.
+  const dragTo = (h) => {
+    const el = sheetRef.current;
+    if (!el) return;
+    el.dataset.drag = '1';
+    el.style.height = `${Math.round(h)}px`;
+  };
+  const dragEnd = () => {
+    const el = sheetRef.current;
+    if (!el) return;
+    delete el.dataset.drag;
+    el.style.height = '';
+  };
   const onHandleDown = (e) => {
     const vh = window.innerHeight;
     dragRef.current = { y0: e.clientY, h0: vh * detentsFor(surfaceRef.current)[sheet], vh, moved: false, id: e.pointerId };
@@ -167,12 +185,12 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     if (!d) return;
     const dy = d.y0 - e.clientY;
     if (Math.abs(dy) > 6) d.moved = true;
-    if (d.moved) setDragH(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + dy)));
+    if (d.moved) dragTo(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + dy)));
   };
   const onHandleUp = (e) => {
     const d = dragRef.current;
     dragRef.current = null;
-    setDragH(null);
+    dragEnd();
     if (!d) return;
     if (!d.moved) { setSheet((s) => (s === 'min' ? 'peek' : 'min')); return; }
     setSheet(nearestDetent(Math.max(d.vh * 0.1, Math.min(d.vh * 0.92, d.h0 + (d.y0 - e.clientY))) / d.vh, detentsFor(surfaceRef.current)));
@@ -198,16 +216,35 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   // at `min` the sheet is the handle plus the phone's home-indicator inset
   // (56 + 34px on an iPhone), while 6% of the viewport is ~52px — so the
   // locate button sat under the handle and every tap at it opened the sheet.
+  //
+  // That height is written STRAIGHT onto the root as `--hm-sheet` from the
+  // ResizeObserver, never through React state (Sep 14, 2026 — owner: "there's
+  // a lag on the locator buttons on side when you expand bottom and it lags
+  // the bottom trips tab"). The observer fires on every frame of the sheet's
+  // own height transition, so a setState there re-rendered the whole home —
+  // map props, pins, the trips grid — sixty times a second while the sheet
+  // was moving: the column arrived a frame or more late and the sheet's own
+  // animation juddered. A style property set inside the observer callback
+  // lands in the SAME frame's paint, before React is involved at all.
+  const rootRef = useRef(null);
   const sheetRef = useRef(null);
-  const [sheetH, setSheetH] = useState(null);
-  useEffect(() => {
-    const el = sheetRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setSheetH(Math.round(el.getBoundingClientRect().height)));
+  const roRef = useRef(false);
+  useLayoutEffect(() => {
+    const root = rootRef.current, el = sheetRef.current;
+    if (!root || !el) return;
+    const write = () => root.style.setProperty('--hm-sheet', `${Math.round(el.getBoundingClientRect().height)}px`);
+    write(); // before the first paint, so the column never starts at 0
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(write);
     ro.observe(el);
-    return () => ro.disconnect();
+    roRef.current = true;
+    return () => { ro.disconnect(); roRef.current = false; };
   }, []);
-  const sheetLift = sheetH ?? sheetPx;
+  // a browser with no ResizeObserver still gets the detent it just moved to
+  useLayoutEffect(() => {
+    if (roRef.current || !rootRef.current || !sheetRef.current) return;
+    rootRef.current.style.setProperty('--hm-sheet', `${Math.round(sheetRef.current.getBoundingClientRect().height)}px`);
+  }, [sheet, surface]);
   // The handle says what pressing it does, for whatever is in the sheet. It read
   // "Your trips · 4" over an open Find-a-place picker before, which named the
   // wrong surface and the wrong action at the same time.
@@ -307,7 +344,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
 
   return (
-    <div className="home home-map" style={{ '--hm-sheet': `${sheetLift}px` }}>
+    <div ref={rootRef} className="home home-map">
       <HomeMap
         fix={fix} me={me}
         focus={focus}
@@ -411,7 +448,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         />
       )}
 
-      <div ref={sheetRef} className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${dragH ? ' dragging' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet} style={dragH ? { height: `${Math.round(dragH)}px` } : undefined}>
+      <div ref={sheetRef} className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet}>
         <button
           className="hm-handle"
           aria-label={handle.aria}
