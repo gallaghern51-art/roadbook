@@ -7,7 +7,7 @@ import {
   alongOnRoute, chainCumMiles,
 } from '../engine/tripEngine.js';
 import { dayTimeline, fmtTime, fmtDur } from '../engine/timeline.js';
-import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, SAT_SAFE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, liftSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import { BASEMAPS, STYLE_FALLBACK, LIGHT_SAFE, STREETS_SAFE, SAT_SAFE, ROUTE_BLUE, MAPBOX_TOKEN, ensureTerrain, hideNativeRoadShields, liftSatelliteRoads, tappableLayerIds, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import PoiCard from './PoiCard.jsx';
 import StopSheet from './StopSheet.jsx';
 import DropPin from './DropPin.jsx';
@@ -110,8 +110,14 @@ export default function MapView() {
   stateRef.current = { trip, selectedDayId, routePreview: ui?.routePreview };
 
   const phaseColor = (phase) => {
-    if (basemapRef.current === 'light' && LIGHT_SAFE[phase]) return LIGHT_SAFE[phase];
-    if (basemapRef.current === 'sat' && SAT_SAFE[phase]) return SAT_SAFE[phase];
+    const bm = basemapRef.current;
+    if (bm === 'sat') {
+      // a quick ride has no days to tell apart: plain blue, Google-style
+      if (stateRef.current.trip?.meta?.quick) return ROUTE_BLUE;
+      if (SAT_SAFE[phase]) return SAT_SAFE[phase];
+    }
+    if (bm === 'light' && LIGHT_SAFE[phase]) return LIGHT_SAFE[phase];
+    if (bm === 'streets' && STREETS_SAFE[phase]) return STREETS_SAFE[phase]; // Streets is a light map: its grey phases vanish on white roads too
     return PHASES[phase]?.color ?? '#999';
   };
   // Google's grammar: roads are dark-cased light lines, the ROUTE is a

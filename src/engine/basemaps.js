@@ -199,11 +199,25 @@ export function hideNativeRoadShields(map) {
 
 // The light-gray "return"/"prep" phases disappear on a light basemap — swap in dark tones.
 export const LIGHT_SAFE = { return: '#1a1a1a', prep: '#5a5a5a' };
-// …and on SATELLITE a grey route reads as just another road
-// (owner: "the contrast against the grey route [is] impossible to see your
-// route vs regular road"). Saturated stand-ins: the route is the one thing on
-// a satellite map that is not a colour the ground has.
-export const SAT_SAFE = { return: '#4f9cff', prep: '#b48cff' };
+// The Streets style is a light map too — the same swap.
+export const STREETS_SAFE = LIGHT_SAFE;
+// SATELLITE gets its own phase palette (Sep 13, 2026 — owner, from a real-tile
+// comparison of orange / blue / magenta over the Beartooth and Manhattan:
+// "Blue, satellite only… there should still be day contrast on satellite as
+// well"). Mapbox paints its own primary roads ORANGE on satellite-streets, so
+// the outbound orange route was the colour of every main road under it; and
+// the ground is green, brown, grey and water-blue, so a phase colour has to be
+// one the ground never has. Blue leads (Google's choice, and it survives the
+// white casing over water), the other days are equally unlikely colours, and
+// none of them is orange.
+export const SAT_SAFE = { outbound: '#2f7bff', rally: '#e0218a', return: '#22d3ee', prep: '#b48cff' };
+// A quick ride ("go somewhere" outside a planned trip) has no days to tell
+// apart: on satellite it is plain blue, Google-style. So is Ride Mode's road
+// ahead on satellite; the road behind stays grey and the rest of the day a
+// paler blue. Every other style keeps its amber.
+export const ROUTE_BLUE = '#2f7bff';
+export const NAV_SAT = { ahead: ROUTE_BLUE, beyond: '#8fb8ff', glow: ROUTE_BLUE, casing: '#ffffff' };
+export const NAV_AMBER = { ahead: '#ffab5c', beyond: '#9c6a38', glow: '#f48322', casing: '#000000' };
 
 // ---- look-ahead tile warming (Ride Mode) ----
 // Only the Esri fallback is plain tile URLs we can prefetch into the browser

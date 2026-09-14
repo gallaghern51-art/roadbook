@@ -16,7 +16,7 @@ import {
   createNav, syncNav, navTarget, navRemaining, navFix,
   navGoNext, navSkip, navRestore, navInitVisited, navArriveAt, PARK_MPH,
 } from '../engine/rideNav.js';
-import { STYLE_FALLBACK, MAPBOX_TOKEN, warmTilesAhead, hideNativeRoadShields, liftSatelliteRoads, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
+import { STYLE_FALLBACK, MAPBOX_TOKEN, warmTilesAhead, hideNativeRoadShields, liftSatelliteRoads, NAV_SAT, NAV_AMBER, basemapStyle, isStyleLoadError } from '../engine/basemaps.js';
 import { fmtDayDate } from '../engine/dates.js';
 import { fetchConditionsAhead } from '../engine/conditions.js';
 import WeatherIcon from './WeatherIcon.jsx';
@@ -187,24 +187,25 @@ function locateOnSteps(steps, pos, cursor) {
 // (visited / skipped / pinned), rebuilt after the projection-mixed index
 // version resurrected departed stops and auto-skipped chosen destinations.
 
-const NAV_AHEAD = '#ffab5c';
-const NAV_BEYOND = '#9c6a38'; // muted amber — the day beyond the current leg
+// The road ahead is BLUE on satellite (the ground never is; Mapbox's own roads
+// are orange there) and amber everywhere else; the road behind is grey on both.
 const NAV_DONE = 'rgba(122, 122, 122, 0.65)';
-const SOLID_AHEAD = ['interpolate', ['linear'], ['line-progress'], 0, NAV_AHEAD, 1, NAV_AHEAD];
+const navPalette = (styleKey) => (styleKey === 'hybrid' || styleKey === 'sat' ? NAV_SAT : NAV_AMBER);
+const solidAhead = (p) => ['interpolate', ['linear'], ['line-progress'], 0, p.ahead, 1, p.ahead];
 const EMPTY_LINE = { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
 
 // Planned route + live-reroute layer stacks. Google-style: soft glow, dark
 // casing, bright line whose traveled portion dims behind you (line-gradient).
-function ensureNavLayers(map) {
+function ensureNavLayers(map, p = NAV_SAT) {
   if (map.getSource('ride-route')) return;
   map.addSource('ride-route', { type: 'geojson', data: EMPTY_LINE, lineMetrics: true });
   map.addSource('ride-live', { type: 'geojson', data: EMPTY_LINE, lineMetrics: true });
   const round = { 'line-cap': 'round', 'line-join': 'round' };
-  map.addLayer({ id: 'ride-route-glow', type: 'line', source: 'ride-route', paint: { 'line-color': '#f48322', 'line-width': 14, 'line-opacity': 0.3, 'line-blur': 4 }, layout: round });
-  map.addLayer({ id: 'ride-route-casing', type: 'line', source: 'ride-route', paint: { 'line-color': '#000000', 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round });
-  map.addLayer({ id: 'ride-route-line', type: 'line', source: 'ride-route', paint: { 'line-color': NAV_AHEAD, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round });
-  map.addLayer({ id: 'ride-live-casing', type: 'line', source: 'ride-live', paint: { 'line-color': '#000000', 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round });
-  map.addLayer({ id: 'ride-live-line', type: 'line', source: 'ride-live', paint: { 'line-color': NAV_AHEAD, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round });
+  map.addLayer({ id: 'ride-route-glow', type: 'line', source: 'ride-route', paint: { 'line-color': p.glow, 'line-width': 14, 'line-opacity': 0.3, 'line-blur': 4 }, layout: round });
+  map.addLayer({ id: 'ride-route-casing', type: 'line', source: 'ride-route', paint: { 'line-color': p.casing, 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round });
+  map.addLayer({ id: 'ride-route-line', type: 'line', source: 'ride-route', paint: { 'line-color': p.ahead, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round });
+  map.addLayer({ id: 'ride-live-casing', type: 'line', source: 'ride-live', paint: { 'line-color': p.casing, 'line-width': 9.5, 'line-opacity': 0.85 }, layout: round });
+  map.addLayer({ id: 'ride-live-line', type: 'line', source: 'ride-live', paint: { 'line-color': p.ahead, 'line-width': 5.5, 'line-opacity': 0.95 }, layout: round });
 }
 
 
@@ -608,7 +609,7 @@ export default function RideMode({ onClose }) {
     if (!map) return;
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
     whenMapReady(map, () => {
-      ensureNavLayers(map);
+      ensureNavLayers(map, navPalette(navStyleRef.current));
       map.getSource('ride-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geom } });
     });
   }, [day.id, routes]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -618,7 +619,7 @@ export default function RideMode({ onClose }) {
   applyLiveRef.current = () => {
     const map = mapRef.current;
     if (!map) return;
-    ensureNavLayers(map);
+    ensureNavLayers(map, navPalette(navStyleRef.current));
     map.getSource('ride-live').setData(reroute
       ? { type: 'Feature', geometry: { type: 'LineString', coordinates: reroute.geometry } }
       : EMPTY_LINE);
@@ -626,7 +627,7 @@ export default function RideMode({ onClose }) {
     map.setPaintProperty('ride-route-line', 'line-opacity', dim ? 0.3 : 0.95);
     map.setPaintProperty('ride-route-casing', 'line-opacity', dim ? 0.2 : 0.85);
     map.setPaintProperty('ride-route-glow', 'line-opacity', dim ? 0.08 : 0.3);
-    if (dim) map.setPaintProperty('ride-route-line', 'line-gradient', SOLID_AHEAD);
+    if (dim) map.setPaintProperty('ride-route-line', 'line-gradient', solidAhead(navPalette(navStyleRef.current)));
   };
   useEffect(() => {
     const map = mapRef.current;
@@ -640,7 +641,7 @@ export default function RideMode({ onClose }) {
   drawPlannedRef.current = () => {
     const map = mapRef.current;
     if (!map) return;
-    ensureNavLayers(map);
+    ensureNavLayers(map, navPalette(navStyleRef.current));
     map.once('idle', () => { hideNativeRoadShields(map); liftSatelliteRoads(map); }); // the new style arrived with its own set
 
     const geom = routes[day.id]?.geometry ?? day.waypoints.map((w) => [w.lng, w.lat]);
@@ -1046,13 +1047,14 @@ export default function RideMode({ onClose }) {
       }
     }
     frac = Math.max(0, Math.min(0.999, frac));
+    const p = navPalette(navStyleRef.current);
     const stops = [];
-    if (frac > 0.001) stops.push(frac, NAV_AHEAD);
-    if (legFrac != null && legFrac > frac + 0.003) stops.push(legFrac, NAV_BEYOND);
+    if (frac > 0.001) stops.push(frac, p.ahead);
+    if (legFrac != null && legFrac > frac + 0.003) stops.push(legFrac, p.beyond);
     map.setPaintProperty(layer, 'line-gradient',
-      stops.length === 0 ? SOLID_AHEAD
-        : ['step', ['line-progress'], frac > 0.001 ? NAV_DONE : NAV_AHEAD, ...stops]);
-  }, [geoProj, reroute, offRoute, dest]); // eslint-disable-line react-hooks/exhaustive-deps
+      stops.length === 0 ? solidAhead(p)
+        : ['step', ['line-progress'], frac > 0.001 ? NAV_DONE : p.ahead, ...stops]);
+  }, [geoProj, reroute, offRoute, dest, navStyle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- puck + chase camera, map-matched ----
   // Within ~30 m of the line the puck snaps onto it and takes the road's

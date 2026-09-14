@@ -72,7 +72,7 @@ async function open(styleStatus) {
   // the route outranks the road: white casing + no grey phase on satellite
   const rc = await page.evaluate(() => { const m = window.__map; const ids = m.getStyle().layers.map((l) => l.id); const casing = ids.find((id) => /^route-.*-casing$/.test(id)); const lines = ids.filter((id) => /^route-.*-line$/.test(id)); return { casing: casing && m.getPaintProperty(casing, 'line-color'), colors: lines.map((id) => String(m.getPaintProperty(id, 'line-color')).toLowerCase()) }; });
   check(rc.casing === '#ffffff', `on satellite the route casing is WHITE (roads are dark-cased) — ${rc.casing}`);
-  check(rc.colors.length > 0 && !rc.colors.includes('#cecece') && !rc.colors.includes('#7a7a7a'), `no grey phase colour on satellite (${[...new Set(rc.colors)].join(', ')})`);
+  check(rc.colors.length > 0 && !rc.colors.includes('#cecece') && !rc.colors.includes('#7a7a7a') && !rc.colors.includes('#ff9838') && rc.colors.includes('#2f7bff'), `on satellite the days wear the satellite palette — blue leads, no grey, no orange (Mapbox's own primaries are orange) (${[...new Set(rc.colors)].join(', ')})`);
   const rw = await page.evaluate(() => window.__map.getPaintProperty('road-primary', 'line-width'));
   check(Array.isArray(rw) && rw[0] === 'interpolate' && rw.includes(9), `satellite: primary roads carry the targeted width floor (the Beartooth stays a line; no colour or casing change)`);
   check(st.logo && /Mapbox/.test(st.attrib), 'the Mapbox wordmark and © credit are on the map (Product Terms attribution)');
