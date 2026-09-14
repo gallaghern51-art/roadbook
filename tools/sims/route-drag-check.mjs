@@ -126,6 +126,7 @@ await page.evaluate(([start, end]) => {
 }, [START, END]);
 await page.waitForTimeout(600);
 // Enter the trip we just made, not whatever was open before.
+{ const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(300); } }
 await page.locator('.trip-card', { hasText: 'DRAG TEST' }).first().click();
 await page.waitForSelector('.modebar', { timeout: 20000 });
 // Wait for the app to actually BE on the new trip before touching the ribbon —

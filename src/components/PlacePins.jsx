@@ -44,6 +44,7 @@ export default function PlacePins({ map, pins, onTap, mode = 'plan' }) {
         el.type = 'button';
         el.className = `pl-pin pl-${mode}`;
         el.setAttribute('data-id', id);
+        el.dataset.lng = p.lng; el.dataset.lat = p.lat;
         const g = document.createElement('span'); g.className = 'pl-glyph';
         const l = document.createElement('span'); l.className = 'pl-label';
         el.append(g, l);
@@ -56,6 +57,7 @@ export default function PlacePins({ map, pins, onTap, mode = 'plan' }) {
         marks.set(id, rec);
       } else if (rec.p.lat !== p.lat || rec.p.lng !== p.lng) {
         rec.marker.setLngLat([p.lng, p.lat]);
+        rec.el.dataset.lng = p.lng; rec.el.dataset.lat = p.lat;
       }
       rec.p = p;
       const name = String(p.name ?? '');
