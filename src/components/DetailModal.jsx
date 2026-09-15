@@ -49,7 +49,7 @@ function StopDetail({ day, waypointId, trip, dispatch, routedLegsByDay, close })
     }, 400);
   };
   const pickPlace = (p) => {
-    setForm((f) => ({ ...f, name: p.name, lat: p.lat, lng: p.lng, placeId: p.source === 'google' && p.id ? p.id : null }));
+    setForm((f) => ({ ...f, name: p.name, lat: p.lat, lng: p.lng, placeId: (p.source === 'google' || p.source === 'mapbox') && p.id ? p.id : null }));
     setMoved(true);
     setPlaces([]);
   };

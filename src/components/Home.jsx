@@ -655,7 +655,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   // a different place opens on its own page again (desktop), never mid-ride-strip
   useEffect(() => { setDetails(!isPhone); setConfirm(false); }, [poi?.lat, poi?.lng, row?.id, isPhone]); // eslint-disable-line react-hooks/exhaustive-deps
   const place = match
-    ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: 'google', verified: 'google' }
+    ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: match.source ?? 'google', verified: match.source === 'mapbox' ? 'mapbox' : 'google' }
     : placed
     ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
     : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };
@@ -735,7 +735,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
                       <input className="hm-input" autoFocus value={fromQ} onChange={(e) => setFromQ(e.target.value)} placeholder={t('Search a place')} aria-label={t('Search a place')} />
                       <div className="hm-results">
                         {here && from && <button onClick={() => { setFrom(null); setFromEdit(false); setFromQ(''); }}>◎ {t('Current location')}</button>}
-                        {fromRows.map((r) => <button key={r.id} onClick={() => { setFrom({ name: r.name, lat: r.lat, lng: r.lng, placeId: r.id, verified: 'google' }); setFromEdit(false); setFromQ(''); }}>{r.name}<small> {r.detail}</small></button>)}
+                        {fromRows.map((r) => <button key={r.id} onClick={() => { setFrom({ name: r.name, lat: r.lat, lng: r.lng, placeId: r.id, verified: r.source === 'mapbox' ? 'mapbox' : 'google' }); setFromEdit(false); setFromQ(''); }}>{r.name}<small> {r.detail}</small></button>)}
                       </div>
                     </div>
                   )}

@@ -1,4 +1,5 @@
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM
   ?? (process.platform === 'darwin'
@@ -72,6 +73,7 @@ const generatedTrip = {
 
 const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
+await pinGooglePlaces(page); // this sim mocks Google's place functions
 const errors = [];
 let exploreCalls = 0, generateCalls = 0;
 page.on('pageerror', (error) => errors.push(error.message));

@@ -9,6 +9,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/home-map-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 import { routeMapbox, isMockTile } from './fixtures/mapbox-mock.mjs';
 import { seedRideAck } from './fixtures/ride-ack.mjs';
 
@@ -57,7 +58,7 @@ async function run(width, label) {
   console.log(`\n── ${label} (${width}px) ──`);
   const phone = width < 820;
   const ctx = await browser.newContext({ viewport: { width, height: 820 }, hasTouch: phone, isMobile: phone });
-  const page = await ctx.newPage();
+  const page = await ctx.newPage(); await pinGooglePlaces(page); // mocks Google's place functions
   const pageErrors = [];
   page.on('pageerror', (e) => { pageErrors.push(e.message); console.log('PAGEERROR', e.message); });
   await page.route('**/*', (r) => {

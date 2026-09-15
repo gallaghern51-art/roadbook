@@ -3,6 +3,7 @@ import PlaceSheet from './PlaceSheet.jsx';
 import { searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineLabel } from '../engine/nearby.js';
 import { haversineMiles } from '../engine/tripEngine.js';
 import { coordLabel } from '../engine/places.js';
+import { placeStamp } from '../engine/placesProvider.js';
 import { useT, useUnits } from '../engine/settings.jsx';
 
 // The card for a POI the rider tapped ON THE MAP — the vector symbol under
@@ -73,7 +74,7 @@ export default function PoiCard({ poi, day, onAdd, onClose }) {
   const natural = !placed && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
 
   const place = match
-    ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, source: 'google', verified: 'google' }
+    ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, source: match.source ?? 'google', ...placeStamp({ ...match, source: match.source ?? 'google' }) }
     : placed
     ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
     : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };

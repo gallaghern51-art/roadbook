@@ -216,7 +216,7 @@ function applyOp(t, op) {
       // carries its own verdict, which is how a verified re-pick keeps its ✓.
       if (moved && !('verified' in (op.patch ?? {}))) delete w.verified;
       // and a re-pick that PROVES a listing is no longer a placed pin
-      if (op.patch?.verified === 'google' && !('placed' in (op.patch ?? {}))) delete w.placed;
+      if ((op.patch?.verified === 'google' || op.patch?.verified === 'mapbox') && !('placed' in (op.patch ?? {}))) delete w.placed;
       return t;
     }
     case 'set_day_field': {

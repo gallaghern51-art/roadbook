@@ -35,6 +35,7 @@ const DEFAULTS = {
   speedSign: true,     // posted-limit sign
   keepAwake: true,     // wake lock while riding
   learnPlaces: true,   // record evidence from picks and rejections
+  placeData: 'mapbox', // places database: 'mapbox' (this branch's default) | 'google' — engine/placesProvider.js
 };
 
 function load() {
@@ -307,7 +308,19 @@ const ES = {
   'Open at your ETA': 'Abierto a tu hora de llegada',
   'Open now': 'Abierto ahora',
   'Place facts from Google': 'Datos del lugar de Google',
+  'Place facts from Mapbox': 'Datos del lugar de Mapbox',
+  'Place data': 'Datos de lugares',
+  'Mapbox (preview)': 'Mapbox (vista previa)',
   'e.g. 2020 Gold Wing': 'p. ej. Gold Wing 2020',
+  'Which database answers place searches, place pages, dropped-pin names and the live traffic clock. Mapbox keeps place data on the Mapbox map; it has no rating counts, prices or photos in much of the West. The AI planner still verifies its stops with Google.': 'Qué base de datos responde a las búsquedas de lugares, las fichas, los nombres de los pines y el reloj de tráfico en vivo. Mapbox mantiene los datos de lugares en el mapa de Mapbox; en gran parte del Oeste no tiene número de reseñas, precios ni fotos. El planificador con IA sigue verificando sus paradas con Google.',
+  'Beer': 'Cerveza',
+  'Wine': 'Vino',
+  'Vegetarian': 'Vegetariano',
+  'Vegan': 'Vegano',
+  'Brunch': 'Brunch',
+  'Wi-Fi': 'Wi-Fi',
+  'Drive-through': 'Autoservicio',
+  'Wheelchair accessible': 'Accesible en silla de ruedas',
   'Search any place…': 'Buscar cualquier lugar…',
   'Search is not available right now.': 'La búsqueda no está disponible ahora.',
   'Swap': 'Cambiar',

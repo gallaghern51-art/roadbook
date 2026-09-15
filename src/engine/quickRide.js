@@ -28,8 +28,13 @@ const nowClock = () => {
  * @param {{style:string,avoidTolls:boolean}} o.routePrefs
  * @param {object} [o.defaults]  tripDefaults(profile): riders, pace, range…
  */
-// a place from the card (source google + id) or a From pick (placeId) — either end can be a listing
-const placeIdOf = (p) => p?.placeId ?? (p?.source === 'google' && p?.id ? p.id : null);
+// a place from the card (source google|mapbox + id) or a From pick (placeId) — either end can be a listing
+const placeIdOf = (p) => p?.placeId ?? ((p?.source === 'google' || p?.source === 'mapbox') && p?.id ? p.id : null);
+// the stamp names the database that answered — a Mapbox id is never passed off as Google's
+const stampOf = (p) => {
+  const id = placeIdOf(p);
+  return id ? { placeId: id, verified: p?.verified === 'mapbox' || p?.source === 'mapbox' || String(id).startsWith('dXJuOm1ieH') ? 'mapbox' : 'google' } : null;
+};
 export function buildQuickTrip({ start, dest, routePrefs, defaults = {} }) {
   const title = `Ride to ${dest.name}`;
   const trip = {
@@ -55,11 +60,11 @@ export function buildQuickTrip({ start, dest, routePrefs, defaults = {} }) {
       waypoints: [
         {
           id: uid('wp'), kind: 'start', name: start.name || 'Current location', lat: start.lat, lng: start.lng, mile: null, note: '',
-          ...(placeIdOf(start) ? { placeId: placeIdOf(start), verified: 'google' } : {}),
+          ...(stampOf(start) ?? {}),
         },
         {
           id: uid('wp'), kind: 'end', name: dest.name, lat: dest.lat, lng: dest.lng, mile: null, note: dest.detail ?? '',
-          ...(placeIdOf(dest) ? { placeId: placeIdOf(dest), verified: 'google' } : dest.placed ? { placed: dest.placed } : {}),
+          ...(stampOf(dest) ?? (dest.placed ? { placed: dest.placed } : {})),
         },
       ],
     }],

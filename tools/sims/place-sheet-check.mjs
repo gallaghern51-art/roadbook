@@ -9,6 +9,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/place-sheet-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 import { normalizePlace } from '../../netlify/functions/place-details.mjs';
 import { todayIndex, hoursOnly } from '../../src/engine/places.js';
 import { routeMapbox, isMockTile } from './fixtures/mapbox-mock.mjs';
@@ -78,7 +79,7 @@ async function run(width, label) {
   console.log(`\n── ${label} (${width}px) ──`);
   const phone = width < 820;
   const ctx = await browser.newContext({ viewport: { width, height: 820 }, hasTouch: phone, isMobile: phone }); // a phone: (pointer: coarse) → the 44pt rules
-  const page = await ctx.newPage();
+  const page = await ctx.newPage(); await pinGooglePlaces(page); // mocks Google's place functions
   const pageErrors = [];
   page.on('pageerror', (e) => { pageErrors.push(e.message); console.log('PAGEERROR', e.message); });
   const hits = { details: 0, photo: 0, nearby: 0 };

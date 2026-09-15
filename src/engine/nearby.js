@@ -14,6 +14,8 @@
 
 import { projectOnChain, chainCumMiles, haversineMiles } from './tripEngine.js';
 import { valhallaRoute } from './routing.js';
+import { placesProvider, markGoogleUnconfigured } from './placesProvider.js';
+import { mapboxSearch } from './mapboxPlaces.js';
 
 const FN = '/.netlify/functions/nearby-places';
 let skipUntil = 0; // a keyless deploy costs one probe, not one per tap
@@ -89,6 +91,18 @@ export function cuisineLabel(primaryType, types = [], prefer = null) {
  * @param {Array<[number,number]>} [o.route]  [lng,lat] vertices → along-route mode
  */
 export async function searchNearby({ category, subtype = null, query, near, radiusMi = 25, route = null, limit = 8, restrict = false }) {
+  // The Mapbox preview: Search Box behind the same contract, straight from the
+  // browser. Its rows carry weekly periods but no live open flag, so "open
+  // now" is read off the periods here — the same test "open at your ETA" uses.
+  if (placesProvider() === 'mapbox') {
+    const rows = await mapboxSearch({ category, subtype, query, near, radiusMi, route, limit, restrict });
+    const now = new Date();
+    const min = now.getHours() * 60 + now.getMinutes();
+    return rows.map((r) => {
+      const s = openAt(r.periods, min, now.getDay());
+      return { ...r, openNow: s === 'unknown' ? null : s === 'open' };
+    });
+  }
   if (Date.now() < skipUntil) throw new Error('nearby backoff');
   let res;
   try {
@@ -102,6 +116,11 @@ export async function searchNearby({ category, subtype = null, query, near, radi
     throw e;
   }
   if (!res.ok) {
+    // no Google key on this server: this search and every later one go to Mapbox
+    if (res.status === 501) {
+      markGoogleUnconfigured();
+      if (placesProvider() === 'mapbox') return searchNearby({ category, subtype, query, near, radiusMi, route, limit, restrict });
+    }
     skipUntil = Date.now() + (res.status === 501 || res.status === 404 ? 30 : 5) * 60_000;
     throw new Error(`nearby-places ${res.status}`);
   }

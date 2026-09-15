@@ -8,6 +8,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/mapbox-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 import { BASEMAPS, MAPBOX_STYLES, basemapStyle, isStyleLoadError, STYLE_FALLBACK, warmTilesAhead } from '../../src/engine/basemaps.js';
 import { routeMapbox, isMockTile, mbLog } from './fixtures/mapbox-mock.mjs';
 import { seedRideAck } from './fixtures/ride-ack.mjs';
@@ -34,7 +35,7 @@ const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '
 
 async function open(styleStatus) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  const page = await ctx.newPage();
+  const page = await ctx.newPage(); await pinGooglePlaces(page); // mocks Google's place functions
   const pageErrors = [];
   page.on('pageerror', (e) => { pageErrors.push(e.message); console.log('PAGEERROR', e.message); });
   await page.route('**/*', (r) => {

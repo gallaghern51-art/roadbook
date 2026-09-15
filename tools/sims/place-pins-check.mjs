@@ -12,6 +12,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/place-pins-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
@@ -59,7 +60,7 @@ async function run(width, label) {
   console.log(`\n── ${label} (${width}px) ──`);
   const phone = width < 820;
   const ctx = await browser.newContext({ viewport: { width, height: 800 } });
-  const page = await ctx.newPage();
+  const page = await ctx.newPage(); await pinGooglePlaces(page); // mocks Google's place functions
   page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
   await page.route('**/*', (r) => {
     const u = r.request().url();
