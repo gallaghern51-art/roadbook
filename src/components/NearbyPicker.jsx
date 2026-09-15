@@ -32,6 +32,7 @@ export default function NearbyPicker({
   tapped = null,   // {id, at} — a pin the rider tapped on the map: expand that row, scroll to it
   area = null,     // {lat, lng, at} — the rider pressed "Search this area" on the map
   halfSheet = false, // phone: the panel is a half sheet over the map — keep the picker at its top
+  inlineDetail = false, // the home drawer on a desktop: Details opens in place of the list, not as a modal
 }) {
   const t = useT();
   const u = useUnits();
@@ -300,6 +301,7 @@ export default function NearbyPicker({
         const pickLabel = mode === 'swap' ? t('Use this instead') : mode === 'ride' ? t('Add ahead') : t('Add to the day');
         return (
           <PlaceSheet
+            inline={inlineDetail ? 'desktop' : false}
             place={{ ...detail, placeId: detail.id }}
             glyph={CATEGORIES.find((c) => c.id === cat)?.glyph ?? '📍'}
             kicker={cat === 'food' ? cuisineLabel(detail.primaryType, detail.types, sub) : (CATEGORIES.find((c) => c.id === cat)?.label ?? '')}

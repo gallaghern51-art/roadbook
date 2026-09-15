@@ -4752,9 +4752,54 @@ input:focus, textarea:focus, select:focus {
   .hm-handle { display: none; }
   .basemap-switch.hm-layers { top: 100px; }
   .hm-fabs { right: 16px; bottom: 16px; } /* the drawer is on the left; nothing under the column */
+  /* the desktop column sits at the middle of the right edge, Near me on top of
+     the round buttons, all right-aligned (Home adds .desk off the phone layout) */
+  .hm-fabs.desk { top: 50%; bottom: auto; transform: translateY(-50%); align-items: flex-end; }
+  .hm-fabs.desk .hm-near { position: static; }
   .map-area-btn.hm-area { top: 100px; }
   .hm-near { left: 16px; top: 108px; }
   .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
+}
+
+/* Desktop home, two field notes (owner, Sep 14 2026, screenshots): a place's
+   Details opened as a centred modal over a blurred map — "why not keep it in
+   the left tab like you do in mobile?" — and typing in the nav bar's pill moved
+   the search into the drawer — "just have it be handled from drop down screen
+   from search". So the place page renders INLINE in the drawer, in place of the
+   card or the picker's list it came from (PlaceSheet `inline="desktop"`; the ✕
+   goes back), and the pill IS the field, its answers a dropdown under it. */
+.place-sheet.ps-inline { display: flex; flex-direction: column; margin: 0 -16px; }
+.ps-inline .ps-hero { border-radius: 0; }
+.ps-inline .modal-head { padding: 4px 16px 12px; }
+.ps-inline .modal-body { padding: 12px 16px; }
+.ps-inline .modal-foot { flex-wrap: wrap; padding: 12px 16px 4px; }
+/* the chip picker's list stays mounted behind its Details (the search, the rows and
+   the pins survive the round trip); the home card is simply not rendered behind its page */
+.nearby:has(> .ps-inline) > :not(.ps-inline) { display: none; }
+@media (min-width: 821px) {
+  .hm-top.searching { z-index: 7; } /* the dropdown hangs over the drawer, not under it */
+  /* A place is as tall as what it has to say, not the whole screen (owner: "does
+     the left side tab on desktop even need to be that big? … the details info
+     doesn't take up the whole tab size") — the full height was sized for the
+     trips library, and a chip's list still gets it. A long page scrolls inside. */
+  .hm-sheet.place, .hm-sheet.place[data-state] { bottom: auto; max-height: calc(100% - 100px); }
+  .hm-search.dropdown {
+    position: relative; inset: auto; z-index: auto; flex: 1 1 auto; min-width: 0; max-width: 520px; width: auto;
+    display: block; padding: 0; overflow: visible; background: none; backdrop-filter: none; border: 0; border-radius: 0;
+  }
+  .hm-pill.hm-pill-input { width: 100%; max-width: none; cursor: text; border-color: var(--route); }
+  .hm-pill-input .hm-input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--ink); font-size: 16px; outline: none; } /* 16px like every field: no zoom on focus */
+  .hm-pill-input .hm-input::placeholder { color: var(--ink-faint); }
+  /* the pill's own turquoise border is the focus cue; the input's global focus
+     ring would draw a second box inside it (a stray line beside the ✕) */
+  .hm-pill-input .hm-input:focus, .hm-pill-input .hm-input:focus-visible { box-shadow: none; outline: none; }
+  .hm-pill-x { flex: none; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink-dim); font-size: 15px; display: grid; place-items: center; }
+  .hm-pill-x:hover { color: var(--ink); background: var(--line-soft); }
+  .hm-dropdown {
+    position: absolute; top: calc(100% + 8px); left: 0; width: max(100%, 440px); max-height: min(70vh, 560px);
+    overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; padding: 10px;
+    background: var(--asphalt-1); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-float);
+  }
 }
 
 /* The pin's honesty tags: a placed spot is quiet (turquoise ring, the map's
@@ -4793,6 +4838,15 @@ input:focus, textarea:focus, select:focus {
   max-width: min(68ch, 100%);
 }
 .set-block .set-section { display: flex; flex-direction: column; gap: 12px; }
+/* A place card's or sheet's close is a real button at EVERY width (owner, Sep
+   14 2026: "on desktop the X button is super small when you click on
+   location") — without this the home card's ✕ was the 10px mono .mini-edit
+   glyph with 1px of padding. 40px with a mouse; the touch rule below makes it 48. */
+.modal .sheet-x, .ps-head .btn, .hm-place-head .mini-edit, .poi-head .mini-edit, .nb-head .mini-edit {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-width: 40px; min-height: 40px; width: 40px; height: 40px; padding: 0; margin-left: 0;
+  font-size: 18px; line-height: 1;
+}
 /* Big enough for a glove (owner: "make the buttons big enough for someone on
    a bike, like the X button"): every sheet's close and head buttons are 48pt
    on a touch layout; the settings jump links too. */
