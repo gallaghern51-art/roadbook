@@ -14,6 +14,7 @@ import { CATEGORIES, searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineL
 import { hoursOnly, todayIndex, reverseGeocode, coordLabel } from '../engine/places.js';
 import InstallPrompt from './InstallPrompt.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
+import { useIsMobile } from '../hooks/useMediaQuery.js';
 import HomeMap from './HomeMap.jsx';
 import { BASEMAPS } from '../engine/basemaps.js';
 import PlaceSheet from './PlaceSheet.jsx';
@@ -207,6 +208,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const [area, setArea] = useState(null);     // the chip pressed: the picker searches the map centre
   const onCenter = (c, { bounds, hand } = {}) => { if (c) setCenter(c); if (bounds) setView(bounds); if (hand) setMoved(true); };
   const [searching, setSearching] = useState(false);
+  // phone vs desktop: the search is a full screen or a dropdown under the pill
+  const isPhone = useIsMobile();
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
   const surface = place ? 'place' : chip ? 'pick' : null;
   const surfaceRef = useRef(surface);
@@ -374,13 +377,24 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         onPoi={(poi) => { if (poi) showPlace(poi); else if (dropped) cancelDrop(); else if (place) { setPlace(null); lowerAfter(); } else if (!chip) stepDown(); }} // a tap on open map: the pin goes, the card closes, or the sheet steps down
       />
 
-      <div className="hm-top">
+      <div className={`hm-top${searching && !isPhone ? ' searching' : ''}`}>
         <div className="hm-pillrow">
           <div className="hm-brand" aria-hidden="true"><RoadbookBrand beta /></div>
-          <button className="hm-pill" onClick={() => setSearching(true)} aria-label={t('Search a place, or describe a ride')}>
-            <SearchGlyph />
-            <span>{t('Where do you want to ride?')}</span>
-          </button>
+          {/* on a desktop the pill becomes the field and its answers drop down under it */}
+          {searching && !isPhone ? (
+            <HomeSearch
+              variant="dropdown"
+              near={near}
+              onClose={() => setSearching(false)}
+              onPlan={(q) => { setSearching(false); onNewTrip({ tab: 'ai', prompt: q }); }}
+              onPick={(row) => { setSearching(false); setChip(null); showPlace(rowToPoi(row), row); }}
+            />
+          ) : (
+            <button className="hm-pill" onClick={() => setSearching(true)} aria-label={t('Search a place, or describe a ride')}>
+              <SearchGlyph />
+              <span>{t('Where do you want to ride?')}</span>
+            </button>
+          )}
           <button className={`hm-tripsbtn${drawer ? ' active' : ''}`} onClick={() => { setDrawer(!drawer); setPlace(null); setChip(null); }} aria-pressed={drawer}>{t('Your trips')} <span className="cnt">{cards.length}</span></button>
           <button className="hm-round" onClick={onSettings} aria-label={t('Settings')}><SettingsIcon /></button>
         </div>
@@ -439,7 +453,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         ? <div className="hm-drop-hint mono" role="status" aria-live="polite">◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {t('✓ to use it')}</div>
         : fix && <button type="button" className="hm-near mono" onClick={goToMe} title={t('Near me')}>{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</button>}
 
-      {searching && (
+      {/* the phone's search is a screen of its own; the desktop's hangs under the pill (above) */}
+      {searching && isPhone && (
         <HomeSearch
           near={near}
           onClose={() => setSearching(false)}
@@ -468,6 +483,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
             />
           ) : chip ? (
             <NearbyPicker
+              inlineDetail
               mode="add"
               near={near}
               routePrefs={quickDefaults?.routePrefs}
@@ -600,6 +616,11 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const t = useT();
   const u = useUnits();
+  // On a desktop the drawer opens straight onto the place's full page: there is
+  // room, and a card whose main job was leading to Details was one click too
+  // many (owner, Sep 14 2026: "why not just show full details for it to begin
+  // with?"). A phone keeps the compact card at the sheet's peek.
+  const isPhone = useIsMobile();
   const placed = poi.placed ?? null; // a dropped pin: nothing to look up, nothing to verify
   const looked = usePoiMatch(row || placed ? null : poi);
   // Ride here opens the one thing a map app will not offer a motorcyclist —
@@ -626,7 +647,9 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const natural = !row && !placed && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
   const cat = poiCategory(poi.cls, poi.subclass) ?? (match?.primaryType?.includes('gas') ? 'fuel' : null);
   const glyph = placed ? '◎' : row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
-  const [details, setDetails] = useState(false);
+  const [details, setDetails] = useState(!isPhone);
+  // a different place opens on its own page again (desktop), never mid-ride-strip
+  useEffect(() => { setDetails(!isPhone); setConfirm(false); }, [poi?.lat, poi?.lng, row?.id, isPhone]); // eslint-disable-line react-hooks/exhaustive-deps
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: 'google', verified: 'google' }
     : placed
@@ -638,6 +661,26 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
     : [match && cat === 'food' ? cuisineLabel(match.primaryType, match.types) : '', elev, poi.subclass || poi.cls].filter(Boolean).join(' · ').replace(/_/g, ' ');
   const dist = fix ? `${u.miNum(haversineMiles(fix, poi))} ${u.miUnit} ${t('from you')}` : '';
   const hours = Array.isArray(match?.hours) && match.hours.length ? match.hours : null;
+  // The place's full page. It carries everything the card said (the lookup note,
+  // a placed tag, the distance) because on a desktop it is the first and only
+  // thing shown — the card is not rendered behind it — and there its ✕ closes
+  // the place. On a phone it opens from the card's Details as the bottom sheet
+  // and its ✕ goes back to the card.
+  const sheet = details ? (
+    <PlaceSheet
+      inline="desktop"
+      place={place} glyph={glyph} kicker={kicker}
+      note={placed ? t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.')
+        : natural ? t('A place on the map, not a listed business — it will be added as a placed pin.')
+        : match === undefined ? t('Checking the listing…')
+        : match === null ? t('No listing found here — it will be added as an unverified stop.')
+        : null}
+      facts={placed || dist ? <>{placed && <span className="tag placed">◎ {t('placed')}</span>}{dist && <span className="nb-note">{dist}</span>}</> : null}
+      onClose={isPhone ? () => setDetails(false) : onClose}
+      actions={(<><button className="btn gold" disabled={match === undefined} onClick={() => { setDetails(false); setConfirm(true); }}>{t('Ride here')}</button><button className="btn" disabled={match === undefined} onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
+    />
+  ) : null;
+  if (sheet && !isPhone) return <div className={`hm-place${placed ? ' placed' : ''}`} role="dialog" aria-label={place.name}>{sheet}</div>;
   return (
     <div className={`hm-place${placed ? ' placed' : ''}`} role="dialog" aria-label={place.name}>
       <div className="hm-place-head">
@@ -703,7 +746,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
           </div>
                 <div className="hm-place-actions">
                   <button className="btn gold" disabled={!start || !end} onClick={go}>▶ {t('Go')}</button>
-                  <button className="btn" onClick={() => setConfirm(false)}>{t('Back')}</button>
+                  <button className="btn" onClick={() => { setConfirm(false); if (!isPhone) setDetails(true); }}>{t('Back')}</button>
                 </div>
               </>
             );
@@ -716,27 +759,25 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
           {match && <button className="btn" onClick={() => setDetails(true)}>{t('Details')}</button>}
         </div>
       )}
-      {details && (
-        <PlaceSheet
-          place={place} glyph={glyph} kicker={kicker}
-          facts={dist ? <span className="nb-note">{dist}</span> : null}
-          onClose={() => setDetails(false)}
-          actions={(<><button className="btn gold" onClick={() => { setDetails(false); setConfirm(true); }}>{t('Ride here')}</button><button className="btn" onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
-        />
-      )}
+      {/* a phone: Details opens the page as the bottom sheet over the card */}
+      {sheet}
     </div>
   );
 }
 
 // The pill, opened: a place name searches the map near you; a sentence is a
 // plan and the builder opens with it — the same words, both doors.
-function HomeSearch({ near, onClose, onPlan, onPick }) {
+// On a phone it is a full screen of its own; on a desktop (`variant="dropdown"`)
+// the pill in the nav bar IS the field and the answers drop down under it —
+// the drawer is left alone (owner, Sep 14 2026: "just have it be handled from
+// drop down screen from search").
+function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen' }) {
   const t = useT();
-  const u = useUnits();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
+  const boxRef = useRef(null);
   const timer = useRef(null);
   const recent = useMemo(loadRecent, []);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -751,14 +792,50 @@ function HomeSearch({ near, onClose, onPlan, onPick }) {
     }, 350);
     return () => clearTimeout(timer.current);
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the dropdown closes on a press anywhere outside it, like any other menu
+  useEffect(() => {
+    if (variant !== 'dropdown') return undefined;
+    const onDown = (e) => { if (!boxRef.current?.contains(e.target)) onClose(); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [variant]); // eslint-disable-line react-hooks/exhaustive-deps
   const plan = q.trim().length > 0 && readsAsPlan(q);
+  const input = (
+    <input ref={inputRef} className="hm-input" value={q} placeholder={t('Search a place, or describe a ride')} onChange={(e) => setQ(e.target.value)}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); if (e.key === 'Enter' && plan) onPlan(q.trim()); }} />
+  );
+  if (variant === 'dropdown') {
+    return (
+      <div ref={boxRef} className="hm-search dropdown">
+        <label className="hm-pill hm-pill-input">
+          <SearchGlyph />
+          {input}
+          <button type="button" className="hm-pill-x" onClick={onClose} aria-label={t('Close')}>✕</button>
+        </label>
+        <div className="hm-dropdown" aria-label={t('Search a place, or describe a ride')}>
+          <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="hm-search" role="dialog" aria-label={t('Search a place, or describe a ride')}>
       <div className="hm-pillrow">
         <button className="hm-round" onClick={onClose} aria-label={t('Back')}>‹</button>
-        <input ref={inputRef} className="hm-input" value={q} placeholder={t('Search a place, or describe a ride')} onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') onClose(); if (e.key === 'Enter' && plan) onPlan(q.trim()); }} />
+        {input}
       </div>
+      <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} />
+    </div>
+  );
+}
+
+// What the search offers under the field — the AI door, the places, recents —
+// the same list in the phone's full screen and the desktop's dropdown.
+function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick }) {
+  const t = useT();
+  const u = useUnits();
+  return (
+    <>
       {q.trim().length > 0 && (
         <button className={`hm-ai${plan ? ' lead' : ''}`} onClick={() => onPlan(q.trim())}>
           <span className="hm-ai-glyph" aria-hidden="true">✦</span>
@@ -793,7 +870,7 @@ function HomeSearch({ near, onClose, onPlan, onPick }) {
           </ul>
         </>
       )}
-    </div>
+    </>
   );
 }
 

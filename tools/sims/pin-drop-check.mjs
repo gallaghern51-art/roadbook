@@ -289,12 +289,14 @@ async function run(width, label) {
   await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
   const s4 = await page.evaluate(() => {
     const el = document.querySelector('.hm-place');
-    return { text: el.innerText, tag: el.querySelector('.tag.placed')?.textContent ?? '', btns: [...el.querySelectorAll('.hm-place-actions .btn')].map((b) => b.textContent.trim()), pin: !!document.querySelector('.drop-pin') };
+    // visible buttons only: a phone shows the compact card, a desktop opens straight
+    // onto the full place page in the drawer (the card's own buttons sit hidden behind it)
+    return { text: el.innerText, tag: el.querySelector('.tag.placed')?.textContent ?? '', btns: [...el.querySelectorAll('.btn')].filter((b) => b.offsetParent !== null).map((b) => b.textContent.trim()), pin: !!document.querySelector('.drop-pin') };
   });
   check(s4.tag.includes('placed') && /A spot you placed on the map/.test(s4.text) && /US-14A, Lovell/.test(s4.text), `✓ opens the card as a PLACED spot named by its road (${s4.tag})`);
-  check(s4.btns[0] === 'Ride here' && s4.btns[1] === 'Add to a trip' && !s4.btns.includes('Details') && s4.pin, `Ride here · Add to a trip — no Details for a spot with no listing; the pin stays up under the card (${s4.btns.join(' · ')})`);
+  check(s4.btns.includes('Ride here') && s4.btns.includes('Add to a trip') && !s4.btns.includes('Details') && s4.pin, `Ride here · Add to a trip — no Details for a spot with no listing; the pin stays up under the card (${s4.btns.join(' · ')})`);
   await page.screenshot({ path: SHOT(`pin-drop-home-card-${width}`) });
-  await page.locator('.hm-place .mini-edit').click();
+  await page.locator('.hm-place [aria-label="Close"]:visible').first().click();
   await page.waitForTimeout(300);
   check(await page.locator('.drop-pin').count() === 0, 'closing the card takes the pin with it');
 
@@ -304,7 +306,7 @@ async function run(width, label) {
   await page.waitForFunction(() => /US-14A/.test(document.querySelector('.hm-drop-hint')?.innerText ?? ''), null, { timeout: 6000 }).catch(() => {});
   await page.locator('.drop-pin .dp-act.confirm').click();
   await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
-  await page.locator('.hm-place-actions .btn', { hasText: 'Add to a trip' }).click();
+  await page.locator('.hm-place .btn:visible', { hasText: 'Add to a trip' }).click();
   await page.waitForSelector('.hm-addto-row.lead', { timeout: 5000 });
   await page.locator('.hm-addto-row.lead').click();
   await page.waitForSelector('.modebar', { timeout: 8000 });
@@ -374,7 +376,7 @@ async function run(width, label) {
   await page.waitForSelector('.drop-pin', { state: 'attached', timeout: 6000 });
   await page.locator('.drop-pin .dp-act.confirm').click();
   await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
-  await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
+  await page.locator('.hm-place .btn:visible', { hasText: 'Ride here' }).click(); // the card's on a phone, the full page's on a desktop
   await page.waitForSelector('.hm-ride-confirm .btn.gold', { timeout: 5000 });
   await page.locator('.hm-ride-confirm .btn.gold').click();
   await page.waitForSelector('.ride-bar', { timeout: 15000 });

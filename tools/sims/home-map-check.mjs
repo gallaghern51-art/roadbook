@@ -283,13 +283,19 @@ async function run(width, label) {
   await page.waitForSelector('.hm-sheet .nb-actions .btn.gold', { timeout: 5000 });
   await page.locator('.hm-sheet .nb-actions .btn.gold').click();
   await page.waitForSelector('.hm-place', { timeout: 5000 });
-  const s4 = await page.evaluate(() => ({ text: document.querySelector('.hm-place').innerText, pins: document.querySelectorAll('.pl-pin').length, btns: [...document.querySelectorAll('.hm-place-actions .btn')].map((b) => b.textContent.trim()) }));
+  const s4 = await page.evaluate(() => ({ text: document.querySelector('.hm-place').innerText, pins: document.querySelectorAll('.pl-pin').length, page: !!document.querySelector('.hm-place .ps-inline'), btns: [...document.querySelectorAll('.hm-place .btn')].filter((b) => b.offsetParent !== null).map((b) => b.textContent.trim()) }));
   check(/Cowboy Cafe/.test(s4.text) && /★ 4\.4/.test(s4.text) && /Open now/.test(s4.text) && /Today 7:00 AM/.test(s4.text), 'picking a row makes it the sheet\'s card with its facts');
-  check(s4.btns[0] === 'Ride here' && s4.btns[1] === 'Add to a trip' && s4.btns[2] === 'Details' && s4.pins === 1, `Ride here · Add to a trip · Details; the picker's pins give way to the card's one pin (${s4.pins})`);
+  // a phone gets the compact card (Ride here · Add to a trip · Details); a desktop
+  // opens straight onto the place's full page in the drawer (owner, Sep 14 2026:
+  // "why not just show full details for it to begin with?"), its actions at the foot
+  check((phone
+    ? !s4.page && s4.btns.includes('Ride here') && s4.btns.includes('Add to a trip') && s4.btns.includes('Details')
+    : s4.page && s4.btns.includes('Ride here') && s4.btns.includes('Add to a trip') && !s4.btns.includes('Details')) && s4.pins === 1,
+    `${phone ? 'the card: Ride here · Add to a trip · Details' : 'the drawer opens on the full place page: Ride here · Add to a trip, no Details step'}; the picker's pins give way to the place's one pin (${s4.pins})`);
   await page.screenshot({ path: SHOT(`home-map-place-${width}`) });
 
   // 4. Add to a trip → the day whose route passes it, in route order, verified
-  await page.locator('.hm-place-actions .btn', { hasText: 'Add to a trip' }).click();
+  await page.locator('.hm-place .btn:visible', { hasText: 'Add to a trip' }).click();
   await page.waitForSelector('.hm-addto', { timeout: 5000 });
   const s5 = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.hm-addto-row')].map((r) => r.innerText), lead: document.querySelector('.hm-addto-row.lead')?.innerText ?? '' }));
   check(/GRANITE/.test(s5.lead) && /Wed 08-12/.test(s5.lead) && /Nearest day/.test(s5.lead), `the trip whose route passes closest leads, day pre-picked (${s5.lead.split('\n')[0]})`);
@@ -337,7 +343,7 @@ async function run(width, label) {
   const halo = await page.evaluate(() => { const el = document.querySelector('.pl-pin'); return el ? { n: document.querySelectorAll('.pl-pin').length, halo: el.classList.contains('pl-halo'), glyphShown: getComputedStyle(el.querySelector('.pl-glyph')).display !== 'none', labelShown: getComputedStyle(el.querySelector('.pl-label')).display !== 'none', w: el.getBoundingClientRect().width } : null; });
   check(halo && halo.n === 1 && halo.halo && !halo.glyphShown && !halo.labelShown && halo.w >= 40, `a tapped POI gets a halo around the map's own icon, not a second pin (${JSON.stringify(halo)})`);
   check(/Cowboy Cafe/.test(await page.locator('.hm-place').innerText()) && /from you/.test(await page.locator('.hm-place').innerText()), 'a tapped POI resolves against Google and reads its distance from you');
-  await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
+  await page.locator('.hm-place .btn:visible', { hasText: 'Ride here' }).click(); // the card's on a phone, the full page's on a desktop
   await page.waitForSelector('.hm-ride-confirm', { timeout: 5000 });
   check(await page.locator('.hm-ride-confirm .qk-roads button').count() === 3, 'Ride here opens the Roads + tolls strip on the card');
   await page.locator('.hm-ride-confirm .btn.gold').click();
@@ -360,8 +366,8 @@ async function run(width, label) {
     await page.waitForTimeout(600);
     const txt = await page.locator('.hm-place').innerText();
     check(calls.length === before && /placed pin/.test(txt) && !/Checking the listing|unverified/.test(txt), 'a forest is a placed pin: no Places call, no "no listing"');
-    check(!(await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).isDisabled()) && (await page.locator('.hm-place .poi-glyph').textContent()) === '🌲', 'Ride here is live at once and it wears the park glyph');
-    await page.locator('.hm-place .mini-edit').click();
+    check(!(await page.locator('.hm-place .btn:visible', { hasText: 'Ride here' }).isDisabled()) && (await page.locator('.hm-place .poi-glyph:visible').first().textContent()) === '🌲', 'Ride here is live at once and it wears the park glyph');
+    await page.locator('.hm-place [aria-label="Close"]:visible').first().click(); // the card's ✕ on a phone, the full page's on a desktop
     await page.waitForTimeout(300);
   }
   // "Search this area": a hand pan while the picker is open offers a re-search at the map centre
@@ -438,7 +444,8 @@ async function run(width, label) {
   await page.locator('.hm-results button').first().click();
   await page.waitForSelector('.hm-place', { timeout: 5000 });
   await page.waitForTimeout(900);
-  const s8 = await page.evaluate(() => { const c = window.__homeMap.getCenter(); return { name: document.querySelector('.hm-place b')?.textContent, center: [c.lng, c.lat], search: !!document.querySelector('.hm-search') }; });
+  // the name: the full page's heading on a desktop, the card's title on a phone
+  const s8 = await page.evaluate(() => { const c = window.__homeMap.getCenter(); return { name: (document.querySelector('.hm-place .ps-head h3') ?? document.querySelector('.hm-place .poi-title b'))?.textContent, center: [c.lng, c.lat], search: !!document.querySelector('.hm-search') }; });
   check(s8.name === 'Granite Diner' && !s8.search && Math.abs(s8.center[1] - 44.06) < 0.02 && Math.abs(s8.center[0] + 107.95) < 0.02, 'Show closes the search, opens the card and flies the map there');
   // the card's place is a pin on the map (owner: "when I look up a location it doesn't drop a pin")
   await page.waitForFunction(() => document.querySelectorAll('.pl-pin').length === 1, null, { timeout: 3000 }).catch(() => {});
@@ -453,7 +460,7 @@ async function run(width, label) {
     return r;
   });
   check(Object.values(contrast).length >= 3 && Object.values(contrast).every((l) => l > 0.6), `light theme: the pill, chips and buttons keep light ink on the dark glass (${JSON.stringify(contrast)})`);
-  await page.locator('.hm-place .mini-edit').click();
+  await page.locator('.hm-place [aria-label="Close"]:visible').first().click(); // the card's ✕ on a phone, the full page's on a desktop
   await page.locator('.hm-pill').click();
   await page.fill('.hm-input', '4 riders, 3 days, Granite loop, back roads');
   await page.waitForTimeout(600);

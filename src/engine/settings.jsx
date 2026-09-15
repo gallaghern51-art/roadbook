@@ -307,6 +307,7 @@ const ES = {
   'Open at your ETA': 'Abierto a tu hora de llegada',
   'Open now': 'Abierto ahora',
   'Place facts from Google': 'Datos del lugar de Google',
+  'e.g. 2020 Gold Wing': 'p. ej. Gold Wing 2020',
   'Search any place…': 'Buscar cualquier lugar…',
   'Search is not available right now.': 'La búsqueda no está disponible ahora.',
   'Swap': 'Cambiar',
