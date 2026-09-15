@@ -73,9 +73,9 @@ export default function PlacesPanel({ profile, onSave, onRemove }) {
       address: r.detail ?? '',
       lat: r.lat,
       lng: r.lng,
-      // Google's id is a real place identity the router can aim at; Nominatim's
-      // is not, and must never ride along pretending to be one.
-      placeId: r.source === 'google' && r.id ? r.id : null,
+      // Google's and Mapbox's ids are real place identities; Nominatim's is
+      // not, and must never ride along pretending to be one.
+      placeId: (r.source === 'google' || r.source === 'mapbox') && r.id ? r.id : null,
     });
     setQ('');
     setResults([]);

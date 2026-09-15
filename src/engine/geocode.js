@@ -1,6 +1,9 @@
 // Live place lookup. Google Places (via the google-places Netlify function —
-// key stays server-side) with OpenStreetMap Nominatim as the always-works
-// fallback. Shared by the add-stop search and the stop editor's autocomplete.
+// key stays server-side), or Mapbox Search Box in the Mapbox preview, with
+// OpenStreetMap Nominatim as the always-works fallback. Shared by the add-stop
+// search and the stop editor's autocomplete.
+import { placesProvider, markGoogleUnconfigured } from './placesProvider.js';
+import { mapboxGeocode } from './mapboxPlaces.js';
 
 const PLACES_FN = '/.netlify/functions/google-places';
 let gSkipUntil = 0; // one failed probe backs off instead of failing every keystroke
@@ -19,6 +22,7 @@ async function googlePlaces(query, near) {
     throw e;
   }
   if (!res.ok) {
+    if (res.status === 501) markGoogleUnconfigured(); // no key on this server
     gSkipUntil = Date.now() + (res.status === 501 || res.status === 404 ? 30 : 5) * 60_000;
     throw new Error(`google-places ${res.status}`);
   }
@@ -45,11 +49,21 @@ async function nominatim(query) {
   }));
 }
 
+async function viaMapbox(query, near) {
+  try {
+    const rows = await mapboxGeocode(query, near);
+    if (rows.length) return rows;
+  } catch { /* fall through to OSM */ }
+  return nominatim(query);
+}
+
 // `near` (optional {lat,lng}) biases results toward the day being edited.
 export async function geocode(query, near) {
+  if (placesProvider() === 'mapbox') return viaMapbox(query, near);
   try {
     return await googlePlaces(query, near);
   } catch {
-    return nominatim(query);
+    // a 501 just told us this server has no Google key — Mapbox answers instead
+    return placesProvider() === 'mapbox' ? viaMapbox(query, near) : nominatim(query);
   }
 }

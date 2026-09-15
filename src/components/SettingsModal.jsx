@@ -90,7 +90,7 @@ const SECTION_LEAD = Object.fromEntries(SECTIONS.map((s) => [s.id, s.lead]));
 
 export default function SettingsModal({ sync, auth, backup, profile, onCreateAccount, onHelp, onLegal }) {
   const s = useSettings();
-  const { lang, theme, units, shields, density, basemap, terrain, voice, speedSign, keepAwake, set } = s;
+  const { lang, theme, units, shields, density, basemap, terrain, voice, speedSign, keepAwake, placeData: places, set } = s;
   const t = useT();
   const { state } = useTrip();
   const [tab, setTab] = useState('account');
@@ -213,6 +213,11 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 options={[[true, t('On')], [false, t('Off')]]}
                 note={t('Real route signage drawn on the road you are on, over the basemap.')}
               />
+              <Seg
+                label={t('Place data')} value={places} onPick={(v) => set({ placeData: v })}
+                options={[['mapbox', 'Mapbox'], ['google', 'Google']]}
+                note={t('Which database answers place searches, place pages, dropped-pin names and the live traffic clock. Mapbox keeps place data on the Mapbox map; it has no rating counts, prices or photos in much of the West. The AI planner still verifies its stops with Google.')}
+              />
             </div>
           </section>
 
@@ -305,7 +310,7 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
                 <span className="set-label">{t('Credits')}</span>
                 <p>
                   Maps © Mapbox, © OpenStreetMap contributors (fallback imagery © Esri, Maxar, Earthstar Geographics) · Routing by Valhalla and OSRM
-                  {' '}· Places by Google · Highway shields from Wikimedia Commons · Weather by Open-Meteo
+                  {' '}· Places by {places === 'mapbox' ? 'Mapbox' : 'Google'} · Highway shields from Wikimedia Commons · Weather by Open-Meteo
                 </p>
               </div>
               <div className="set-row">

@@ -8,6 +8,7 @@ import {
 } from '../engine/tripEngine.js';
 import { viewGate } from '../engine/mapVis.js';
 import { routeDaySteps, routeFrom, trafficEta } from '../engine/routing.js';
+import { placeStamp } from '../engine/placesProvider.js';
 import NearbyPicker from './NearbyPicker.jsx';
 import RideQuickAdd from './RideQuickAdd.jsx';
 import PlacePins from './PlacePins.jsx';
@@ -1443,7 +1444,7 @@ export default function RideMode({ onClose }) {
       kind: fuel ? 'fuel' : 'via',
       ...(fuel ? { fuel: true } : {}),
       // straight out of the live places database — proved on arrival
-      ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
+      ...placeStamp(r),
     };
     dispatch({ type: 'apply_ops', ops: [{ op: 'add_waypoint', dayId: day.id, index: at, waypoint: wp }] });
     setSheetOpen(false);

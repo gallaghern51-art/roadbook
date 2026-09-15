@@ -10,6 +10,7 @@ import { dayTimeline, fmtTime, fmtDur, to24h, from24h, parseTime } from '../engi
 import NearbyPicker from './NearbyPicker.jsx';
 import { Sheet } from './Sheets.jsx';
 import { gateSlack } from '../engine/nearby.js';
+import { placeStamp, isVerifiedStamp } from '../engine/placesProvider.js';
 import { tripRoutePrefs, alongOnRoute, tripRange } from '../engine/tripEngine.js';
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
@@ -39,7 +40,7 @@ export function VerifyTag({ on, placed, t, onPlace }) {
       ? <button className="tag unverified act" title={title} onClick={onPlace}>{label}</button>
       : <span className="tag unverified" title={title}>{label}</span>;
   }
-  if (on === 'google' || on === 'model') {
+  if (isVerifiedStamp(on)) {
     return <span className="tag verified" title={t('Checked against the live places database — this is a real business at these coordinates.')}>✓</span>;
   }
   if (placed) {
@@ -525,7 +526,7 @@ function DayAddPicker({ day, dispatch, routes, timeline, trip }) {
         index: insertIndexOnRoute(day.waypoints, chain, pt) ?? bestInsertIndex(day.waypoints, pt),
         waypoint: {
           name: r.name, ...pt, kind: fuel ? 'fuel' : 'via', ...(fuel ? { fuel: true } : {}), note: r.detail ?? '',
-          ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}),
+          ...placeStamp(r),
         },
       }],
     });
@@ -570,7 +571,7 @@ function SwapPicker({ day, w, sched, next, dispatch, routes, trip, onClose }) {
         op: 'update_waypoint', dayId: day.id, waypointId: w.id,
         patch: {
           name: r.name, lat: r.lat, lng: r.lng, note: r.detail ?? w.note ?? '', mile: null,
-          ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : { placeId: undefined }),
+          ...((r.source === 'google' || r.source === 'mapbox') && r.id ? placeStamp(r) : { placeId: undefined }),
         },
       }],
     });
@@ -619,7 +620,7 @@ function MealSwapPicker({ day, meal, dispatch, onClose }) {
       type: 'apply_ops',
       ops: [{
         op: 'update_meal', dayId: day.id, meal: meal.meal,
-        patch: { name: r.name, where: r.detail ?? '', lat: r.lat, lng: r.lng, ...(r.source === 'google' && r.id ? { placeId: r.id, verified: 'google' } : {}) },
+        patch: { name: r.name, where: r.detail ?? '', lat: r.lat, lng: r.lng, ...placeStamp(r) },
       }],
     });
     onClose();

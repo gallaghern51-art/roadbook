@@ -5,6 +5,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/quick-ride-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
@@ -37,7 +38,7 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM
   ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/opt/pw-browsers/chromium');
 const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, geolocation: { latitude: HERE.lat, longitude: HERE.lng }, permissions: ['geolocation'] });
-const page = await ctx.newPage();
+const page = await ctx.newPage(); await pinGooglePlaces(page); // mocks Google's place functions
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (r) => {
   const u = r.request().url();

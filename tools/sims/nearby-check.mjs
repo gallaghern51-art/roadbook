@@ -9,6 +9,7 @@
 //   npm run dev    # :5199
 //   node tools/sims/nearby-check.mjs
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
+import { pinGooglePlaces } from './fixtures/google-places.mjs';
 import { seedRideAck } from './fixtures/ride-ack.mjs';
 
 const SHOT = (n) => new URL(`./shots/${n}.png`, import.meta.url).pathname;
@@ -60,6 +61,7 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM
   ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/opt/pw-browsers/chromium');
 const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 375, height: 800 } });
+await pinGooglePlaces(page); // this sim mocks Google's place functions
 page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.route('**/*', (r) => {
   const u = r.request().url();

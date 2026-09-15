@@ -25,7 +25,9 @@ export function rowsForPlaceEvent(accountId, action, places, { optionId = null, 
   if (!accountId || !ACTION_WEIGHT[action]) return [];
   const seen = new Set();
   return (places ?? []).filter((place) => {
-    if (!KINDS.has(place.kind) || !place.placeId || seen.has(place.placeId)) return false;
+    // the history is keyed by Google place id (the planner ranks by it); a
+    // Mapbox id from the preview would be evidence about nothing it can read
+    if (!KINDS.has(place.kind) || !place.placeId || String(place.placeId).startsWith('dXJuOm1ieH') || seen.has(place.placeId)) return false;
     seen.add(place.placeId);
     return true;
   }).map((place) => ({

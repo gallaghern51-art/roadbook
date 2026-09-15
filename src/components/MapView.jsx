@@ -1115,7 +1115,7 @@ export default function MapView() {
                 op: 'add_waypoint', dayId: day.id, index: routeAwareIndex(day, pt),
                 waypoint: {
                   name: place.name, ...pt, kind: fuel ? 'fuel' : place.kind === 'photo' ? 'photo' : 'via', ...(fuel ? { fuel: true } : {}), note: place.detail ?? '',
-                  ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : place.placed ? { placed: place.placed } : {}),
+                  ...(place.placeId ? { placeId: place.placeId, verified: place.verified ?? 'google' } : place.placed ? { placed: place.placed } : {}),
                 },
               }],
             });

@@ -7,6 +7,8 @@
 import {
   legKey, haversineMiles, projectOnChain, normalizeRoutePrefs, routePrefsKey,
 } from './tripEngine.js';
+import { placesProvider, isMapboxId } from './placesProvider.js';
+import { mapboxTrafficEta } from './mapboxPlaces.js';
 
 const OSRM = 'https://router.project-osrm.org/route/v1/driving';
 
@@ -78,6 +80,9 @@ let gSkipUntil = 0; // backoff so a dead/keyless function costs one probe, not o
 // anchor tags its calls `purpose: 'eta'` so a sim (and a log) can tell "asked
 // Google for the clock" from "Google replaced the Valhalla plan".
 async function googleRoute(origin, waypoints, extra = {}) {
+  // The Mapbox preview is Google-free: no reroute fallback, no steps fallback,
+  // no clock. Valhalla → OSRM carries the road; Mapbox carries the clock.
+  if (placesProvider() === 'mapbox') throw new Error('google routing is off in the Mapbox preview');
   if (Date.now() < gSkipUntil) throw new Error('google routing backing off');
   let res;
   try {
@@ -95,7 +100,8 @@ async function googleRoute(origin, waypoints, extra = {}) {
         },
         // place identity rides along when a stop has it — the route function
         // snaps those to the place instead of the raw coordinate
-        waypoints: waypoints.map((w) => ({ lat: w.lat, lng: w.lng, ...(w.placeId ? { placeId: w.placeId } : {}) })),
+        // (a Mapbox id is not a Google place and would be refused)
+        waypoints: waypoints.map((w) => ({ lat: w.lat, lng: w.lng, ...(w.placeId && !isMapboxId(w.placeId) ? { placeId: w.placeId } : {}) })),
       }),
     });
   } catch (e) {
@@ -735,6 +741,12 @@ export async function routeDayRoads(day) {
 export async function trafficEta(pos, waypoints, pace = 1) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
+  // the Mapbox preview's clock: Directions driving-traffic over the same stops,
+  // the time only — the road stays Valhalla's
+  if (placesProvider() === 'mapbox') {
+    const m = await mapboxTrafficEta(pos, wps);
+    return { seconds: m.seconds * pace, miles: m.miles, traffic: true };
+  }
   const g = await googleRoute(pos, wps, { purpose: 'eta' });
   return { seconds: g.durationSeconds * pace, miles: g.distanceMeters / 1609.34, traffic: true };
 }

@@ -816,7 +816,7 @@ export default function App() {
               ops: [{
                 op: 'add_waypoint', dayId, index: bestInsertIndex(day.waypoints, pt),
                 // a listing carries its identity; a dropped or natural pin carries the rider's intent
-                waypoint: { name: place.name, ...pt, kind: place.kind === 'photo' ? 'photo' : 'via', note: place.detail ?? '', ...(place.placeId ? { placeId: place.placeId, verified: 'google' } : place.placed ? { placed: place.placed } : {}) },
+                waypoint: { name: place.name, ...pt, kind: place.kind === 'photo' ? 'photo' : 'via', note: place.detail ?? '', ...(place.placeId ? { placeId: place.placeId, verified: place.verified ?? 'google' } : place.placed ? { placed: place.placed } : {}) },
               }],
             });
             dispatch({ type: 'select_day', dayId });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { placeDetails, photoUrl, todayIndex, hoursOnly } from '../engine/places.js';
 import { priceGlyph } from '../engine/nearby.js';
+import { factsSource } from '../engine/placesProvider.js';
 import { useT } from '../engine/settings.jsx';
 import { useIsMobile } from '../hooks/useMediaQuery.js';
 
@@ -8,19 +9,20 @@ import { useIsMobile } from '../hooks/useMediaQuery.js';
 // Google Maps? we should have our own detail page built like Google's").
 // One sheet for every door — the POI tapped on the map, a picker row, later a
 // stop — with the facts a rider decides on: a photo, rating, price, whether
-// it is open and today's hours, Google's one-line summary, the weekly table,
-// address, a number to call and the website. The caller slots in what Google
-// cannot know (`facts`: detour, gates, fuel verdict, open at YOUR arrival) and
-// what to do about it (`actions`). No link out: the rider stays in the app.
+// it is open and today's hours, the one-line summary, the weekly table,
+// address, a number to call and the website. The caller slots in what the
+// places database cannot know (`facts`: detour, gates, fuel verdict, open at
+// YOUR arrival) and what to do about it (`actions`). No link out: the rider
+// stays in the app.
 //
-// Facts come from Google Place Details, fetched once per place id when the
-// sheet opens (never for a list); the photo is one request per open.
+// Facts come from Place Details, fetched once per place id when the sheet
+// opens (never for a list); the photo is one request per open.
 //
 // Where it opens: a modal — a bottom sheet on a phone. With `inline` it renders
 // in the flow of whatever holds it instead; `inline="desktop"` means inline
 // everywhere but the phone layout, which is how the home drawer uses it (owner,
 // Sep 14 2026, of a centred modal over a blurred desktop map: "why not keep it
-// in the left tab like you do in mobile?").
+// in the left tab like you do in mobile?"). Its ✕ then goes back to the card.
 //
 //   place    { name, lat, lng, placeId?, detail?, rating?, userRatingCount?, priceLevel?, openNow?, hours?, phone?, websiteUri? }
 //   glyph    category glyph for the roundel
@@ -70,7 +72,7 @@ export default function PlaceSheet({ place, glyph = '📍', kicker = '', note = 
         <div className={`ps-hero${photos.length > 1 ? ' strip' : ''}`}>
           {photos.map((ph, i) => (
             <div className="ps-shot" key={ph.name}>
-              <img src={photoUrl(ph.name, i === 0 ? 900 : 600)} alt="" loading={i === 0 ? 'eager' : 'lazy'} />
+              <img src={ph.url ?? photoUrl(ph.name, i === 0 ? 900 : 600)} alt="" loading={i === 0 ? 'eager' : 'lazy'} />
               {ph.by?.[0]?.name && (
                 ph.by[0].uri
                   ? <a className="ps-credit" href={ph.by[0].uri} target="_blank" rel="noreferrer">{t('Photo')}: {ph.by[0].name}</a>
@@ -134,7 +136,13 @@ export default function PlaceSheet({ place, glyph = '📍', kicker = '', note = 
             {reviews.length > 2 && !allReviews && <button className="btn" onClick={() => setAllReviews(true)}>{t('More reviews')} ({reviews.length - 2})</button>}
           </div>
         )}
-        {placeId && <div className="nb-attrib">{photo ? t('Place facts, photos and reviews from Google') : t('Place facts from Google')}</div>}
+        {/* credit the database whose facts are actually on the page: details that
+            landed, a search row that came from one, or a place that carries its
+            facts (the builder's verified stops) — not a bare stored id */}
+        {placeId && (more || place?.source === 'google' || place?.source === 'mapbox'
+          || Number.isFinite(place?.rating) || place?.hours || place?.phone || place?.websiteUri) && (
+          <div className="nb-attrib">{factsSource(placeId) === 'Mapbox' ? t('Place facts from Mapbox') : photo ? t('Place facts, photos and reviews from Google') : t('Place facts from Google')}</div>
+        )}
       </div>
       {actions && <div className="modal-foot ps-foot">{actions}</div>}
     </>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CATEGORIES, CUISINES, cuisineLabel, searchNearby, enrichAlong, openAt, detourCost, priceGlyph } from '../engine/nearby.js';
 import { geocode } from '../engine/geocode.js';
+import { isListed, factsSource } from '../engine/placesProvider.js';
 import { useT, useUnits } from '../engine/settings.jsx';
 import PlaceSheet from './PlaceSheet.jsx';
 
@@ -245,7 +246,7 @@ export default function NearbyPicker({
                         ? <span className="nb-fuel ok">{t('Fills the gap')} · {u.miNum(f.gapBefore ?? 0)} / {u.miNum(f.gapAfter ?? 0)} {u.miUnit}</span>
                         : <span className="nb-fuel bad">{t('Still leaves')} {u.miNum(f.worst)} {u.miUnit} {t('past your')} {u.miNum(fuelPlan.comfortMi)} {u.miUnit} {t('range')}</span>;
                     })()}
-                    {r.verified !== false && r.source === 'google' && <span className="nb-ver">✓</span>}
+                    {r.verified !== false && isListed(r) && <span className="nb-ver">✓</span>}
                   </span>
                   {r.detail && <span className="nb-addr">{r.detail}</span>}
                 </button>
@@ -286,9 +287,9 @@ export default function NearbyPicker({
                       {mode !== 'swap' && cat !== 'fuel' && (
                         <button className="btn" onClick={() => onPick(r, { fuel: true })}>{t('Add as fuel stop')}</button>
                       )}
-                      {r.source === 'google' && <button className="btn" onClick={() => setDetail(r)}>{t('Details')}</button>}
+                      {isListed(r) && <button className="btn" onClick={() => setDetail(r)}>{t('Details')}</button>}
                     </div>
-                    <div className="nb-attrib">{t('Place facts from Google')}</div>
+                    {isListed(r) && <div className="nb-attrib">{factsSource(r.id) === 'Mapbox' ? t('Place facts from Mapbox') : t('Place facts from Google')}</div>}
                   </div>
                 )}
               </li>
