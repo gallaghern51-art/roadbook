@@ -410,8 +410,12 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           ))}
         </div>
       </div>
-      {/* the bottom-right column, floating above the sheet: frame my trips (only while none is in view) · North up (only while turned) · locate */}
-      <div className="hm-fabs">
+      {/* the right-edge column: frame my trips (only while none is in view) · North up (only while turned) · locate.
+          A phone floats it just above the sheet; a desktop stacks it at the middle of the right edge with Near me
+          on top (owner, Sep 14 2026: "put the locator buttons on map view and the near me on mid right side
+          stacked, near me on top") */}
+      <div className={`hm-fabs${isPhone ? '' : ' desk'}`}>
+        {!isPhone && !dropped && fix && <button type="button" className="hm-near mono" onClick={goToMe} title={t('Near me')}>{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</button>}
         {tripsOffscreen && (
           <button className="hm-round hm-frame" onClick={frameTrips} aria-label={t('Frame my trips')} title={t('Frame my trips')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8V4h4M21 8V4h-4M3 16v4h4M21 16v4h-4" /><path d="M7 14c2-4 4-6 6-4s3 4 4 2" /></svg>
@@ -451,7 +455,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       </div>
       {dropped
         ? <div className="hm-drop-hint mono" role="status" aria-live="polite">◎ <b>{dropReadout}</b> · {t('drag the pin to adjust')} · {t('✓ to use it')}</div>
-        : fix && <button type="button" className="hm-near mono" onClick={goToMe} title={t('Near me')}>{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</button>}
+        : fix && isPhone && <button type="button" className="hm-near mono" onClick={goToMe} title={t('Near me')}>{fix.name === 'Current location' ? t('Near you') : `${t('Near')} ${fix.name}`}</button>}
 
       {/* the phone's search is a screen of its own; the desktop's hangs under the pill (above) */}
       {searching && isPhone && (

@@ -4752,6 +4752,10 @@ input:focus, textarea:focus, select:focus {
   .hm-handle { display: none; }
   .basemap-switch.hm-layers { top: 100px; }
   .hm-fabs { right: 16px; bottom: 16px; } /* the drawer is on the left; nothing under the column */
+  /* the desktop column sits at the middle of the right edge, Near me on top of
+     the round buttons, all right-aligned (Home adds .desk off the phone layout) */
+  .hm-fabs.desk { top: 50%; bottom: auto; transform: translateY(-50%); align-items: flex-end; }
+  .hm-fabs.desk .hm-near { position: static; }
   .map-area-btn.hm-area { top: 100px; }
   .hm-near { left: 16px; top: 108px; }
   .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }

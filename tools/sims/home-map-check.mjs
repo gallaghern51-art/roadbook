@@ -399,7 +399,21 @@ async function run(width, label) {
     const vh = await page.evaluate(() => innerHeight);
     const sheetTop = await page.evaluate(() => document.querySelector('.hm-sheet').getBoundingClientRect().top);
     const locBottom = await page.evaluate(() => document.querySelector('.hm-locate').getBoundingClientRect().bottom);
-    check(geo.w >= 44 && (phone ? (locBottom <= sheetTop + 2 && locBottom > sheetTop - 80) : locBottom > vh - 80), `the locate button sits at the bottom right, just above the sheet (bottom ${Math.round(locBottom)}, sheet top ${Math.round(sheetTop)})`);
+    if (phone) {
+      check(geo.w >= 44 && locBottom <= sheetTop + 2 && locBottom > sheetTop - 80, `the locate button sits at the bottom right, just above the sheet (bottom ${Math.round(locBottom)}, sheet top ${Math.round(sheetTop)})`);
+    } else {
+      // a desktop stacks the column at the middle of the right edge with Near me on
+      // top (owner, Sep 14 2026: "put the locator buttons on map view and the near
+      // me on mid right side stacked, near me on top")
+      const col = await page.evaluate(() => {
+        const f = document.querySelector('.hm-fabs').getBoundingClientRect();
+        const n = document.querySelector('.hm-fabs .hm-near')?.getBoundingClientRect() ?? null;
+        const l = document.querySelector('.hm-locate').getBoundingClientRect();
+        return { mid: (f.top + f.bottom) / 2, right: innerWidth - f.right, near: n && { top: n.top, bottom: n.bottom, right: innerWidth - n.right }, locTop: l.top, locRight: innerWidth - l.right, nears: document.querySelectorAll('.hm-near').length };
+      });
+      check(geo.w >= 44 && Math.abs(col.mid - vh / 2) < 24 && col.right >= 12 && col.right <= 20 && Math.abs(col.locRight - col.right) < 2, `the desktop column sits at the middle of the right edge (centre ${Math.round(col.mid)} of ${vh}, ${Math.round(col.right)}px in)`);
+      check(!!col.near && col.near.bottom <= col.locTop && Math.abs(col.near.right - col.right) < 2 && col.nears === 1, `Near me heads the column, right-aligned above the round buttons, and is the only Near me on screen (${JSON.stringify(col.near && { top: Math.round(col.near.top), bottom: Math.round(col.near.bottom) })}, locate top ${Math.round(col.locTop)})`);
+    }
     if (phone) {
       // at `min` with a phone's home-indicator inset the sheet is taller than
       // its 6% detent — the column follows the sheet's REAL height (owner: "the
