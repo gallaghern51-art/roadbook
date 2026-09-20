@@ -193,6 +193,30 @@ check('the near-tie alternate survives',
   trimmed.some((o) => Math.abs(o.miles - 585.5) < 1));
 check('the list stays glanceable', trimmed.length <= 4, `${trimmed.length}`);
 
+console.log("\nroute options — the rider's own character breaks a tie");
+// Three characters landing on one road leaves the credited style arbitrary.
+// Without a preference, a rider whose profile says Touring set off on a trip
+// stamped "quick" simply because quick was asked first — and every later
+// re-route of that trip then rode under a character they never chose.
+globalThis.fetch = async (url, init) => {
+  requests.push(JSON.parse(init.body));
+  return { ok: true, status: 200, json: async () => ({ trip: trip('i90') }) };
+};
+resetRouterBackoff();
+const tie = await routeOptions({ start: { lat: A[1], lng: A[0] }, end: { lat: B[1], lng: B[0] } });
+check('with no preference the merged road is credited to the first style asked',
+  tie[0].prefs.style === 'quick', tie[0].prefs.style);
+const tiePref = await routeOptions({ start: { lat: A[1], lng: A[0] }, end: { lat: B[1], lng: B[0] }, prefer: 'touring' });
+check("the rider's own character wins the tie", tiePref[0].prefs.style === 'touring', tiePref[0].prefs.style);
+check('…and the label still names every style that lands on it',
+  tiePref[0].label === 'Quick · Touring · Back roads', tiePref[0].label);
+
+globalThis.fetch = mockFetch;
+resetRouterBackoff();
+const leadPref = await routeOptions({ start: { lat: A[1], lng: A[0] }, end: { lat: B[1], lng: B[0] }, prefer: 'backroads' });
+check("the rider's character leads the list", leadPref[0].styles.includes('backroads'),
+  JSON.stringify(leadPref.map((o) => o.styles)));
+
 console.log('\nroute options — group pace rides at read time');
 requests = [];
 const pacedOpts = await routeOptions({

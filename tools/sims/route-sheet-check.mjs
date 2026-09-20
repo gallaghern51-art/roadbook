@@ -116,7 +116,12 @@ async function run(width, label, { noFix = false } = {}) {
   page.on('pageerror', (e) => { pageErrors.push(e.message); console.log('PAGEERROR', e.message); });
   gRouteCalls = [];
   let valhallaHits = 0;
-  page.on('request', (rq) => { if (rq.url().includes('valhalla1.openstreetmap.de/route')) valhallaHits += 1; });
+  const valhallaBodies = [];
+  page.on('request', (rq) => {
+    if (!rq.url().includes('valhalla1.openstreetmap.de/route')) return;
+    valhallaHits += 1;
+    try { valhallaBodies.push(JSON.parse(rq.postData() ?? '{}')); } catch { /* not ours */ }
+  });
 
   await page.route('**/*', async (r) => {
     const u = r.request().url();
@@ -372,6 +377,49 @@ async function run(width, label, { noFix = false } = {}) {
     check(trip.wps[1].n === stopName, 'the added stop rides in the middle');
     check(trip.wps[0].k === 'start' && trip.wps[2].k === 'end', 'the ends are the ends');
     check(!!trip.prefs?.style, `the chosen road character is written onto the trip (${trip.prefs?.style})`);
+
+    // ---- switching roads mid-ride ----
+    // "if user wants to switch to a different quick, touring, backroads mid
+    // ride they should be able to do that." It changes the road AHEAD; the
+    // trip's own character is a planning act and must not be rewritten at
+    // 70 mph.
+    const prefsBefore = await page.evaluate(() => {
+      const l = JSON.parse(localStorage.getItem('moto.trips.v1'));
+      return l.trips.find((r) => r.id === l.activeId).trip.meta.routePrefs;
+    });
+    const openSheet = page.locator('.ride-bar, .ride-sheet-open, [aria-label="Ride menu"]').first();
+    await openSheet.click({ timeout: 8000 }).catch(() => {});
+    const sheetUp = await page.waitForSelector('.ride-sheet', { timeout: 8000 }).then(() => true).catch(() => false);
+    check(sheetUp, 'the ride sheet opens mid-ride');
+    if (sheetUp) {
+      const roadsRow = page.locator('.ride-sheet .rm-row', { hasText: 'Roads' }).first();
+      check(await roadsRow.isVisible().catch(() => false), 'Roads sits with the other mid-ride controls');
+      const segs = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('.ride-sheet .rm-row')].find((r) => /Roads/.test(r.textContent));
+        return [...(row?.querySelectorAll('.rm-seg button') ?? [])].map((b) => ({ t: b.textContent, h: Math.round(b.getBoundingClientRect().height), active: b.classList.contains('active') }));
+      });
+      check(segs.length === 3, `all three characters are offered (${segs.map((x) => x.t).join('/')})`);
+      check(segs.every((x) => x.h >= 44), `each is a glove target (min ${Math.min(...segs.map((x) => x.h))}px)`);
+      check(segs.filter((x) => x.active).length === 1, 'the one being ridden is lit');
+
+      const before = valhallaHits;
+      await page.locator('.ride-sheet .rm-row', { hasText: 'Roads' }).locator('button', { hasText: 'Back roads' }).click();
+      await page.waitForTimeout(2500);
+      check(valhallaHits > before, 'switching reroutes the road ahead');
+      const last = valhallaBodies.at(-1);
+      check(last?.costing_options?.motorcycle?.use_highways === 0.05,
+        `and asks for the character the rider chose (use_highways ${last?.costing_options?.motorcycle?.use_highways})`);
+      const note = await page.evaluate(() => document.querySelector('.ride-sheet .rm-note')?.textContent ?? '');
+      check(/trip is unchanged/i.test(note), 'the rider is told the plan itself is untouched');
+      const prefsAfter = await page.evaluate(() => {
+        const l = JSON.parse(localStorage.getItem('moto.trips.v1'));
+        return l.trips.find((r) => r.id === l.activeId).trip.meta.routePrefs;
+      });
+      check(JSON.stringify(prefsAfter) === JSON.stringify(prefsBefore),
+        `and the trip's own road character is NOT rewritten mid-ride (${prefsAfter?.style})`);
+      await page.locator('.ride-sheet .sheet-x, .ride-sheet [aria-label="Close"]').first().click().catch(() => {});
+      await page.waitForTimeout(400);
+    }
 
     // THE headline fix
     const exit = page.locator('.ride-mode .ride-x, .ride-mode [aria-label="End navigation"], .ride-topbar button').first();

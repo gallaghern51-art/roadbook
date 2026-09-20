@@ -544,6 +544,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
             <RouteSheet
               ride={ride}
               pace={quickDefaults?.pace ?? 1}
+              prefer={quickDefaults?.routePrefs?.style ?? null}
               onChange={setRide}
               onOptions={(list, sel) => {
                 setRouteOpts(list);

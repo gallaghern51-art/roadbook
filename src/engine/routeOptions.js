@@ -147,11 +147,13 @@ const SAME_ROAD = 0.85;
  * @param {AbortSignal} [o.signal]
  * @param {number} [o.pace]            the trip's group-pace multiplier
  * @param {number} [o.maxAlternates]   extra roads beyond the style answers
+ * @param {string} [o.prefer]          the rider's own road character: when several
+ *   styles land on the same road it is the one credited, and its option leads
  * @returns {Promise<Array>} options, best-of-each-style first, then alternates
  */
 export async function routeOptions({
   start, stops = [], end, avoidTolls = false, styles = ROUTE_STYLES.map((s) => s.id),
-  signal, pace = 1, maxAlternates = 2,
+  signal, pace = 1, maxAlternates = 2, prefer = null,
 }) {
   if (!start || !end) throw new Error('need a start and a destination');
   const wps = [...stops, end];
@@ -224,6 +226,12 @@ export async function routeOptions({
     if (opt.kind === 'style' && !hit.styles.includes(opt.style)) {
       hit.styles.push(opt.style);
       hit.kind = 'style';
+      // When several characters land on one road the credited style is
+      // arbitrary — so let the RIDER's own break the tie. Without this, a
+      // rider whose profile says Touring set off on a trip stamped "quick"
+      // simply because quick was asked first, and every later re-route of
+      // that trip then rode under a character they never chose.
+      if (prefer && opt.style === prefer) { hit.style = prefer; hit.prefs = opt.prefs; }
       // keep the kinder measurement of the same road
       if (opt.minutes < hit.minutes) { hit.minutes = opt.minutes; hit.miles = opt.miles; hit.hasToll = opt.hasToll; }
     }
@@ -265,7 +273,8 @@ export async function routeOptions({
     // style answers first (they are the choice being offered), then alternates
     if ((a.kind === 'style') !== (b.kind === 'style')) return a.kind === 'style' ? -1 : 1;
     if (a.kind === 'style') {
-      const rank = (o) => Math.min(...o.styles.map((s) => styles.indexOf(s)));
+      // the rider's own character leads the list, then the declared order
+      const rank = (o) => (prefer && o.styles.includes(prefer) ? -1 : Math.min(...o.styles.map((s) => styles.indexOf(s))));
       return rank(a) - rank(b);
     }
     return a.minutes - b.minutes;

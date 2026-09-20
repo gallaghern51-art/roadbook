@@ -344,9 +344,13 @@ async function run(width, label) {
   check(halo && halo.n === 1 && halo.halo && !halo.glyphShown && !halo.labelShown && halo.w >= 40, `a tapped POI gets a halo around the map's own icon, not a second pin (${JSON.stringify(halo)})`);
   check(/Cowboy Cafe/.test(await page.locator('.hm-place').innerText()) && /from you/.test(await page.locator('.hm-place').innerText()), 'a tapped POI resolves against Google and reads its distance from you');
   await page.locator('.hm-place .btn:visible', { hasText: 'Ride here' }).click(); // the card's on a phone, the full page's on a desktop
-  await page.waitForSelector('.hm-ride-confirm', { timeout: 5000 });
-  check(await page.locator('.hm-ride-confirm .qk-roads button').count() === 3, 'Ride here opens the Roads + tolls strip on the card');
-  await page.locator('.hm-ride-confirm .btn.gold').click();
+  // Sep 20, 2026: the Roads radio became the ROUTE SHEET — From / stops / To
+  // with every road measured, drawn on the map and labelled before Go.
+  await page.waitForSelector('.route-sheet', { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelectorAll('.rs-opt').length > 0, null, { timeout: 30000 });
+  check(await page.locator('.rs-opt').count() >= 1, 'Ride here opens the route sheet with the roads measured');
+  check(await page.locator('.rs-add').count() === 1, 'and a stop can be added before Go');
+  await page.locator('.rs-actions .btn', { hasText: 'Go' }).click();
   await page.waitForSelector('.ride-bar', { timeout: 15000 });
   const l6 = await lib();
   check(l6.trip.meta.quick === true && /Cowboy Cafe/.test(l6.trip.meta.title) && l6.trip.days[0].waypoints[1].placeId === 'g-cowboy' && l6.trip.meta.routePrefs?.style === 'touring', 'Ride here makes a REAL quick ride to the place, with the rider\'s road style');
@@ -354,9 +358,14 @@ async function run(width, label) {
   await page.screenshot({ path: SHOT(`home-map-ride-${width}`) });
   // leave the ride
   await page.evaluate(() => { [...document.querySelectorAll('.ride-mode button')].find((b) => b.textContent.trim() === '✕')?.click(); });
-  await page.waitForTimeout(500);
-  await page.locator('.mast-back').click();
+  await page.waitForTimeout(700);
+  // cancelling the ride hands back the route sheet on the home map, not the
+  // trip workspace — close it to carry on browsing
+  await page.waitForSelector('.home-map', { timeout: 8000 }).catch(() => {});
+  await page.locator('.rs-head .mini-edit').click().catch(() => {});
+  await page.locator('.mast-back').click().catch(() => {});
   await page.waitForSelector('.home-map', { timeout: 8000 });
+  await page.waitForTimeout(400);
 
   // 5b. a natural feature on the home map is a placed pin — no Google
   {

@@ -483,6 +483,7 @@ const ES = {
   // the route sheet and the add-a-stop face (Sep 20, 2026)
   'Your route': 'Tu ruta',
   'Show the route': 'Mostrar la ruta',
+  'Riding a different road than the plan — the trip is unchanged.': 'Vas por una carretera distinta a la del plan: el viaje no cambia.',
   'Toll road': 'Carretera de peaje',
   'tolls': 'de peaje',
   'toll estimated for this corridor': 'peaje estimado para este corredor',
