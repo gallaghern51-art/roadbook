@@ -333,6 +333,33 @@ async function run(width, label, { noFix = false } = {}) {
   check(picker.fieldTop < picker.tilesTop, 'the field leads, as it does in the recording');
   check(picker.fieldSize >= 16, `the field is 16px so iOS does not zoom (${picker.fieldSize})`);
   check(picker.onMap, '"Choose on map" is offered');
+  // the add-a-stop face IS the picker: it takes the picker's room, or the
+  // tiles run off the bottom of a 58% frame measured for From/To/options/Go.
+  // The sheet ANIMATES between detents — measure once it has settled, or the
+  // reading is whatever height the transition happened to be passing through.
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.hm-sheet');
+    const h = el.getBoundingClientRect().height;
+    if (window.__lastSheetH === h) return true;
+    window.__lastSheetH = h;
+    return false;
+  }, null, { timeout: 5000, polling: 120 }).catch(() => {});
+  const room = await page.evaluate(() => {
+    const sh = document.querySelector('.hm-sheet');
+    const tiles = [...document.querySelectorAll('.nb-tile')];
+    const onMap = document.querySelector('.nb-onmap');
+    return {
+      pick: sh.classList.contains('pick'),
+      h: Math.round(sh.getBoundingClientRect().height),
+      vh: innerHeight,
+      lastTile: Math.round(tiles[tiles.length - 1].getBoundingClientRect().bottom),
+      onMapBottom: Math.round(onMap.getBoundingClientRect().bottom),
+      scrolls: sh.querySelector('.hm-body').scrollHeight > sh.querySelector('.hm-body').clientHeight + 2,
+    };
+  });
+  check(room.pick, 'the sheet takes the picker\'s surface while it is the picker');
+  check(width >= 820 || room.h > room.vh * 0.6, `and the picker's room (${room.h} of ${room.vh})`);
+  check(room.lastTile <= room.vh || room.scrolls, `every tile is reachable (last tile at ${room.lastTile}, scrolls: ${room.scrolls})`);
   check(/along route/i.test(picker.placeholder ?? ''), `the field says where it is looking (${picker.placeholder})`);
 
   await page.locator('.nb-tile', { hasText: 'Food' }).first().click();

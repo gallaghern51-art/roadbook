@@ -35,13 +35,16 @@ import NearbyPicker from './NearbyPicker.jsx';
 //   onChange(next)     edit in place
 //   onGo(ride, option) the rider committed
 //   onOptions(opts, selectedId)  the map draws them
-export default function RouteSheet({ ride, onChange, onGo, onClose, onOptions, onChooseOnMap, pace = 1, busyLabel, prefer = null }) {
+export default function RouteSheet({ ride, onChange, onGo, onClose, onOptions, onChooseOnMap, onAdding, pace = 1, busyLabel, prefer = null }) {
   const t = useT();
   const u = useUnits();
   const [opts, setOpts] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [adding, setAdding] = useState(false);
+  // the sheet around us needs to know: the add-a-stop face is the PICKER and
+  // wants the picker's height, not this frame's
+  useEffect(() => { onAdding?.(adding); }, [adding]); // eslint-disable-line react-hooks/exhaustive-deps
   const [traffic, setTraffic] = useState({}); // option id → minutes, or 'na'
   const abort = useRef(null);
   const seq = useRef(0);

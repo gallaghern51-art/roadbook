@@ -223,7 +223,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   // phone vs desktop: the search is a full screen or a dropdown under the pill
   const isPhone = useIsMobile();
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
-  const surface = ride ? 'route' : place ? 'place' : chip ? 'pick' : null;
+  // the route sheet is showing the add-a-stop picker — declared here because
+  // `surface` below reads it, and `surface` sizes the sheet
+  const [ridePicking, setRidePicking] = useState(false);
+  const surface = ride ? (ridePicking ? 'pick' : 'route') : place ? 'place' : chip ? 'pick' : null;
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * detentsFor(surface)[sheet]);
@@ -402,7 +405,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       if (got) setRide((r) => (r && !r.start ? { ...r, start: asStart(got) } : r));
     }
   };
-  const closeRide = () => { setRide(null); setRouteOpts([]); setRouteSel(null); lowerAfter(); };
+  const closeRide = () => { setRide(null); setRidePicking(false); setRouteOpts([]); setRouteSel(null); lowerAfter(); };
 
   return (
     <div ref={rootRef} className="home home-map">
@@ -529,7 +532,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         />
       )}
 
-      <div ref={sheetRef} className={`hm-sheet${ride ? ' route' : ''}${place && !ride ? ' place' : ''}${chip && !ride ? ' pick' : ''}${drawer || place || chip || ride ? ' open' : ''}`} data-state={sheet}>
+      <div ref={sheetRef} className={`hm-sheet${ride ? ' route' : ''}${place && !ride ? ' place' : ''}${(chip && !ride) || ridePicking ? ' pick' : ''}${drawer || place || chip || ride ? ' open' : ''}`} data-state={sheet}>
         <button
           className="hm-handle"
           aria-label={handle.aria}
@@ -556,6 +559,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
                 routePrefs: option?.prefs ?? { style: 'touring', avoidTolls: !!r.avoidTolls },
               })}
               onClose={closeRide}
+              onAdding={setRidePicking}
               onChooseOnMap={() => {
                 pickingStopRef.current = true;
                 setSheet((cur) => { if (sheetBeforeDrop.current == null) sheetBeforeDrop.current = cur; return 'min'; });

@@ -4783,8 +4783,13 @@ input:focus, textarea:focus, select:focus {
   .hm-sheet.place[data-state='up'] { height: 86%; }
   /* the route sheet: From / stops / To have to be on screen at a peek —
      they are the surface, not a header above it */
-  .hm-sheet.route[data-state='peek'] { height: 58%; }
-  .hm-sheet.route[data-state='up'] { height: 94%; }
+  /* :not(.pick) matters — while the route sheet is showing the add-a-stop
+     face it carries BOTH classes, and this rule is written after the
+     picker's, so without it the 58% frame sized for From/To/options/Go
+     wins at equal specificity and the tiles run off the bottom. */
+  .hm-sheet.route:not(.pick)[data-state='peek'] { height: 58%; }
+
+  .hm-sheet.route:not(.pick)[data-state='up'] { height: 94%; }
 }
 :root { --hm-handle-h: 56px; }
 .hm-handle { min-height: var(--hm-handle-h); width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 0; padding: 6px 0 4px; flex: 0 0 auto; color: var(--ink-dim); font-family: var(--body); font-size: 13.5px; font-weight: 600; text-transform: none; letter-spacing: 0; transition: color 0.14s ease, background 0.14s ease; }
@@ -4797,6 +4802,10 @@ input:focus, textarea:focus, select:focus {
    a tall page: Go must never be below the fold on the screen whose whole job
    is to get the rider moving */
 .hm-sheet.route .hm-body { overflow-y: hidden; display: flex; }
+/* while the route sheet is showing the add-a-stop face it IS the picker: it
+   takes the picker's room (the `pick` surface) and scrolls as one list, not as
+   the fixed From/To/options/Go frame. */
+.hm-sheet.route.pick .hm-body { overflow-y: auto; display: block; }
 .hm-sheet.route .hm-body > .route-sheet { flex: 1 1 auto; }
 
 /* One vertical scroller on this surface, not two (Sep 14, 2026 — owner, same
