@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { STYLE_FALLBACK, MAPBOX_TOKEN, basemapStyle, isStyleLoadError, tappableLayerIds, ensureTerrain, liftSatelliteRoads } from '../engine/basemaps.js';
 import PlacePins from './PlacePins.jsx';
+import RouteOptionLines from './RouteOptionLines.jsx';
 import { attachLongPress } from '../engine/mapGestures.js';
 import DropPin from './DropPin.jsx';
 
@@ -22,6 +23,12 @@ import DropPin from './DropPin.jsx';
 //   basemap   'sat' | 'streets' | 'dark' | 'light' — the same styles the trip map switches between
 //   terrain3d the 3D toggle (Mapbox's DEM), re-asserted after every style swap
 //   onDrop({lat,lng})  a long press (touch) or right-click (mouse) on open map — never a tap
+//   routeOpts / routeSel / onRouteSel / routeFitAt — the candidate roads for a
+//     ride being composed, drawn to be chosen between. This map carries no
+//     TRIP route by design (the trips row opens the trip), but a ride the
+//     rider is building on this screen is exactly the thing they need to see
+//     before Go (owner, Sep 19 2026: "they should be able to see the available
+//     recommended options like google maps/apple maps does before they select").
 // at: the tap itself, for a feature whose geometry is a line (a range, a
 // river — natural_label line labels) rather than a point
 const featureToPoi = (f, at) => {
@@ -61,7 +68,7 @@ function RiderDot({ map, me }) {
   return null;
 }
 
-export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false }) {
+export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false, routeOpts = null, routeSel = null, onRouteSel = null, routeFitAt = 0 }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -175,6 +182,12 @@ export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop
     <div className="hm-map" ref={divRef}>
       {mapObj && <RiderDot map={mapObj} me={me} />}
       {mapObj && <PlacePins map={mapObj} pins={pins ?? []} onTap={onPinTap} />}
+      {mapObj && routeOpts?.length > 0 && (
+        <RouteOptionLines
+          map={mapObj} options={routeOpts} selected={routeSel} onSelect={onRouteSel}
+          fitAt={routeFitAt} padBottom={sheetPx} padTop={200}
+        />
+      )}
       {/* the dropped pin: a needle on the exact spot, draggable, with ✓ / ✕ */}
       {mapObj && drop && <DropPin map={mapObj} drop={drop} onMove={onDropMove} onMoveEnd={onDropMoveEnd} onConfirm={onDropConfirm} onCancel={onDropCancel} confirmLabel={dropLabel} />}
     </div>

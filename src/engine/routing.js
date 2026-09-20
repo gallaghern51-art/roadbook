@@ -304,6 +304,9 @@ const tripFacts = (trip) => ({
   geometry: valhallaGeometry(trip),
   miles: trip.summary?.length ?? 0,
   minutes: (trip.summary?.time ?? 0) / 60,
+  // Valhalla flags a tolled route but never prices it — the price is Google's
+  // to answer, for the option the rider is actually looking at.
+  hasToll: trip.summary?.has_toll === true,
 });
 
 const valhallaGeometry = (trip) => {
@@ -792,11 +795,19 @@ export async function routeDayRoads(day) {
 // Throws when Google is not configured or backing off; the caller keeps the
 // static ETA. Never adopts geometry: a time-optimizer will cut a planned pass
 // in half, and the planned road is the point of the ride.
-export async function trafficEta(pos, waypoints, pace = 1) {
+export async function trafficEta(pos, waypoints, pace = 1, { avoidTolls = false, tolls = false } = {}) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
-  const g = await googleRoute(pos, wps, { purpose: 'eta' });
-  return { seconds: g.durationSeconds * pace, miles: g.distanceMeters / 1609.34, traffic: true };
+  // `tolls` asks Google what the toll roads on this corridor charge. Valhalla
+  // knows a route HAS a toll but never the price, so this is the only source
+  // for it — and it is an extra computation, so it is opt-in per call.
+  const g = await googleRoute(pos, wps, { purpose: 'eta', avoidTolls, tolls });
+  return {
+    seconds: g.durationSeconds * pace,
+    miles: g.distanceMeters / 1609.34,
+    traffic: true,
+    ...(g.toll ? { toll: g.toll } : {}),
+  };
 }
 
 // Live reroute: current GPS position → the day's remaining waypoints.

@@ -155,19 +155,37 @@ export async function routeOptions({
 }) {
   if (!start || !end) throw new Error('need a start and a destination');
   const wps = [...stops, end];
-  // Styles are asked in parallel: three requests, one screen. A style that
-  // fails (or is superseded) drops out rather than failing the whole list —
-  // one road is still a usable answer.
-  const settled = await Promise.allSettled(styles.map(async (style) => ({
-    style,
-    trips: await valhallaTrips(start, wps, { style, avoidTolls }, { signal }),
-  })));
-  if (signal?.aborted) throw (signal.reason ?? new Error('aborted'));
-  const got = settled.filter((s) => s.status === 'fulfilled').map((s) => s.value);
-  if (!got.length) {
-    const reason = settled.find((s) => s.status === 'rejected')?.reason;
-    throw reason instanceof Error ? reason : new Error('no route');
+  // The styles are asked ONE AT A TIME.
+  //
+  // Firing all three at once is the obvious implementation and it is wrong
+  // against the public community server: measured in a real browser on Sep 20
+  // 2026, three simultaneous requests came back as one success and two
+  // failures, and the failures arrive as CORS errors rather than as HTTP
+  // statuses — nginx sheds the request without the Access-Control-Allow-Origin
+  // header it puts on a normal answer, so the browser reports "No
+  // 'Access-Control-Allow-Origin' header is present" and the real cause
+  // (rate limiting) never reaches us. The screen then showed ONE road where
+  // three existed, differently on each open.
+  //
+  // valhallaRoute already carries this lesson for its windows ("in order: a
+  // 429 on window 2 must not race window 3"). Same server, same policy, same
+  // answer. Three sequential requests are about a second; a list that changes
+  // every time you open it is worse than a second.
+  const got = [];
+  let firstError = null;
+  for (const style of styles) {
+    if (signal?.aborted) throw (signal.reason ?? new Error('aborted'));
+    try {
+      got.push({ style, trips: await valhallaTrips(start, wps, { style, avoidTolls }, { signal }) });
+    } catch (e) {
+      if (signal?.aborted) throw (signal.reason ?? e);
+      firstError ??= e;
+      // A style that could not be measured drops out; the ones that answered
+      // are still a usable choice.
+    }
   }
+  if (signal?.aborted) throw (signal.reason ?? new Error('aborted'));
+  if (!got.length) throw firstError instanceof Error ? firstError : new Error('no route');
 
   const paced = (minutes) => minutes * (pace || 1);
   const mk = (style, t, kind) => ({
@@ -175,6 +193,7 @@ export async function routeOptions({
     kind, // 'style' | 'alternate'
     miles: t.miles,
     minutes: paced(t.minutes),
+    hasToll: !!t.hasToll,
     geometry: t.geometry,
     trip: t.trip,
     via: viaLabel(t.trip, t.miles),
@@ -206,7 +225,7 @@ export async function routeOptions({
       hit.styles.push(opt.style);
       hit.kind = 'style';
       // keep the kinder measurement of the same road
-      if (opt.minutes < hit.minutes) { hit.minutes = opt.minutes; hit.miles = opt.miles; }
+      if (opt.minutes < hit.minutes) { hit.minutes = opt.minutes; hit.miles = opt.miles; hit.hasToll = opt.hasToll; }
     }
   };
   for (const p of picks) place(p);

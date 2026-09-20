@@ -4318,6 +4318,114 @@ input:focus, textarea:focus, select:focus {
 .nb-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .nb-actions .btn { min-height: 38px; }
 .nb-attrib { margin-top: 6px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+
+/* ---- the add-a-stop face (variant="tiles") ----
+   Owner, Sep 19 2026, with a recording of Google's "Add stops to your route":
+   the field leads, the categories are targets a glove can hit rather than a
+   strip of 36px pills, the map is offered as a source, and an empty field
+   answers with the places this rider actually rides to. */
+.nearby-tiles .nb-title { display: flex; flex-direction: column; gap: 1px; }
+.nearby-tiles .nb-title small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+/* 16px, not 15: anything under 16 makes iOS zoom the page on focus, and this
+   field is the first thing a rider taps on this screen. */
+.nearby-tiles .nb-q { font-size: 16px; min-height: 44px; }
+.nb-mic {
+  flex: none; width: 44px; min-height: 44px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--asphalt-1); font-size: 16px;
+}
+.nb-mic.on { border-color: var(--rally); background: rgba(245, 63, 31, 0.12); }
+.nb-tiles {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px;
+}
+.nb-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 68px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--asphalt-1); color: var(--ink-dim);
+}
+.nb-tile i { font-style: normal; font-size: 20px; line-height: 1; }
+.nb-tile span {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+  text-align: center; line-height: 1.2;
+}
+.nb-tile.active { color: var(--ink); border-color: var(--rally); background: rgba(245, 63, 31, 0.08); }
+.nb-onmap {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 48px; padding: 8px 10px;
+  margin-top: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--asphalt-1);
+  text-align: left; font-size: 13.5px; font-weight: 600;
+}
+.nb-onmap i { font-style: normal; font-size: 15px; }
+.nb-recent { margin-top: 10px; }
+.nb-recent h5 {
+  margin: 0 0 4px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-faint); font-weight: 500;
+}
+.nb-recent .nb-main { display: grid; grid-template-columns: 22px 1fr; column-gap: 9px; align-items: center; }
+.nb-recent-i { font-style: normal; font-size: 14px; opacity: 0.75; grid-row: 1 / span 2; }
+.nb-recent .nb-addr { white-space: normal; }
+
+/* ---- the route sheet: the ride before it is ridden ---- */
+.route-sheet { display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; }
+.rs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rs-head b { font-family: var(--display); font-size: 15px; font-weight: 650; }
+.rs-od {
+  position: relative; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--asphalt-1); padding: 4px 0;
+}
+/* the thread down the left, joining the dots into one journey */
+.rs-od::before {
+  content: ''; position: absolute; left: 17px; top: 22px; bottom: 22px;
+  width: 2px; background: var(--line-strong, var(--line)); border-radius: 2px;
+}
+.rs-stop { position: relative; display: grid; grid-template-columns: 26px 40px 1fr auto; align-items: center; gap: 6px; padding: 5px 10px; min-height: 40px; }
+.rs-dot { position: relative; z-index: 1; justify-self: center; width: 11px; height: 11px; border-radius: 50%; background: var(--asphalt-2); border: 2px solid var(--ink-faint); font-style: normal; }
+.rs-dot.from { border-color: var(--ok); }
+.rs-dot.to { border-color: var(--rally); background: var(--rally); }
+.rs-dot.via { width: 9px; height: 9px; border-color: var(--outbound); }
+.rs-k { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.rs-v { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-add {
+  display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 6px;
+  width: 100%; padding: 4px 10px; min-height: 40px; text-align: left;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim);
+}
+.rs-add:hover { color: var(--ink); }
+.rs-dot.add { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-style: dashed; border-color: var(--ink-faint); background: var(--asphalt-1); font-size: 11px; line-height: 1; color: var(--ink-dim); }
+.rs-tolls { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 36px; }
+.rs-options { display: flex; flex-direction: column; gap: 6px; }
+.rs-opt {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+  padding: 8px 12px; min-height: 52px; border: 1px solid var(--line);
+  border-left: 3px solid var(--line); border-radius: 10px; background: var(--asphalt-1);
+}
+.rs-opt.active { border-color: var(--route-blue, #2f7bff); background: rgba(47, 123, 255, 0.08); }
+.rs-opt-head { display: flex; align-items: center; gap: 8px; }
+.rs-opt-head b { font-size: 13.5px; }
+.rs-opt-figs { font-size: 12px; color: var(--ink-dim); }
+.rs-opt-figs b { color: var(--ink); font-size: 14px; }
+.rs-tag {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-faint);
+}
+.rs-tag.fast { color: var(--ok); border-color: var(--ok); }
+.rs-opt-traffic { margin-top: 1px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); line-height: 1.35; }
+.rs-opt-traffic .warn { color: var(--warn, #d8a22a); }
+.rs-actions { display: flex; gap: 8px; }
+.rs-actions .btn { flex: 1; min-height: 48px; font-size: 15px; }
+/* the options are the scrolling part: the ride itself and Go stay put, so Go
+   is never the thing a rider has to go looking for */
+.rs-options { flex: 1 1 auto; min-height: 96px; overflow-y: auto; overscroll-behavior: contain; }
+.rs-head, .rs-od, .rs-tolls, .rs-actions { flex: none; }
+
+/* the time bubble on each candidate road, at the point it stops agreeing with
+   the others — where the choice is actually visible on the map */
+.ro-bubble {
+  padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--asphalt-2); color: var(--ink-dim);
+  font-family: var(--mono); font-size: 11px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); cursor: pointer;
+}
+.ro-bubble.chosen { background: var(--route-blue, #2f7bff); border-color: #ffffff; color: #ffffff; }
+
 /* swap affordance on stop and meal rows */
 .wp-row .rm.swap { font-size: 12px; }
 .wp-row .rm.swap:hover { color: var(--outbound); }
@@ -4325,6 +4433,10 @@ input:focus, textarea:focus, select:focus {
 @media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
   .nb-chip { min-height: 40px; }
   .nb-scope button { min-height: 40px; }
+  .nb-tile { min-height: 76px; }
+  .nb-tiles { grid-template-columns: repeat(2, 1fr); }
+  .nb-onmap { min-height: 52px; }
+  .rs-opt { min-height: 58px; }
   .nb-actions .btn { min-height: 44px; }
   .nb-list { max-height: 50dvh; }
 }
@@ -4668,6 +4780,10 @@ input:focus, textarea:focus, select:focus {
 
   .hm-sheet.place[data-state='peek'] { height: auto; max-height: 60%; }
   .hm-sheet.place[data-state='up'] { height: 86%; }
+  /* the route sheet: From / stops / To have to be on screen at a peek —
+     they are the surface, not a header above it */
+  .hm-sheet.route[data-state='peek'] { height: 58%; }
+  .hm-sheet.route[data-state='up'] { height: 94%; }
 }
 :root { --hm-handle-h: 56px; }
 .hm-handle { min-height: var(--hm-handle-h); width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 0; padding: 6px 0 4px; flex: 0 0 auto; color: var(--ink-dim); font-family: var(--body); font-size: 13.5px; font-weight: 600; text-transform: none; letter-spacing: 0; transition: color 0.14s ease, background 0.14s ease; }
@@ -4676,6 +4792,11 @@ input:focus, textarea:focus, select:focus {
 .hm-handle i { display: block; width: 44px; height: 5px; border-radius: 3px; background: var(--line-strong); transition: background 0.14s ease; }
 .hm-handle .cnt { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-weight: 400; margin-left: 4px; }
 .hm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 2px 16px calc(24px + var(--viewport-safe-bottom)); }
+/* the route sheet is a fixed frame with one scrolling band (the options), not
+   a tall page: Go must never be below the fold on the screen whose whole job
+   is to get the rider moving */
+.hm-sheet.route .hm-body { overflow-y: hidden; display: flex; }
+.hm-sheet.route .hm-body > .route-sheet { flex: 1 1 auto; }
 
 /* One vertical scroller on this surface, not two (Sep 14, 2026 — owner, same
    report: "there's a scroller within a scroller"). `.nb-list` caps itself at
@@ -4747,7 +4868,7 @@ input:focus, textarea:focus, select:focus {
   .hm-tripsbtn { display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font-family: var(--body); font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; }
   .hm-tripsbtn .cnt { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-weight: 400; }
   .hm-tripsbtn.active { border-color: var(--rally); color: var(--rally); }
-  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place { left: 16px; right: auto; top: 84px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); transition: transform 0.22s ease, opacity 0.22s ease; }
+  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place, .hm-sheet.route { left: 16px; right: auto; top: 84px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); transition: transform 0.22s ease, opacity 0.22s ease; }
   .hm-sheet:not(.open) { transform: translateX(-24px); opacity: 0; pointer-events: none; }
   .hm-handle { display: none; }
   .basemap-switch.hm-layers { top: 100px; }

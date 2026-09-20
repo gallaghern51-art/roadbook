@@ -110,6 +110,13 @@ export default function App() {
   const [legal, setLegal] = useState(null); // 'privacy' | 'terms' — the legal sheet, on the door or in the app
   const [newTrip, setNewTrip] = useState(null); // { tab, prompt } while the modal is open
   const [rideOpen, setRideOpen] = useState(false);
+  // The ride being composed on the home screen (From / stops / To + the road
+  // options). It lives HERE rather than in Home because Ride Mode unmounts
+  // that screen: holding it at the app level is what lets cancelling
+  // navigation hand the rider back their route sheet instead of the trip
+  // workspace (owner, Sep 19 2026: "when someone just types in a destination
+  // and cancels ride mode, it takes me to the planning mode").
+  const [ride, setRide] = useState(null);
   // Ride Mode is gated on the safety acknowledgement, and the gate is on the
   // MOUNT: until it is answered RideMode never renders, so no GPS watch, wake
   // lock, map or steps fetch starts behind a screen the rider has not read.
@@ -788,9 +795,12 @@ export default function App() {
           onHelp={() => setSheet({ type: 'help' })}
           onUseTemplate={(id) => setNewTrip({ tab: 'template', templateId: id })}
           quickDefaults={{ ...tripDefaults(profile.profile), home: homePlace(profile.profile) }}
-          onQuickRide={({ start, dest, routePrefs }) => {
-            // a real one-day trip, then straight into Ride Mode
-            const trip = buildQuickTrip({ start, dest, routePrefs, defaults: tripDefaults(profile.profile) });
+          ride={ride}
+          onRideChange={setRide}
+          onQuickRide={({ start, stops = [], dest, routePrefs }) => {
+            // a real one-day trip, then straight into Ride Mode. The route
+            // sheet stays in state: ✕ in Ride Mode comes back to it.
+            const trip = buildQuickTrip({ start, stops, dest, routePrefs, defaults: tripDefaults(profile.profile) });
             dispatch({ type: 'create_trip', trip });
             setScreen('trip'); setMode('plan'); setPanelOpen(false);
             openRide();
@@ -950,8 +960,8 @@ export default function App() {
           />
         )}
         {rideOpen && (rideAck
-          ? <RideMode onClose={() => setRideOpen(false)} />
-          : <RideSafety onAccept={() => setRideAck(true)} onCancel={() => setRideOpen(false)} onLegal={openLegal} />)}
+          ? <RideMode onClose={() => { setRideOpen(false); if (ride) setScreen('home'); }} />
+          : <RideSafety onAccept={() => setRideAck(true)} onCancel={() => { setRideOpen(false); if (ride) setScreen('home'); }} onLegal={openLegal} />)}
         {joinSheet}
         {sheets}
       </div>

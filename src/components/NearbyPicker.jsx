@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CATEGORIES, CUISINES, cuisineLabel, searchNearby, enrichAlong, openAt, detourCost, priceGlyph } from '../engine/nearby.js';
 import { geocode } from '../engine/geocode.js';
 import { useT, useUnits } from '../engine/settings.jsx';
+import { recentPlaces, pushRecentPlace } from '../engine/recentPlaces.js';
 import PlaceSheet from './PlaceSheet.jsx';
 
 // One picker, three doors: add a stop to a day, SWAP a stop keeping its role,
@@ -33,6 +34,14 @@ export default function NearbyPicker({
   area = null,     // {lat, lng, at} — the rider pressed "Search this area" on the map
   halfSheet = false, // phone: the panel is a half sheet over the map — keep the picker at its top
   inlineDetail = false, // the home drawer on a desktop: Details opens in place of the list, not as a modal
+  // 'tiles' is the add-a-stop face (owner, Sep 19 2026, with a recording of
+  // Google's "Add stops to your route"): the field leads, the categories are
+  // glove-sized tiles rather than a strip of pills, the map is offered as a
+  // source, and an empty field answers with what this rider actually rides to
+  // instead of with nothing.
+  variant = 'list',
+  subtitle = null,
+  onChooseOnMap = null,
 }) {
   const t = useT();
   const u = useUnits();
@@ -163,6 +172,41 @@ export default function NearbyPicker({
     }
   };
 
+  // Voice, on the add-a-stop face only: a rider wearing gloves at a fuel stop
+  // is the case this screen exists for. Chromium exposes an UNPREFIXED
+  // SpeechRecognition alongside the webkit one — a sim that stubs only the
+  // webkit name gets the real engine instead (the mistake RideQuickAdd's own
+  // check records), so both names are read here.
+  const SR = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  const [hearing, setHearing] = useState(false);
+  const recRef = useRef(null);
+  const listen = () => {
+    if (!SR || recRef.current) return;
+    try {
+      const rec = new SR();
+      recRef.current = rec;
+      rec.lang = 'en-US';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onresult = (e) => {
+        const said = e.results?.[0]?.[0]?.transcript ?? '';
+        if (said) { setCat(null); setQ(said); }
+      };
+      rec.onend = () => { recRef.current = null; setHearing(false); };
+      rec.onerror = () => { recRef.current = null; setHearing(false); };
+      rec.start();
+      setHearing(true);
+    } catch { recRef.current = null; setHearing(false); }
+  };
+  useEffect(() => () => { try { recRef.current?.abort?.(); } catch { /* already gone */ } }, []);
+
+  // Every pick is history: the place the rider chose here leads the empty
+  // field next time, on this screen and in the home search.
+  const pick = (r, opts) => {
+    pushRecentPlace({ ...r, placeId: r.placeId ?? (r.source === 'google' ? r.id : null) });
+    onPick(r, opts);
+  };
+
   const openBadge = (r) => {
     if (etaMin == null || dow == null) return r.openNow == null ? null : (r.openNow ? { cls: 'ok', txt: t('Open now') } : { cls: 'bad', txt: t('Closed now') });
     const s = openAt(r.periods, etaMin, dow);
@@ -170,46 +214,104 @@ export default function NearbyPicker({
     return s === 'open' ? { cls: 'ok', txt: t('Open at your ETA') } : { cls: 'bad', txt: t('Closed at your ETA') };
   };
 
+  const tiles = variant === 'tiles';
+  // Nothing asked for yet. Google answers that with the rider's own history
+  // rather than an empty screen, and so does this.
+  const idle = !cat && q.trim().length < 2;
+  const recent = useMemo(() => (tiles ? recentPlaces(8) : []), [tiles]);
+
+  const searchField = (
+    <div className="nb-row">
+      <input
+        className="nb-q"
+        value={q}
+        placeholder={cat ? t('Narrow it down — a name, a town…') : chain ? t('Search along route') : t('Search any place…')}
+        onChange={(e) => setQ(e.target.value)}
+        enterKeyHint="search"
+        autoComplete="off"
+      />
+      {tiles && SR && (
+        <button className={`nb-mic${hearing ? ' on' : ''}`} onClick={listen} aria-label={t('Search by voice')} title={t('Search by voice')}>🎙</button>
+      )}
+      {(chain || center) && (
+        <div className="nb-scope" role="radiogroup" aria-label={t('Where to look')}>
+          {chain && <button role="radio" aria-checked={scope === 'route'} className={scope === 'route' ? 'active' : ''} onClick={() => setScope('route')}>{t('Along route')}</button>}
+          <button role="radio" aria-checked={scope === 'near'} className={scope === 'near' ? 'active' : ''} onClick={() => setScope('near')}>{mode === 'ride' ? t('Near me') : t('Near here')}</button>
+          {center && <button role="radio" aria-checked={scope === 'area'} className={scope === 'area' ? 'active' : ''} onClick={() => setScope('area')}>{t('Map area')}</button>}
+        </div>
+      )}
+    </div>
+  );
+
+  const cuisineRow = cat === 'food' && (
+    <div className="nb-chips nb-sub" role="tablist" aria-label={t('Kind of food')}>
+      <button role="tab" aria-selected={!sub} className={`nb-chip${!sub ? ' active' : ''}`} onClick={() => setSub(null)}>{t('Any')}</button>
+      {CUISINES.map((c) => (
+        <button key={c.id} role="tab" aria-selected={sub === c.id} className={`nb-chip${sub === c.id ? ' active' : ''}`} onClick={() => setSub(sub === c.id ? null : c.id)}>{t(c.label)}</button>
+      ))}
+    </div>
+  );
+
   return (
-    <div ref={rootRef} className={`nearby nearby-${mode}`} role="region" aria-label={title ?? t('Find a place')}>
+    <div ref={rootRef} className={`nearby nearby-${mode}${tiles ? ' nearby-tiles' : ''}`} role="region" aria-label={title ?? t('Find a place')}>
       <div className="nb-head">
-        <b>{title ?? (mode === 'swap' ? t('Swap this stop for…') : t('Find a place'))}</b>
+        <div className="nb-title">
+          <b>{title ?? (mode === 'swap' ? t('Swap this stop for…') : t('Find a place'))}</b>
+          {subtitle && <small>{subtitle}</small>}
+        </div>
         {onClose && <button className="mini-edit" onClick={onClose} aria-label={t('Cancel')}>✕</button>}
       </div>
-      <div className="nb-chips" role="tablist">
-        {CATEGORIES.map((c) => (
-          <button
-            key={c.id} role="tab" aria-selected={cat === c.id}
-            className={`nb-chip${cat === c.id ? ' active' : ''}`}
-            onClick={() => { setQ(''); setSub(null); setCat(cat === c.id ? null : c.id); }}
-          ><i aria-hidden="true">{c.glyph}</i>{t(c.label)}</button>
-        ))}
-      </div>
-      {cat === 'food' && (
-        <div className="nb-chips nb-sub" role="tablist" aria-label={t('Kind of food')}>
-          <button role="tab" aria-selected={!sub} className={`nb-chip${!sub ? ' active' : ''}`} onClick={() => setSub(null)}>{t('Any')}</button>
-          {CUISINES.map((c) => (
-            <button key={c.id} role="tab" aria-selected={sub === c.id} className={`nb-chip${sub === c.id ? ' active' : ''}`} onClick={() => setSub(sub === c.id ? null : c.id)}>{t(c.label)}</button>
+
+      {/* tiles: the field leads, then the categories as targets a glove can hit */}
+      {tiles && searchField}
+      {tiles ? (
+        <div className="nb-tiles" role="tablist">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.id} role="tab" aria-selected={cat === c.id}
+              className={`nb-tile${cat === c.id ? ' active' : ''}`}
+              onClick={() => { setQ(''); setSub(null); setCat(cat === c.id ? null : c.id); }}
+            ><i aria-hidden="true">{c.glyph}</i><span>{t(c.label)}</span></button>
+          ))}
+        </div>
+      ) : (
+        <div className="nb-chips" role="tablist">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.id} role="tab" aria-selected={cat === c.id}
+              className={`nb-chip${cat === c.id ? ' active' : ''}`}
+              onClick={() => { setQ(''); setSub(null); setCat(cat === c.id ? null : c.id); }}
+            ><i aria-hidden="true">{c.glyph}</i>{t(c.label)}</button>
           ))}
         </div>
       )}
-      <div className="nb-row">
-        <input
-          className="nb-q"
-          value={q}
-          placeholder={cat ? t('Narrow it down — a name, a town…') : t('Search any place…')}
-          onChange={(e) => setQ(e.target.value)}
-          enterKeyHint="search"
-          autoComplete="off"
-        />
-        {(chain || center) && (
-          <div className="nb-scope" role="radiogroup" aria-label={t('Where to look')}>
-            {chain && <button role="radio" aria-checked={scope === 'route'} className={scope === 'route' ? 'active' : ''} onClick={() => setScope('route')}>{t('Along route')}</button>}
-            <button role="radio" aria-checked={scope === 'near'} className={scope === 'near' ? 'active' : ''} onClick={() => setScope('near')}>{mode === 'ride' ? t('Near me') : t('Near here')}</button>
-            {center && <button role="radio" aria-checked={scope === 'area'} className={scope === 'area' ? 'active' : ''} onClick={() => setScope('area')}>{t('Map area')}</button>}
-          </div>
-        )}
-      </div>
+      {cuisineRow}
+      {!tiles && searchField}
+
+      {/* the map is a source of stops too — the long press already drops a pin,
+          this is the door to it from inside the search */}
+      {tiles && onChooseOnMap && (
+        <button className="nb-onmap" onClick={onChooseOnMap}>
+          <i aria-hidden="true">📍</i> {t('Choose on map')}
+        </button>
+      )}
+
+      {tiles && idle && recent.length > 0 && (
+        <div className="nb-recent">
+          <h5>{t('Recent')}</h5>
+          <ul className="nb-list">
+            {recent.map((r, i) => (
+              <li key={`${r.placeId ?? r.name}:${i}`} className="nb-item">
+                <button className="nb-main" onClick={() => pick({ ...r, id: r.placeId ?? `recent:${i}`, source: r.placeId ? 'google' : 'recent' }, { fuel: false })}>
+                  <span className="nb-recent-i" aria-hidden="true">🕘</span>
+                  <span className="nb-name">{r.name}</span>
+                  {r.detail && <span className="nb-addr">{r.detail}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {busy && <div className="nb-note">{t('Searching…')}</div>}
       {err && <div className="nb-note warn">{err}</div>}
@@ -280,11 +382,11 @@ export default function NearbyPicker({
                       <details className="nb-hours"><summary>{t('Hours')}</summary><ul>{r.hours.map((h, i) => <li key={i}>{h}</li>)}</ul></details>
                     )}
                     <div className="nb-actions">
-                      <button className="btn gold" onClick={() => onPick(r, { fuel: cat === 'fuel' })}>
+                      <button className="btn gold" onClick={() => pick(r, { fuel: cat === 'fuel' })}>
                         {mode === 'swap' ? t('Use this instead') : mode === 'ride' ? t('Add ahead') : t('Add to the day')}
                       </button>
                       {mode !== 'swap' && cat !== 'fuel' && (
-                        <button className="btn" onClick={() => onPick(r, { fuel: true })}>{t('Add as fuel stop')}</button>
+                        <button className="btn" onClick={() => pick(r, { fuel: true })}>{t('Add as fuel stop')}</button>
                       )}
                       {r.source === 'google' && <button className="btn" onClick={() => setDetail(r)}>{t('Details')}</button>}
                     </div>
@@ -327,9 +429,9 @@ export default function NearbyPicker({
             onClose={() => setDetail(null)}
             actions={(
               <>
-                <button className="btn gold" onClick={() => { onPick(detail, { fuel: cat === 'fuel' }); setDetail(null); }}>{pickLabel}</button>
+                <button className="btn gold" onClick={() => { pick(detail, { fuel: cat === 'fuel' }); setDetail(null); }}>{pickLabel}</button>
                 {mode !== 'swap' && cat !== 'fuel' && (
-                  <button className="btn" onClick={() => { onPick(detail, { fuel: true }); setDetail(null); }}>{t('Add as fuel stop')}</button>
+                  <button className="btn" onClick={() => { pick(detail, { fuel: true }); setDetail(null); }}>{t('Add as fuel stop')}</button>
                 )}
               </>
             )}
