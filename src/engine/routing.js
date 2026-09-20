@@ -224,12 +224,21 @@ export async function valhallaRoute(origin, wps, routePrefs, signal) {
   };
 }
 
-async function valhallaWindow(locations, routePrefs, signal) {
+// One request. `alternates` asks Valhalla for additional distinct routes; the
+// raw JSON comes back so a caller that wants them can read `json.alternates`.
+// MEASURED on the public server (Sep 20, 2026): alternates arrive ONLY for a
+// two-location request — any `break_through` in the middle returns zero of
+// them — and only where the map genuinely offers another way round (a long
+// prairie crossing gives two; the Beartooth gives none, because there is one
+// road over the pass). Both are honest answers, so the options UI must render
+// "one way to go" without complaint.
+async function valhallaRaw(locations, routePrefs, signal, alternates = 0) {
   const body = {
     locations,
     costing: 'motorcycle',
     costing_options: { motorcycle: valhallaMotorcycleOptions(routePrefs) },
     directions_options: { units: 'miles' },
+    ...(alternates > 0 ? { alternates } : {}),
   };
   let res;
   try {
@@ -252,8 +261,50 @@ async function valhallaWindow(locations, routePrefs, signal) {
   }
   const json = await res.json();
   if (!json.trip?.legs?.length) throw new Error('valhalla empty');
-  return json.trip;
+  return json;
 }
+
+async function valhallaWindow(locations, routePrefs, signal) {
+  return (await valhallaRaw(locations, routePrefs, signal)).trip;
+}
+
+/**
+ * Every distinct road Valhalla will offer between these points under ONE set
+ * of preferences: the primary first, then its alternates. The route-options
+ * screen asks each style for this and merges the answers.
+ * Returns [{ trip, geometry, miles, minutes }], primary first.
+ */
+export async function valhallaTrips(origin, wps, routePrefs, { signal, alternates = 2 } = {}) {
+  if (Date.now() < vSkipUntil) throw new Error('valhalla backing off');
+  const locations = [
+    {
+      lon: origin.lng, lat: origin.lat, type: 'break',
+      ...(Number.isFinite(origin.heading)
+        ? { heading: ((Math.round(origin.heading) % 360) + 360) % 360, heading_tolerance: 60 }
+        : {}),
+    },
+    ...wps.map((w, i) => ({
+      lon: w.lng, lat: w.lat,
+      type: i === wps.length - 1 ? 'break' : 'break_through',
+    })),
+  ];
+  // Over the location cap there is no alternates question to ask — the day is
+  // stitched from windows and only the primary road exists.
+  if (locations.length > VALHALLA_MAX_LOCATIONS) {
+    const trip = await valhallaRoute(origin, wps, routePrefs, signal);
+    return [tripFacts(trip)];
+  }
+  const json = await valhallaRaw(locations, routePrefs, signal, wps.length === 1 ? alternates : 0);
+  const trips = [json.trip, ...(json.alternates ?? []).map((a) => a.trip).filter(Boolean)];
+  return trips.map(tripFacts);
+}
+
+const tripFacts = (trip) => ({
+  trip,
+  geometry: valhallaGeometry(trip),
+  miles: trip.summary?.length ?? 0,
+  minutes: (trip.summary?.time ?? 0) / 60,
+});
 
 const valhallaGeometry = (trip) => {
   const geometry = [];
@@ -508,6 +559,15 @@ export function clearRouteCaches() {
   for (const key of [CACHE_KEY, STEP_CACHE, ROAD_CACHE]) {
     try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
   }
+}
+
+// Test seam. Each router tier backs off for minutes after a failure, which is
+// right in the app and wrong in a check script: one deliberately-mocked outage
+// would otherwise refuse every later case in the same process before the
+// request was even made.
+export function resetRouterBackoff() {
+  vSkipUntil = 0;
+  gSkipUntil = 0;
 }
 
 function loadStepCache() {
