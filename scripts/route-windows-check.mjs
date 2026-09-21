@@ -104,10 +104,21 @@ for (const [n, max] of [[15, 10], [11, 10], [10, 10], [2, 10], [19, 10], [20, 10
     .every((k) => seen.get(k) === 1);
   const noExtras = seen.size === n - 1;
   const shared = wins.every((w, i) => i === 0 || (w[0].lon === wins[i - 1].at(-1).lon && w[0].lat === wins[i - 1].at(-1).lat));
+  // A window covers max-1 legs, and there are n-1 legs to cover, so this is
+  // the fewest windows the cap allows. Splitting a day costs a round trip to a
+  // community server and puts a `break` where a `break_through` would be, so
+  // the right number of chunks is always the smallest number that fits.
+  const fewest = Math.ceil((n - 1) / (max - 1));
   check(`${label}: ${wins.length} window(s), every one within the cap`, sizesOk, JSON.stringify(wins.map((w) => w.length)));
   check(`${label}: legs add up to ${n - 1}`, legs === n - 1, `${legs}`);
   check(`${label}: each leg is routed exactly once — none lost, none charged twice`, everyLegOnce && noExtras);
   check(`${label}: each window PICKS UP at the stop the last one ended on`, shared);
+  check(`${label}: ${wins.length} window(s) is the FEWEST the cap allows — never split more than it must`,
+    wins.length === fewest, `${wins.length} vs ${fewest}`);
+  if (n <= max) {
+    check(`${label}: under the cap it is not split at all, and not even rewritten`,
+      wins.length === 1 && wins[0] === locs, wins[0] === locs ? 'one window' : 'the day was copied');
+  }
 }
 
 console.log('\nwhat the router is told at a seam');
