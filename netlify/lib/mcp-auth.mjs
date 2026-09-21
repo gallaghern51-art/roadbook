@@ -127,6 +127,6 @@ export function wwwAuthenticate(resourceMetadataUrl, err) {
   // the Response constructor throw, so every auth failure was a 500 in
   // production instead of a 401. Fold the prose to ASCII for the header; the
   // JSON body still carries the message as written.
-  if (err?.message) attrs.push(`error_description="${String(err.message).replace(/"/g, "'").replace(/[\u2013\u2014]/g, '-').replace(/[^\x20-\x7e]/g, '')}"`);
+  if (err?.message) attrs.push(`error_description="${String(err.message).replace(/"/g, "'").replace(/[\u2013\u2014]/g, '-').replace(/\u2192/g, '>').replace(/[^\x20-\x7e]/g, '')}"`);
   return `${bits.join(' ')} ${attrs.join(', ')}`;
 }
