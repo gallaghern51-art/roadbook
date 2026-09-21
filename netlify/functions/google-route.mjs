@@ -49,7 +49,7 @@ export default async (req) => {
   } catch {
     return Response.json({ error: 'bad JSON' }, { status: 400 });
   }
-  const { origin, waypoints, avoidTolls = false, tolls = false } = body ?? {};
+  const { origin, waypoints, avoidTolls = false, tolls = false, departureTime = null } = body ?? {};
   const ok = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
   if (!ok(origin) || !Array.isArray(waypoints) || !waypoints.length || !waypoints.every(ok)) {
     return Response.json({ error: 'need origin {lat,lng} and waypoints [{lat,lng},…]' }, { status: 400 });
@@ -77,6 +77,13 @@ export default async (req) => {
     // quoted back describes a road they asked not to be sent down.
     ...(avoidTolls ? { routeModifiers: { avoidTolls: true } } : {}),
     ...(tolls ? { extraComputations: ['TOLLS'] } : {}),
+    // PLANNING asks about a departure that has not happened yet. With a future
+    // departureTime the Routes API answers with PREDICTED traffic for that
+    // moment rather than with traffic right now — which is the whole point on
+    // a planning screen: a Sunday evening run off Long Island is not a Tuesday
+    // morning one. Google rejects a departureTime in the past, so the caller
+    // only sends future ones.
+    ...(departureTime ? { departureTime } : {}),
   };
 
   let gRes;
