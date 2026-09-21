@@ -133,11 +133,60 @@ async function run(width, label) {
   await page.locator('.day-menu .phase-select', { hasText: 'Return' }).click();
   await page.waitForTimeout(300);
   check(/^Return/.test((await page.locator('.day-head .phase-chip').textContent()).trim()), 'an out-and-back marks its way home as Return');
+  // ── Trip settings → Advanced: one row, one baseline ──────────────────────
+  // Owner, Sep 20 2026, screenshot of the desktop sheet: "this looks very messy
+  // clean up the UI". A `.fld` is a label above a control and those labels are
+  // different lengths — "Outbound" against "Destination · unused" — so with
+  // cells sized to their own content the four phase inputs sat at four
+  // different heights (measured at a 900px window: 252, 267, 281, and a fourth
+  // orphaned onto the next row).
+  {
+    // the section above leaves a sheet open; its backdrop swallows the ribbon
+    for (let i = 0; i < 5 && await page.locator('.modal-backdrop').count(); i++) {
+      const x = page.locator('.sheet-x, .modal-head .btn, [aria-label="Close"]').first();
+      if (await x.isVisible().catch(() => false)) await x.click({ force: true }).catch(() => {});
+      else await page.locator('.modal-backdrop').first().click({ position: { x: 5, y: 5 }, force: true }).catch(() => {});
+      await page.waitForTimeout(350);
+    }
+    await page.locator('.rchip', { hasText: 'Trip' }).first().click();
+    await page.waitForSelector('.ov-days', { timeout: 10000 });
+    await page.locator('button', { hasText: 'Trip settings' }).first().click();
+    await page.waitForSelector('.settings-adv', { timeout: 8000 });
+    await page.evaluate(() => { document.querySelector('.settings-adv').open = true; });
+    await page.waitForTimeout(400);
+    const adv = await page.evaluate(() => {
+      const g = document.querySelector('.settings-adv .trip-settings-grid');
+      const labels = [...g.querySelectorAll('.phase-k')];
+      const tops = [...g.querySelectorAll('input')].map((i) => Math.round(i.getBoundingClientRect().top));
+      // group the inputs by the row they are on, and check each row shares a top
+      const byRow = new Map();
+      [...g.querySelectorAll('.fld')].forEach((f) => {
+        const k = Math.round(f.getBoundingClientRect().top);
+        byRow.set(k, [...(byRow.get(k) ?? []), Math.round(f.querySelector('input').getBoundingClientRect().top)]);
+      });
+      return {
+        tops,
+        rowsAligned: [...byRow.values()].every((r) => new Set(r).size === 1),
+        clipped: labels.map((e) => e.scrollWidth > e.clientWidth + 1),
+        twoLine: labels.map((e) => e.getBoundingClientRect().height > 20),
+        cellW: Math.round(g.querySelector('.settings-third').getBoundingClientRect().width),
+        sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    });
+    check(adv.rowsAligned, `every phase input in a row shares one baseline (${adv.tops.join(', ')})`);
+    check(!adv.clipped.some(Boolean), 'no phase label is cut off');
+    check(!adv.twoLine.some(Boolean), 'and none wraps to a second line');
+    check(adv.cellW >= 150, `the cells have room for their labels (${adv.cellW}px)`);
+    check(!adv.sideways, 'the settings sheet scrolls on one axis');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+  }
   await ctx.close();
 }
 
 await run(375, 'phone');
 await run(1280, 'desktop');
 await browser.close();
+
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

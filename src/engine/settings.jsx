@@ -503,6 +503,7 @@ const ES = {
   'the road is clear at this hour': 'la carretera está despejada a esa hora',
   'predicted for': 'previsto para',
   'in traffic': 'con tráfico',
+  'unused': 'sin usar',
   "Predicted for each day's own departure": 'Previsto para la salida de cada día',
   'Predicted traffic on this departure': 'Tráfico previsto en esta salida',
   'in traffic right now': 'con el tráfico actual',

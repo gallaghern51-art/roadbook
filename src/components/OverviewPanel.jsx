@@ -376,7 +376,10 @@ function TripSettings({ trip, dispatch, ui }) {
         <div className="budget-grid trip-settings-grid">
           {Object.keys(PHASES).map((k) => (
             <label key={k} className={`fld settings-third${trip.days.some((d) => d.phase === k) ? '' : ' phase-unused'}`} style={{ '--seg-color': PHASES[k].color }}>
-              <span className="phase-dot" /> {t('Phase')} · {t(PHASES[k].label)}{trip.days.some((d) => d.phase === k) ? '' : ` · ${t('no days')}`}
+              <span className="phase-k">
+                <span className="phase-dot" /> {t(PHASES[k].label)}
+                {!trip.days.some((d) => d.phase === k) && <em> · {t('unused')}</em>}
+              </span>
               <input defaultValue={phaseLabel(trip, k)} key={`${k}:${phaseLabel(trip, k)}`}
                 onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== phaseLabel(trip, k)) set({ phaseLabels: { ...(trip.meta.phaseLabels ?? {}), [k]: v } }); }} />
             </label>
