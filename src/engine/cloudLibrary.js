@@ -129,6 +129,7 @@ export function useLibraryBackup(state, dispatch, account) {
   // uploaded twice, and a chat-only edit still counts as a change.
   const sentRef = useRef(new Map());
   const restoredRef = useRef(null); // which account this device has pulled for
+  const refreshRef = useRef(false); // a pull was asked for (a connector may have written)
   const busyRef = useRef(false);
   const libRef = useRef(state.lib);
   libRef.current = state.lib;
@@ -142,7 +143,12 @@ export function useLibraryBackup(state, dispatch, account) {
     setStatus('syncing');
     setError(null);
     try {
-      const first = restoredRef.current !== userId;
+      // A pull is the first run for an account — and any run asked for by
+      // refresh(): a rider's own AI can write to this library through the
+      // MCP server while the app sits open, and the library on the phone
+      // should notice without a sign-out.
+      const first = restoredRef.current !== userId || refreshRef.current;
+      refreshRef.current = false;
       const rows = first ? await pullLibrary(userId) : [];
       const locals = libRef.current.trips;
 
@@ -232,5 +238,19 @@ export function useLibraryBackup(state, dispatch, account) {
     return () => document.removeEventListener('visibilitychange', onHide);
   }, [userId]);
 
-  return { status, savedAt, error, backupNow: () => run.current(), enabled: SYNC_ENABLED };
+  // Pull + merge again on demand: the #trip= deep link a connector hands out,
+  // and the app coming back to the foreground after a while away.
+  const refresh = () => { refreshRef.current = true; return run.current(); };
+  useEffect(() => {
+    if (!SYNC_ENABLED || !userId) return undefined;
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (hiddenAt && Date.now() - hiddenAt > 60_000) refresh();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { status, savedAt, error, backupNow: () => run.current(), refresh, enabled: SYNC_ENABLED };
 }
