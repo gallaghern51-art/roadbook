@@ -119,6 +119,17 @@ await page.locator('.concept-replace .nb-main', { hasText: "Maggie's Kitchen" })
 await page.locator('.concept-replace .nb-actions .btn', { hasText: 'Use this instead' }).click();
 await page.waitForFunction(() => /241/.test(document.querySelector('.concept-facts')?.innerText ?? ''), null, { timeout: 8000 });
 
+// The option covers 2 days; the trip details still say the default 5. The
+// builder says so plainly, because Create builds the days the option HAS.
+const factsText = await page.locator('.concept-facts').innerText();
+check(/2 days · trip details say 5/.test(factsText), `the option says it covers 2 days against the details' 5 (${factsText.replace(/\s+/g, ' ')})`);
+const daysNote = await page.locator('.construction-confirm .cc-days').innerText().catch(() => '');
+check(/covers 2 days; your trip details say 5\. Create makes a 2-day trip/.test(daysNote) && /planner write up all 5/.test(daysNote),
+  `and the confirm bar says what Create will make, and how to get all 5 (${daysNote})`);
+const barBox = await page.locator('.construction-confirm').boundingBox();
+check(barBox && barBox.width <= 375 && barBox.height <= 190, `the bar still fits the phone with the note (${Math.round(barBox?.height ?? 0)}px)`);
+await page.screenshot({ path: new URL('./shots/builder-days-note-phone.png', import.meta.url).pathname });
+
 // ── Create, now ──
 const t0 = Date.now();
 await page.locator('.construction-confirm .btn', { hasText: 'Create this trip' }).click();

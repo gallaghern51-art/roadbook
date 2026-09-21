@@ -23,9 +23,20 @@
  * until a re-measure lands, and the UI says "re-measuring" rather than showing
  * miles that are no longer true.
  */
+import { mealOf, isEvening, settleEvenings } from './dayShape.js';
+
+// Which stops Replace applies to: every one between the ends, and a hotel the
+// trip ends at (settleEvenings folds a zero-mile last day into it, and a hotel
+// is a business the rider may well want to swap — unlike their own start).
+export function replaceableAt(locations, index) {
+  const n = locations?.length ?? 0;
+  if (!Number.isInteger(index) || index <= 0 || index >= n) return false;
+  return index < n - 1 || locations[index]?.kind === 'lodging';
+}
+
 export function replaceConceptStop(concept, index, place) {
   const locations = concept?.locations ?? [];
-  if (!Number.isInteger(index) || index <= 0 || index >= locations.length - 1) {
+  if (!replaceableAt(locations, index)) {
     // The ends are the trip's start and destination — not a "stop" to swap.
     throw new Error('only an intermediate stop can be replaced');
   }
@@ -47,7 +58,12 @@ export function replaceConceptStop(concept, index, place) {
   };
   // Facts the planner attached to the OLD place (its rating, hours, the
   // why-this-stop blurb) belong to that place and go with it.
-  for (const k of ['rating', 'userRatingCount', 'priceLevel', 'hours', 'reason', 'why', 'glance']) delete next[k];
+  // Its tags too ("French", "boutique hotel") — they describe the old place,
+  // and they feed the rider's learned preferences. The MEAL is the slot's, not
+  // the place's: a replaced dinner is still dinner, so that is kept.
+  const meal = mealOf(old);
+  for (const k of ['rating', 'userRatingCount', 'priceLevel', 'hours', 'reason', 'why', 'glance', 'preferenceTags', 'primaryType', 'types']) delete next[k];
+  if (meal) next.meal = meal;
   if (place.rating != null) next.rating = place.rating;
   if (place.userRatingCount != null) next.userRatingCount = place.userRatingCount;
   if (place.priceLevel != null) next.priceLevel = place.priceLevel;
@@ -184,13 +200,14 @@ const twelveHour = (hhmm) => {
 
 const near = (a, b) => a && b && Math.abs(a.lat - b.lat) < 0.015 && Math.abs(a.lng - b.lng) < 0.015;
 
-// A food stop's meal: the planner's own word for it when it used one, else by
-// its order in the day. A guess only in the second case, and an editable one.
-function mealsFor(foodStops) {
-  const said = (s) => {
-    const t = `${s.name} ${s.detail ?? ''} ${s.reason ?? ''}`.toLowerCase();
-    return /breakfast|brunch/.test(t) ? 'breakfast' : /dinner|supper/.test(t) ? 'dinner' : /lunch/.test(t) ? 'lunch' : null;
-  };
+// A food stop's meal: the planner's own word for it when it used one (its
+// `meal`, else its tags, name or note — mealOf), else by its order in the day.
+// A guess only in the second case, and an editable one.
+function mealsFor(foodStops, overnight = null) {
+  // the last food stop before the night's hotel, a short walk from it, is
+  // that evening's dinner even when the planner did not say so
+  const lastFood = foodStops[foodStops.length - 1];
+  const said = (s) => mealOf(s) ?? (overnight && s === lastFood && isEvening(s, overnight) ? 'dinner' : null);
   const byOrder = foodStops.length === 1 ? ['lunch']
     : foodStops.length === 2 ? ['lunch', 'dinner']
       : ['breakfast', 'lunch', 'dinner'];
@@ -227,7 +244,9 @@ const waypointOf = (s) => ({
  * @returns {{ trip: { meta, days } }} the planner's generate shape
  */
 export function conceptToTrip(concept, basics = {}) {
-  const stops = (concept?.locations ?? []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng));
+  // The evaluator already settles the order; this repeats it (a no-op then)
+  // for a proposal kept on the device from before it did.
+  const stops = settleEvenings((concept?.locations ?? []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)));
   if (stops.length < 2) throw new Error('the proposal has no route to build a trip from');
 
   // Split into days at each overnight. The overnight ENDS one day and STARTS
@@ -262,7 +281,7 @@ export function conceptToTrip(concept, basics = {}) {
       depart,
       summary: '', // not invented — the planner can write it up on request
       waypoints,
-      meals: mealsFor(seg.slice(1, -1).filter((s) => s.kind === 'food')),
+      meals: mealsFor(seg.slice(1, -1).filter((s) => s.kind === 'food'), overnight),
       lodging: overnight
         ? { status: 'reserve', name: overnight.name, where: overnight.detail ?? '', note: '', ...(overnight.placeId ? { placeId: overnight.placeId } : {}) }
         : { status: 'none', name: '', where: '', note: '' },

@@ -1019,6 +1019,10 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .construction-confirm b { font-size: 12px; color: var(--ink); }
 .construction-confirm span { margin-top: 1px; font-size: 11px; color: var(--ink-faint); }
 .construction-confirm .cc-short { display: none; }
+.construction-confirm .cc-days { margin-top: 4px; color: var(--outbound); }
+/* measured against the rider's own day count, so it reads as a fact to act on */
+.concept-facts .days-off { color: var(--outbound); }
+.concept-facts .days-off::before { content: '⚠ '; }
 .construction-error { flex: none; margin: 0 14px 10px; }
 .template-create p { font-size: 12.5px; color: var(--ink-dim); }
 
@@ -1877,6 +1881,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .construction-confirm > div:first-child b { display: inline; }
   .construction-confirm > div:first-child .cc-long { display: none; }
   .construction-confirm > div:first-child .cc-short { display: inline; margin: 0 0 0 4px; }
+  .construction-confirm > div:first-child .cc-days { display: block; margin: 4px 0 0; }
   .construction-confirm-actions { display: flex; flex-direction: column; gap: 0; }
   .construction-confirm-actions .btn.gold { width: 100%; justify-content: center; }
   .construction-confirm-actions .construction-writeup {

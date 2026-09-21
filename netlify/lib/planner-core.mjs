@@ -73,7 +73,7 @@ This is not a generic "twisty roads" picker. Discover the best opportunities ins
 
 Required workflow:
 1. Use search_places for any business or smaller attraction you recommend. Search focused candidates near the intended corridor. Results are live Google Places facts; copy ids and coordinates exactly. For each food, lodging, or attraction location, also include preferenceTags: 1–3 broad, durable descriptors you author from the concept (for example "breakfast diner", "Italian", "boutique hotel", or "history museum"). Do not put ratings, addresses, opening hours, or other measured Places facts in preferenceTags.
-2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip. ALWAYS pass through the routePrefs from <trip_basics> unchanged, so the miles, time and arrival you present are measured with the same road preferences the created trip will be planned and ridden with.
+2. Build 2–3 ordered route concepts and call evaluate_route_options. Include start/end plus the significant road anchors and verified opportunity stops. Keep each concept to 20 locations maximum; if space is tight, remove redundant road-shape anchors, never a stop or a later day. Use kind road, fuel, food, lodging or attraction, and realistic dwell minutes. Every overnight MUST be kind lodging: the evaluator uses lodging anchors as day boundaries so its longest-day, after-dark and fuel checks are meaningful on a multi-day trip. That makes ORDER the day: a stop listed after a lodging belongs to the next day. So end each day AT its lodging — that evening's dinner goes BEFORE the lodging even though the group checks in first, and the next morning's breakfast goes after it — and give every food stop its meal (breakfast, lunch or dinner). If the trip ends at a hotel, that hotel is the last location; never add a separate end at its door. <trip_basics>.numDays is the number of riding days, so a concept carries numDays − 1 overnights (a layover repeats the same lodging) — unless the rider named a different length in the conversation, which wins; if a concept deliberately covers a different number of days, say so in its tradeoff. ALWAYS pass through the routePrefs from <trip_basics> unchanged, so the miles, time and arrival you present are measured with the same road preferences the created trip will be planned and ridden with.
 3. After the evaluator returns, call present_route_options. Reference the evaluated concept ids. Never invent miles, time, arrival, fuel gap, climbing or detour cost — Roadbook attaches those measured values itself.
 
 On a follow-up, read the prior conversation and the previously presented concepts. A localized request is a PATCH to each option, not permission to summarize or reconstruct the rest: reuse the prior option ids, retain every unchanged location in exact day/order, apply only the requested edits, then evaluate the complete options. Never omit later-day locations to save output space. Preserve what the rider likes, research/evaluate the requested refinement, and present a fresh comparison. Ask one concise question only when a missing fact would materially change the route; otherwise make and label a sensible assumption.
@@ -155,6 +155,7 @@ export const ROUTE_OPTIONS_TOOL = {
                   name: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
                   kind: { type: 'string', enum: ['start', 'end', 'road', 'fuel', 'food', 'lodging', 'attraction'] },
                   detail: { type: 'string' }, placeId: { type: 'string' }, dwell: { type: 'number' },
+                  meal: { type: 'string', enum: ['breakfast', 'lunch', 'dinner'], description: 'For a food stop: the meal it is. A dinner goes BEFORE that night\'s lodging.' },
                   rating: { type: 'number' }, userRatingCount: { type: 'integer' }, priceLevel: { type: 'string' },
                   googleMapsUri: { type: 'string' }, websiteUri: { type: 'string' }, phone: { type: 'string' },
                   primaryType: { type: 'string' }, types: { type: 'array', items: { type: 'string' } },
@@ -265,7 +266,7 @@ async function verifyOpportunityBusinesses(input, emit, {
 // (malformed) reply get a nudge so the API contract stays satisfied.
 async function answerToolCalls(response, emit, {
   routeResults = null, routeOpts = {}, verifyOpts = {}, refinement = null, placeFacts = null,
-  reconciliation = null, defaultRoutePrefs = null,
+  reconciliation = null, defaultRoutePrefs = null, requestedDays = null,
 } = {}) {
   const corridorFor = (optionId) => [...(routeResults ?? [])].reverse()
     .flatMap((evaluation) => evaluation.options ?? [])
@@ -328,6 +329,13 @@ async function answerToolCalls(response, emit, {
           options: (evaluation.options ?? []).map(({ searchPolyline: _searchPolyline, ...option }) => ({
             ...option,
             searchAlongRouteId: option.id,
+            // Measured, not asked for: the rider set a number of riding days,
+            // and an option that covers fewer becomes a shorter trip. Said
+            // here so the planner fixes it (or explains it) BEFORE the rider
+            // sees it, rather than the rider finding a missing day after.
+            ...(requestedDays && option.metrics && option.metrics.dayCount !== requestedDays ? {
+              dayCountNote: `This option covers ${option.metrics.dayCount} riding day${option.metrics.dayCount === 1 ? '' : 's'}; <trip_basics>.numDays says ${requestedDays}. If the rider named a different length in the conversation, keep theirs and say so; otherwise add or remove overnights (kind lodging) so it covers ${requestedDays}, or say plainly in its tradeoff why it does not.`,
+            } : {}),
           })),
         });
       } catch (e) {
@@ -979,6 +987,7 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
       refinement: { concepts, request: latestRequest },
       placeFacts,
       defaultRoutePrefs: basics.routePrefs ?? null,
+      requestedDays: Number(basics.numDays) > 0 ? Number(basics.numDays) : null,
     });
     convo.push({ role: 'assistant', content: response.content });
     convo.push({ role: 'user', content: toolResults });

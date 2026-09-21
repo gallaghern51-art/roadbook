@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { runPlanner } from '../engine/planner.js';
 import { passSizeFor, nextPass, passLabel, priorDaysDigest, shrinkPass } from '../engine/buildPasses.js';
 import { CATEGORIES } from '../engine/nearby.js';
-import { replaceConceptStop, withDeltas, remeasureConcept, decodePolyline5, conceptToTrip } from '../engine/conceptEdit.js';
+import { replaceConceptStop, replaceableAt, withDeltas, remeasureConcept, decodePolyline5, conceptToTrip } from '../engine/conceptEdit.js';
 import { alongOnRoute } from '../engine/tripEngine.js';
 import PlaceSheet from './PlaceSheet.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
@@ -51,7 +51,17 @@ function PlaceGlance({ stop, onDetails }) {
   );
 }
 
-function RouteFacts({ metrics, pending = false, error = '' }) {
+// An option's measured day count against the Days in the trip details. Said
+// as what the DETAILS say, not what the rider "asked for": the field defaults
+// to 5, and a rider who typed "two days" into the sentence never set it.
+// Null when they agree or either is unknown.
+function daysOff(metrics, requestedDays) {
+  const have = metrics?.dayCount;
+  if (!Number.isFinite(have) || !(requestedDays > 0) || have === requestedDays) return null;
+  return `${have} ${have === 1 ? 'day' : 'days'} · trip details say ${requestedDays}`;
+}
+
+function RouteFacts({ metrics, pending = false, error = '', requestedDays = null }) {
   // A stop was just replaced by hand: the old figures described a road this
   // option no longer rides, so they are gone and this says so plainly rather
   // than showing miles that are no longer true.
@@ -69,6 +79,7 @@ function RouteFacts({ metrics, pending = false, error = '' }) {
       {(metrics.deltaMiles > 0 || metrics.deltaMinutes > 0) && (
         <span className="detour"><b>+{metrics.deltaMiles} mi · +{mins(metrics.deltaMinutes)}</b> vs quickest option</span>
       )}
+      {daysOff(metrics, requestedDays) && <span className="days-off">{daysOff(metrics, requestedDays)}</span>}
     </div>
   );
 }
@@ -167,7 +178,7 @@ function ConceptDetail({ concept, onRefine, onReject, onReplace }) {
                 <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified listing"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
                 {stop.detail && <small>{stop.detail}</small>}
               </span>
-              {i > 0 && i < concept.locations.length - 1 && (
+              {replaceableAt(concept.locations, i) && (
                 <button type="button" className={replacing === i ? 'active' : ''} aria-pressed={replacing === i}
                   onClick={() => setReplacing(replacing === i ? null : i)}>Replace</button>
               )}
@@ -512,6 +523,9 @@ export default function TripConstructionChat({
     }
   };
 
+  const requestedDays = Number(basics?.numDays) > 0 ? Number(basics.numDays) : null;
+  const selectedDaysOff = !!(selected?.metrics && daysOff(selected.metrics, requestedDays));
+
   const status = (() => {
     const secs = progress?.ms ? ` · ${Math.round(progress.ms / 1000)}s` : '';
     if (busyMode === 'build') {
@@ -614,7 +628,7 @@ export default function TripConstructionChat({
             </div>
             {selected && (
               <div className="concept-selected">
-                <RouteFacts metrics={selected.metrics} pending={!!selected.remeasuring} error={selected.measureError} />
+                <RouteFacts metrics={selected.metrics} pending={!!selected.remeasuring} error={selected.measureError} requestedDays={requestedDays} />
                 <ConceptDetail
                   concept={selected}
                   onRefine={refine}
@@ -634,6 +648,16 @@ export default function TripConstructionChat({
               <b>Nothing is created yet.</b>
               <span className="cc-long">Create it now and edit it in the trip — reorder, add or remove stops, save your own versions.</span>
               <span className="cc-short">You can edit every stop after.</span>
+              {/* Create builds the days the option has; say so when that is not
+                  the number the rider set, and name the door that fills them */}
+              {selectedDaysOff && (
+                <span className="cc-days">
+                  {`This option covers ${selected.metrics.dayCount} ${selected.metrics.dayCount === 1 ? 'day' : 'days'}; your trip details say ${requestedDays}. Create makes a ${selected.metrics.dayCount}-day trip`}
+                  {selected.metrics.dayCount < requestedDays
+                    ? ` — add days after, or have the planner write up all ${requestedDays}.`
+                    : '.'}
+                </span>
+              )}
             </div>
             <div className="construction-confirm-actions">
               <button type="button" className="btn gold" disabled={busy || !!selected?.remeasuring} onClick={buildInstant}>

@@ -14,7 +14,9 @@
 //
 // Run: node scripts/concept-edit-check.mjs
 
-import { replaceConceptStop, withDeltas, decodePolyline5, remeasureConcept, conceptToTrip } from '../src/engine/conceptEdit.js';
+import { replaceConceptStop, replaceableAt, withDeltas, decodePolyline5, remeasureConcept, conceptToTrip } from '../src/engine/conceptEdit.js';
+import { settleEvenings, mealOf, dayCountOf } from '../src/engine/dayShape.js';
+import { LEADVILLE, JACKSON } from './fixtures/builder-probes.mjs';
 
 let pass = 0;
 let fail = 0;
@@ -281,6 +283,89 @@ console.log('\nthe proposal becomes a trip — instantly, no model');
   let threw = false;
   try { conceptToTrip({ locations: [{ name: 'x', lat: 1, lng: 1 }] }); } catch { threw = true; }
   check('a proposal with no route is refused, not turned into an empty trip', threw);
+}
+
+// ── where a day ends (Sep 20, 2026) ──
+// Owner: "it would have one full day then the next day would just have a
+// dinner or lodging". The fixtures are the live planner's own answers.
+console.log('\nWhere a proposal\'s days end');
+{
+  const names = (list) => list.map((l) => l.name);
+  const dayLists = (list) => {
+    const out = [[list[0]]];
+    for (let i = 1; i < list.length; i++) {
+      out.at(-1).push(list[i]);
+      if (list[i].kind === 'lodging' && i < list.length - 1) out.push([list[i]]);
+    }
+    return out.map(names);
+  };
+
+  // the report, reproduced from the live answer
+  const rawJackson = dayLists(JACKSON.locations);
+  check('as the planner sends it, the first night\'s dinner opens Day 2 (the reported shape)',
+    rawJackson[1][1] === 'The Bistro' && rawJackson[1].length === 4, JSON.stringify(rawJackson[1]));
+
+  const jackson = settleEvenings(JACKSON.locations);
+  const days = dayLists(jackson);
+  check('settled, each dinner is eaten on its own evening: Day 1 ends dinner → hotel',
+    JSON.stringify(days[0].slice(-2)) === JSON.stringify(['The Bistro', 'The Wort Hotel']), JSON.stringify(days[0]));
+  check('Day 2 is the layover loop with ITS dinner before the hotel again',
+    JSON.stringify(days[1]) === JSON.stringify(['The Wort Hotel', 'Jenny Lake Overlook', 'Snake River Brewing', 'The Wort Hotel']), JSON.stringify(days[1]));
+  check('Day 3 rides home and keeps its lunch', days[2][0] === 'The Wort Hotel' && days[2].includes('Star Valley Roadhouse') && days[2].at(-1) === 'Salt Lake City');
+  check('still three days, still every stop', days.length === 3 && jackson.length === JACKSON.locations.length);
+  check('settling twice changes nothing', JSON.stringify(settleEvenings(jackson)) === JSON.stringify(jackson));
+
+  const leadville = dayLists(settleEvenings(LEADVILLE.locations));
+  check('an UNLABELLED restaurant a few blocks from the hotel is that evening\'s dinner (the Leadville answer)',
+    leadville[0].at(-2) === 'The Leadville Grill and Cantina' && leadville[0].at(-1) === 'Historic Delaware Hotel', JSON.stringify(leadville[0]));
+  check('…and Day 2 starts at the hotel, riding', leadville[1][0] === 'Historic Delaware Hotel' && leadville[1][1] === 'Trout Creek Pass');
+
+  const hotel = { name: 'Hotel', lat: 45, lng: -110, kind: 'lodging' };
+  const base = (after) => [{ name: 'Start', lat: 44, lng: -110, kind: 'start' }, hotel, ...after, { name: 'End', lat: 46, lng: -110, kind: 'end' }];
+  const nearby = { lat: 45.005, lng: -110.005 };
+  check('breakfast listed after the hotel stays the next morning',
+    settleEvenings(base([{ name: 'Diner', ...nearby, kind: 'food', meal: 'breakfast' }]))[1].name === 'Hotel');
+  check('so does a lunch', settleEvenings(base([{ name: 'Grill', ...nearby, kind: 'food', preferenceTags: ['lunch'] }]))[1].name === 'Hotel');
+  check('an unlabelled café by the hotel reads as breakfast, not dinner',
+    settleEvenings(base([{ name: 'Corner', ...nearby, kind: 'food', primaryType: 'cafe' }]))[1].name === 'Hotel');
+  check('a dinner 50 miles on is the NEXT day\'s dinner, whatever it is called',
+    settleEvenings(base([{ name: 'Far Steakhouse', lat: 45.7, lng: -110, kind: 'food', meal: 'dinner' }]))[1].name === 'Hotel');
+  check('a dinner and the drinks after it move together, in order',
+    names(settleEvenings(base([{ name: 'Dinner', ...nearby, kind: 'food', meal: 'dinner' }, { name: 'Bar', lat: 45.004, lng: -110.004, kind: 'food' }]))).join('|') === 'Start|Dinner|Bar|Hotel|End');
+
+  const doorstep = settleEvenings([{ name: 'A', lat: 44, lng: -110, kind: 'start' }, hotel, { name: 'Jackson', lat: 45.002, lng: -110.002, kind: 'end' }]);
+  check('an end on the last hotel\'s doorstep is not a zero-mile last day — the trip ends at the hotel',
+    doorstep.length === 2 && doorstep.at(-1).name === 'Hotel' && dayCountOf(doorstep) === 1);
+  check('an end that is actually somewhere else stays',
+    settleEvenings([{ name: 'A', lat: 44, lng: -110, kind: 'start' }, hotel, { name: 'B', lat: 45.3, lng: -110, kind: 'end' }]).length === 3);
+
+  check('the meal is the planner\'s word: its field, then its tags',
+    mealOf({ kind: 'food', meal: 'lunch', preferenceTags: ['dinner'] }) === 'lunch' && mealOf({ kind: 'food', preferenceTags: ['brewpub', 'dinner'] }) === 'dinner');
+  check('…never Google\'s type list (Snake River Brewing is tagged breakfast_restaurant by Google, dinner by the planner)',
+    mealOf(JACKSON.locations.find((l) => l.name === 'Snake River Brewing')) === 'dinner');
+  check('a day count is one per overnight before the end, plus the last', dayCountOf(JACKSON.locations) === 3 && dayCountOf(LEADVILLE.locations) === 2);
+
+  // the created trip: meals on the right day, named right
+  const trip = conceptToTrip(JACKSON, { name: 'Tetons' }).trip;
+  const meal = (d, m) => trip.days[d].meals.find((x) => x.meal === m)?.name;
+  check('an instant create puts the first night\'s dinner on Day 1, as dinner', meal(0, 'dinner') === 'The Bistro', JSON.stringify(trip.days[0].meals));
+  check('the layover\'s dinner on Day 2', meal(1, 'dinner') === 'Snake River Brewing', JSON.stringify(trip.days[1].meals));
+  check('Day 3 has its lunch and no stray dinner', meal(2, 'lunch') === 'Star Valley Roadhouse' && !meal(2, 'dinner'), JSON.stringify(trip.days[2].meals));
+  check('every overnight is its day\'s lodging', trip.days[0].lodging.name === 'The Wort Hotel' && trip.days[1].lodging.name === 'The Wort Hotel' && trip.days[2].lodging.status === 'none');
+  const leadTrip = conceptToTrip(LEADVILLE, {}).trip;
+  check('an unlabelled dinner is built as Day 1\'s dinner, not Day 2\'s "lunch"',
+    leadTrip.days[0].meals.some((m) => m.name === 'The Leadville Grill and Cantina' && m.meal === 'dinner')
+    && !leadTrip.days[1].meals.some((m) => m.name === 'The Leadville Grill and Cantina'), JSON.stringify(leadTrip.days.map((d) => d.meals)));
+
+  // Replace, with the trip ending at a hotel
+  check('a hotel the trip ends at can be replaced; the rider\'s own start and a plain end cannot',
+    replaceableAt(doorstep, 1) && !replaceableAt(doorstep, 0) && !replaceableAt(JACKSON.locations, JACKSON.locations.length - 1));
+  const dinnerIdx = jackson.findIndex((l) => l.name === 'The Bistro');
+  const swapped = replaceConceptStop({ locations: jackson }, dinnerIdx, { id: 'g-x', source: 'google', name: 'Gather', lat: 43.48, lng: -110.76 });
+  const swappedStop = swapped.locations[dinnerIdx];
+  check('a replaced dinner is still the dinner — the meal belongs to the slot',
+    swappedStop.meal === 'dinner' && mealOf(swappedStop) === 'dinner');
+  check('…but the old place\'s tags do not ride onto the new one', swappedStop.preferenceTags === undefined);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);
