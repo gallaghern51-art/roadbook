@@ -42,6 +42,9 @@ export async function runPlanner(payload, onLine) {
 }
 
 async function runStreaming(payload, onLine) {
+  // The builder sizes its next pass by what carried this one: a streaming
+  // call has a ~50 s budget, a background one ten minutes.
+  onLine?.({ type: 'transport', transport: 'stream' });
   const res = await fetch('/.netlify/functions/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -93,6 +96,7 @@ async function runBackground(payload, onLine) {
       if (!claimed && Date.now() - startedAt > CLAIM_TIMEOUT_MS) throw unavailable();
       continue;
     }
+    if (!claimed) onLine?.({ type: 'transport', transport: 'background' });
     claimed = true;
 
     // Replay only what is new, so callers can append exactly as they would

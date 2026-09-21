@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { runPlanner } from '../engine/planner.js';
+import { passSizeFor, nextPass, passLabel, priorDaysDigest, shrinkPass } from '../engine/buildPasses.js';
 import { CATEGORIES } from '../engine/nearby.js';
 import { replaceConceptStop, withDeltas, remeasureConcept, decodePolyline5, conceptToTrip } from '../engine/conceptEdit.js';
 import { alongOnRoute } from '../engine/tripEngine.js';
@@ -223,6 +224,7 @@ export default function TripConstructionChat({
   const [resumable, setResumable] = useState(() => !!initialPrompt && !!saved);
   const [busyMode, setBusyMode] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [pass, setPass] = useState(null); // { from, to, total, built } while a long trip builds in passes
   const [live, setLive] = useState('');
   const [error, setError] = useState('');
   // Coming back to a kept plan means coming back to DECIDE on it — land on the
@@ -231,6 +233,7 @@ export default function TripConstructionChat({
   const [mobilePane, setMobilePane] = useState(() => (restoring && saved.concepts?.length ? 'plan' : 'chat'));
   const inputRef = useRef(null);
   const liveRef = useRef(''); // the streamed text, readable synchronously in catch/finally
+  const transportRef = useRef('background'); // which transport carried the last planner call
   const endRef = useRef(null);
   const selected = useMemo(() => concepts.find((c) => c.id === selectedId) ?? null, [concepts, selectedId]);
   const started = messages.length > 0 || concepts.length > 0;
@@ -298,6 +301,8 @@ export default function TripConstructionChat({
   // work already finished. Streamed, it IS the progress display, and the
   // elapsed stamp on every line proves the job is still moving.
   const readLine = (obj) => {
+    // the builder sizes its next pass by what carried this call
+    if (obj.type === 'transport') { transportRef.current = obj.transport; return; }
     if (typeof obj.ms === 'number') {
       setProgress((p) => ({
         ms: obj.ms,
@@ -419,12 +424,28 @@ export default function TripConstructionChat({
     }
   };
 
+  // The build, in passes sized to the transport that carries them (a long
+  // trip is decided up front from the intake's day count — see
+  // src/engine/buildPasses.js). Each pass continues from where the last
+  // ended and lands in the trip as it arrives: the first creates it, the rest
+  // append, the last hands off. A pass that runs out of room is retried
+  // smaller rather than failing the whole build.
   const build = async () => {
     if (!selected || busy) return;
     setError('');
     setProgress(null);
+    setPass(null);
     clearLive();
     setBusy('build');
+    // On a phone the plan pane owns the screen while options are compared; a
+    // build can run for minutes, and its status, narration and pass bar live
+    // in the conversation — bring that forward so the rider watches the work
+    // rather than a button that says "Creating…".
+    setMobilePane('chat');
+    const total = Math.max(1, Number(basics?.numDays) || 1);
+    // transportRef already knows what carried the research turns — a deploy
+    // without background functions sizes its FIRST pass right, not after a
+    // wasted eight-day call against the streaming budget
     try {
       const construction = {
         selected,
@@ -438,20 +459,55 @@ export default function TripConstructionChat({
       const edits = selected.edits?.length
         ? `\n\nThe rider replaced these stops by hand, and their choice is final: ${selected.edits.map((e) => `"${e.from}" was replaced with "${e.to}"`).join('; ')}. Use the places in \`locations\` exactly. Where the prose mentions a replaced place, it is out of date — do not restore it.`
         : '';
-      const data = await runPlanner({
-        mode: 'generate',
-        prompt: `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.${edits}\n\n${JSON.stringify(construction)}`,
-        basics,
-      }, readLine);
+      const prompt = `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.${edits}\n\n${JSON.stringify(construction)}`;
+      let built = [];
+      let size = passSizeFor(transportRef.current);
+      let createdYet = false;
+      let meta = null;
+      for (;;) {
+        const next = nextPass(built.length + 1, total, size);
+        if (!next) break;
+        const single = next.from === 1 && next.last;
+        setPass(single ? null : { ...next, built: built.length });
+        setProgress(null);
+        clearLive();
+        let data;
+        try {
+          data = await runPlanner({
+            mode: 'generate',
+            prompt,
+            basics,
+            ...(single ? {} : { dayRange: { from: next.from, to: next.to, total }, priorDays: priorDaysDigest(built) }),
+          }, readLine);
+        } catch (e) {
+          // the pass did not fit its budget — halve it and go again
+          if (/ran out of time|length limit/i.test(String(e?.message)) && size > 2) { size = shrinkPass(size); continue; }
+          throw e;
+        }
+        const days = data?.trip?.days ?? [];
+        if (!days.length) throw new Error('The builder returned no days for this pass — try again.');
+        meta = meta ?? data.trip?.meta ?? {};
+        const last = built.length + days.length >= total;
+        await onTrip({ ...data, trip: { meta, days } }, { partial: !last, append: createdYet });
+        if (!createdYet) {
+          // the first pass made it a trip in the library — the kept proposal
+          // is spent, even if a later pass fails (resuming it would build a
+          // second copy)
+          doneRef.current = true;
+          clearSession();
+        }
+        createdYet = true;
+        built = [...built, ...days];
+        if (last) break;
+        size = passSizeFor(transportRef.current);
+      }
       await placePreferences?.record?.('confirmed', selected.locations, { optionId: selected.id });
-      await onTrip(data);
-      doneRef.current = true;
-      clearSession();
     } catch (e) {
       setError(String(e.message || e));
     } finally {
       setBusy(null);
       setProgress(null);
+      setPass(null);
       clearLive();
     }
   };
@@ -459,6 +515,7 @@ export default function TripConstructionChat({
   const status = (() => {
     const secs = progress?.ms ? ` · ${Math.round(progress.ms / 1000)}s` : '';
     if (busyMode === 'build') {
+      if (pass) return `${passLabel(pass)}${progress?.note ? ` — ${progress.note}` : ''}${secs}`;
       if (progress?.note) return `Checking every place — ${progress.note}${secs}`;
       return `Writing the confirmed trip${secs}`;
     }
@@ -507,6 +564,12 @@ export default function TripConstructionChat({
             <div className="msg ai streaming">
               {live && <span className="live-text">{live}</span>}
               <span className="thinking">{status}</span>
+              {pass && (
+                <span className="build-pass" role="progressbar" aria-label="Days built" aria-valuemin={0} aria-valuemax={pass.total} aria-valuenow={pass.built} title={`${pass.built} of ${pass.total} days built`}>
+                  <i style={{ width: `${(pass.built / pass.total) * 100}%` }} />
+                  <b style={{ left: `${(pass.built / pass.total) * 100}%`, width: `${((pass.to - pass.from + 1) / pass.total) * 100}%` }} />
+                </span>
+              )}
               {progress?.thought && <span className="thought">{progress.thought}</span>}
             </div>
           )}

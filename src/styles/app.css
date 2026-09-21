@@ -680,9 +680,13 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
   flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 24px;
   border-bottom: 1px solid var(--line); color: var(--ink-faint); background: var(--asphalt-1);
 }
-.builder-context > div { flex: 1; display: flex; gap: 0; min-width: 0; }
+/* The facts WRAP on a narrow strip: nowrap in a min-width:0 box painted
+   "touring roads" straight over the Edit button at 375px. A second line beats
+   hiding the road choice, which is the fact the rider most needs to see. The
+   separator trails each fact so a wrapped line never opens with a dot. */
+.builder-context > div { flex: 1; display: flex; flex-wrap: wrap; gap: 2px 0; min-width: 0; }
 .builder-context span { font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
-.builder-context span + span::before { content: '·'; margin: 0 10px; color: var(--line); }
+.builder-context span:not(:last-child)::after { content: '·'; margin: 0 10px; color: var(--line); }
 .builder-context button { flex: none; color: var(--rally); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
 .builder-context button:hover { color: var(--ink); }
 .ai-workspace { flex: 1; min-height: 0; display: flex; }
@@ -732,6 +736,19 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 }
 .construction-thread .msg.partial { border-style: dashed; }
 @keyframes builder-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+/* A long trip builds in passes: the solid part is what has landed in the trip,
+   the sweeping part is the pass being written right now. */
+/* Only absolutely-positioned children, so the bar has no width of its own —
+   it takes the bubble's, with a floor so a short status still gets a bar. */
+.msg.streaming .build-pass { position: relative; display: block; align-self: stretch; width: 100%; min-width: 180px; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 2px 0; }
+.msg.streaming .build-pass i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--route, var(--signal)); border-radius: 3px; }
+.msg.streaming .build-pass b {
+  position: absolute; top: 0; bottom: 0; opacity: 0.85;
+  background: linear-gradient(90deg, transparent 0%, var(--route, var(--signal)) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: build-sweep 1.2s linear infinite;
+}
+@keyframes build-sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 /* ---- settings: sections, saved places, rider profile -------------------- */
 .set-tabs {
@@ -854,6 +871,7 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 
 @media (prefers-reduced-motion: reduce) {
   .msg.streaming .thinking::after { animation: none; opacity: 0.7; }
+  .msg.streaming .build-pass b { animation: none; opacity: 0.5; }
 }
 .builder-intro { display: flex; gap: 12px; max-width: 62ch; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
 .builder-intro b { color: var(--ink); font-family: var(--display); font-size: 17px; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -1809,10 +1827,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .builder-basics-grid .basics-done { grid-column: 1 / -1; }
   .builder-context { padding: 8px 14px; }
   .builder-context span { font-size: 9.5px; }
-  .builder-context span + span::before { margin-inline: 7px; }
-  /* the facts wrap rather than run under Edit trip details — "no tolls" is
-     the last fact and the one a clipped strip would lose */
-  .builder-context > div { flex-wrap: wrap; row-gap: 2px; }
+  .builder-context span:not(:last-child)::after { margin-inline: 7px; }
   .construction-chat.started { display: flex; flex-direction: column; }
   .construction-chat.started .construction-dialogue { border-right: 0; }
   .construction-mobile-nav {
@@ -5621,3 +5636,24 @@ input:focus, textarea:focus, select:focus {
   .ride-safety .btn.rs-go { flex: 1 1 auto; }
   .ride-safety .btn.rs-not { flex: 0 0 auto; width: auto; padding: 0 20px; }
 }
+
+/* ---- Connect your AI (Settings) + the OAuth consent page ---- */
+.conn-row { margin-top: 14px; }
+.conn-field { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.conn-url { flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel, var(--bg-2)); color: var(--ink); user-select: all; -webkit-user-select: all; }
+.conn-token { color: var(--turq, #2dd4bf); }
+.conn-fresh { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--signal, #f48322); border-radius: 12px; }
+.conn-fresh-title { margin: 0 0 8px; font-weight: 600; font-size: 13px; }
+.conn-mint { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.conn-mint input { flex: 1 1 200px; min-width: 0; }
+.conn-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.conn-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.conn-item-main { display: grid; gap: 2px; min-width: 0; }
+.conn-item-main b { font-weight: 600; }
+.consent { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); color: var(--ink); }
+.consent-card { width: min(100%, 460px); display: grid; gap: 12px; padding: 22px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel, var(--bg-2)); }
+.consent-h { margin: 4px 0 0; font-size: 22px; }
+.consent-who { margin: 0; line-height: 1.5; }
+.consent-scopes { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.consent-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+.consent-actions .btn { min-height: 44px; padding: 0 18px; }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTrip } from '../engine/store.js';
 import { blankDay, uid } from '../engine/ops.js';
 import { cascadeDates } from '../engine/dates.js';
+import { insertDaysOp } from '../engine/templates.js';
 import { geocode } from '../engine/geocode.js';
 import { SEED_TRIP } from '../data/seedTrip.js';
 import { EARLY_EXIT_TRIP } from '../data/earlyExitTemplate.js';
@@ -109,7 +110,11 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
     created();
   };
 
-  const acceptAiTrip = async (data) => {
+  // A built trip arrives in PASSES on a long trip (src/engine/buildPasses.js):
+  // the first pass creates the trip, every later one appends its days with
+  // the insert_days op, and only the last pass hands off to the workspace —
+  // so a rider who closes the door mid-build keeps the days already built.
+  const acceptAiTrip = async (data, phase = {}) => {
     setErr('');
     try {
       if (!data.trip?.days?.length) throw new Error('The builder returned an empty plan — try a more specific description.');
@@ -152,9 +157,14 @@ export default function NewTripModal({ onClose, onCreated, initial, account, pro
         reserveNow: [],
         fieldNotes: null,
       };
-      cascadeDates(trip);
-      dispatch({ type: 'create_trip', trip });
-      created();
+      if (phase.append) {
+        // ids were minted above, before the op — the rule every add-op follows
+        dispatch({ type: 'apply_ops', ops: [insertDaysOp(trip.days, undefined, 'Roadbook build')] });
+      } else {
+        cascadeDates(trip);
+        dispatch({ type: 'create_trip', trip });
+      }
+      if (!phase.partial) created();
     } catch (e) {
       setErr(String(e.message || e));
       throw e;

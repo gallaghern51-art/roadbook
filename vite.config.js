@@ -50,7 +50,14 @@ function netlifyFunctionsInDev() {
       // too — the shell still wins where it already set a value.
       for (const [k, v] of Object.entries(loadEnv('development', process.cwd(), ''))) process.env[k] ??= v;
       server.middlewares.use(async (req, res, next) => {
-        const match = /^\/\.netlify\/functions\/([\w-]+)/.exec(req.url ?? '');
+        // Functions that publish their own path (`export const config = { path }`)
+        // are reachable at that path in dev too — the MCP endpoint and its
+        // OAuth discovery document are what a connector actually dials.
+        const path = (req.url ?? '').split('?')[0];
+        const routed = path === '/mcp' || path === '/mcp/' ? 'mcp'
+          : path.startsWith('/.well-known/oauth-protected-resource') ? 'mcp-oauth-metadata'
+          : null;
+        const match = routed ? [null, routed] : /^\/\.netlify\/functions\/([\w-]+)/.exec(req.url ?? '');
         if (!match) return next();
         try {
           const mod = await server.ssrLoadModule(`/netlify/functions/${match[1]}.mjs`);

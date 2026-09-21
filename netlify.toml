@@ -4,3 +4,11 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Supabase Auth sends an OAuth client's user here to approve the connector
+# (Authentication → OAuth Server → authorization path). It is an app route,
+# so the SPA has to answer it.
+[[redirects]]
+  from = "/oauth/consent"
+  to = "/index.html"
+  status = 200

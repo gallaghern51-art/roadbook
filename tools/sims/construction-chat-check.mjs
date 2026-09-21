@@ -289,9 +289,13 @@ check(/reorder, add or remove stops/.test(confirmText), 'and is told what they c
 
 // this run takes the planner's write-up, to prove the edit survives THAT door;
 // the instant door has its own sim (concept-instant-create-check)
+const generatedBeforeAsk = generateCalls;
 await page.locator('.construction-confirm .btn', { hasText: 'Have the planner write it up' }).click();
 await page.waitForSelector('.modebar', { timeout: 10000 });
-check(generateCalls === 1, 'the planner\'s write-up runs only when the rider asks for it');
+// a five-day trip on the streaming transport is written in passes
+// (src/engine/buildPasses.js), so the count after the click is not fixed —
+// what matters is that none ran before it
+check(generatedBeforeAsk === 0 && generateCalls >= 1, `the planner's write-up runs only when the rider asks for it (${generatedBeforeAsk} before, ${generateCalls} after)`);
 const genPrompt = lastGenerate?.prompt ?? '';
 check(/"Gateway Canyons Grill" was replaced with "Ouray Main Street Grill"/.test(genPrompt),
   'the generator is told the rider replaced that stop');
