@@ -57,16 +57,55 @@ export function departureAt(trip, day) {
 // A minute of slack absorbs the clock ticking between render and request.
 export const isFutureDeparture = (at) => at instanceof Date && at.getTime() > Date.now() + 60_000;
 
-const cache = new Map();
-const TTL_MS = 10 * 60_000;
+// The cache is PERSISTED, which matters much more now that the trip overview
+// sweeps every future day: without it, reopening the overview on an eleven-day
+// trip re-bought eleven Pro-SKU answers that had not changed.
+//
+// How long an answer keeps is a property of how far out the departure is. A
+// prediction for next Tuesday is a typical-traffic pattern and is the same
+// tomorrow; a prediction for this afternoon firms up as the afternoon
+// approaches, and is worth re-asking.
+const STORE = 'moto.trafficPlan.v1';
+const ttlFor = (at) => {
+  const out = at.getTime() - Date.now();
+  if (out > 48 * 3_600_000) return 24 * 3_600_000;
+  if (out > 6 * 3_600_000) return 4 * 3_600_000;
+  return 15 * 60_000;
+};
+
+const cache = new Map(loadStore());
+function loadStore() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE) || '[]');
+    if (!Array.isArray(raw)) return [];
+    // a stored entry carries its own expiry; drop what has run out on the way in
+    return raw
+      .filter((e) => Array.isArray(e) && e[1]?.until > Date.now())
+      .map(([k, e]) => [k, { ...e, value: { ...e.value, at: new Date(e.value.at) } }]);
+  } catch { return []; }
+}
+function saveStore() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(
+      [...cache.entries()]
+        .filter(([, e]) => e.until > Date.now())
+        .slice(-200)
+        .map(([k, e]) => [k, { until: e.until, value: { ...e.value, at: e.value.at.toISOString() } }]),
+    ));
+  } catch { /* storage full — the in-memory cache still stands */ }
+}
+
 const keyFor = (day, at, prefs) => [
   at.toISOString().slice(0, 16),
   prefs.avoidTolls ? 'no-tolls' : 'tolls-ok',
   (day.waypoints ?? []).filter((w) => Number.isFinite(w.lat)).map((w) => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join(';'),
 ].join('|');
 
-/** Test seam: the cache is page-lifetime state, which a check script must be able to clear. */
-export function clearTrafficPlanCache() { cache.clear(); }
+/** Test seam: the cache outlives the page now, which a check script must be able to clear. */
+export function clearTrafficPlanCache() {
+  cache.clear();
+  try { localStorage.removeItem(STORE); } catch { /* nothing stored */ }
+}
 
 /**
  * Predicted traffic for this day's planned departure.
@@ -83,13 +122,54 @@ export async function dayTrafficEta(trip, day, pace = 1) {
   const prefs = tripRoutePrefs(trip);
   const key = keyFor(day, at, prefs);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+  if (hit && hit.until > Date.now()) return hit.value;
 
   const r = await trafficEta(wps[0], wps.slice(1), pace, {
     avoidTolls: prefs.avoidTolls,
     departureTime: at.toISOString(),
   });
   const value = { minutes: r.seconds / 60, miles: r.miles, at, ...(r.toll ? { toll: r.toll } : {}) };
-  cache.set(key, { at: Date.now(), value });
+  cache.set(key, { until: Date.now() + ttlFor(at), value });
+  saveStore();
   return value;
+}
+
+/** Is this day worth asking about at all? Cheap, synchronous, no network. */
+export const dayIsAskable = (trip, day) => (
+  isFutureDeparture(departureAt(trip, day))
+  && (day?.waypoints ?? []).filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng)).length >= 2
+);
+
+/** Already answered and still fresh — a cache read, never a call. */
+export function cachedDayTraffic(trip, day) {
+  if (!dayIsAskable(trip, day)) return null;
+  const at = departureAt(trip, day);
+  const hit = cache.get(keyFor(day, at, tripRoutePrefs(trip)));
+  return hit && hit.until > Date.now() ? hit.value : null;
+}
+
+/**
+ * Every day of the trip still ahead, measured ONE AT A TIME.
+ *
+ * Sequential is not politeness here, it is the whole cost story: the overview
+ * shows eleven days at once, and eleven simultaneous TRAFFIC_AWARE calls are
+ * eleven Pro-SKU answers bought in a burst — with a persisted cache and a
+ * sweep that stops the moment the panel closes, an overview costs the days
+ * that have actually changed and nothing else.
+ *
+ * @param {(dayId: string, value: object|null) => void} onDay  each answer as it lands
+ */
+export async function sweepTripTraffic(trip, pace = 1, { signal, onDay } = {}) {
+  for (const day of trip?.days ?? []) {
+    if (signal?.aborted) return;
+    if (!dayIsAskable(trip, day)) { onDay?.(day.id, null); continue; }
+    try {
+      const value = await dayTrafficEta(trip, day, pace);
+      if (signal?.aborted) return;
+      onDay?.(day.id, value);
+    } catch {
+      if (signal?.aborted) return;
+      onDay?.(day.id, null); // unreachable, unconfigured, or nothing to ask
+    }
+  }
 }

@@ -19,8 +19,21 @@
 //
 // Run: node scripts/traffic-plan-check.mjs
 
-import { departureAt, isFutureDeparture, dayTrafficEta, clearTrafficPlanCache } from '../src/engine/trafficPlan.js';
+import {
+  departureAt, isFutureDeparture, dayTrafficEta, clearTrafficPlanCache,
+  sweepTripTraffic, dayIsAskable, cachedDayTraffic,
+} from '../src/engine/trafficPlan.js';
 import { resetRouterBackoff } from '../src/engine/routing.js';
+
+// the cache persists now, so the engine reads localStorage at import time
+if (typeof globalThis.localStorage === 'undefined') {
+  const mem = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+}
 
 let pass = 0;
 let fail = 0;
@@ -161,6 +174,75 @@ clearTrafficPlanCache();
 threw = false;
 try { await dayTrafficEta(trip, dayOf(future(), '9:00 AM'), 1); } catch { threw = true; }
 check('a deploy with no Google key throws, so the panel can simply say nothing', threw);
+
+// ---- the trip overview sweeps every day ----
+console.log('\nthe whole trip, one day at a time');
+globalThis.fetch = mock();
+resetRouterBackoff();
+clearTrafficPlanCache();
+calls = [];
+{
+  const soon = future();
+  const later = new Date(Date.now() + 60 * 3_600_000).toISOString().slice(0, 10);
+  const days = [
+    { ...dayOf('2020-01-01', '9:00 AM'), id: 'ridden' },
+    { ...dayOf(soon, '9:00 AM'), id: 'd2' },
+    { ...dayOf(later, '5:00 PM'), id: 'd3' },
+  ];
+  const wholeTrip = { ...tripWith({ utcOffset: -4 }), days };
+
+  check('a day already ridden is not askable', !dayIsAskable(wholeTrip, days[0]));
+  check('a day still ahead is', dayIsAskable(wholeTrip, days[1]));
+
+  const seen = [];
+  // in flight, the requests must not overlap: one at a time is the cost story
+  let inFlight = 0;
+  let maxInFlight = 0;
+  globalThis.fetch = async (url, init) => {
+    inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight);
+    calls.push(JSON.parse(init.body));
+    await new Promise((r) => setTimeout(r, 15));
+    inFlight -= 1;
+    return { ok: true, status: 200, json: async () => ({ geometry: [[0, 0], [1, 1]], distanceMeters: 167863, durationSeconds: 175 * 60 }) };
+  };
+  await sweepTripTraffic(wholeTrip, 1, { onDay: (id, v) => seen.push([id, !!v]) });
+  check('every day is reported, ridden ones included', seen.length === 3, JSON.stringify(seen));
+  check('the ridden day is reported as nothing to show', seen[0][0] === 'ridden' && seen[0][1] === false);
+  check('the two days ahead are measured', seen[1][1] === true && seen[2][1] === true);
+  check('only the days ahead cost a call', calls.length === 2, `${calls.length}`);
+  check('the calls never overlap — one Pro-SKU answer at a time', maxInFlight === 1, `${maxInFlight} in flight`);
+  check('each day asks about ITS OWN departure',
+    new Set(calls.map((c) => c.departureTime)).size === 2, JSON.stringify(calls.map((c) => c.departureTime)));
+
+  calls = [];
+  await sweepTripTraffic(wholeTrip, 1, { onDay: () => {} });
+  check('sweeping again costs nothing — the answers are cached', calls.length === 0, `${calls.length}`);
+  check('a cached day reads back without a call', !!cachedDayTraffic(wholeTrip, days[1]));
+  check('…and a ridden day has nothing cached', cachedDayTraffic(wholeTrip, days[0]) === null);
+
+  // closing the panel mid-sweep must stop the spend
+  clearTrafficPlanCache();
+  calls = [];
+  const ctl = new AbortController();
+  const many = { ...wholeTrip, days: [days[1], { ...days[2], id: 'd4' }, { ...dayOf(later, '7:00 AM'), id: 'd5' }] };
+  const run = sweepTripTraffic(many, 1, { signal: ctl.signal, onDay: () => {} });
+  setTimeout(() => ctl.abort(), 20);
+  await run;
+  check('closing the panel mid-sweep stops the rest', calls.length < 3, `${calls.length} of 3 days bought`);
+}
+
+console.log('\nthe cache outlives the page');
+{
+  // a fresh module sees what the last one paid for — reopening the overview
+  // tomorrow must not re-buy eleven answers
+  const stored = JSON.parse(globalThis.localStorage.getItem('moto.trafficPlan.v1') || '[]');
+  check('answers are written to storage', stored.length > 0, `${stored.length} entries`);
+  check('each carries its own expiry', stored.every(([, e]) => Number.isFinite(e.until)));
+  const far = stored.find(([k]) => k.startsWith(new Date(Date.now() + 60 * 3_600_000).toISOString().slice(0, 10)));
+  check('a departure days out keeps for a day — that pattern does not change hourly',
+    !far || far[1].until - Date.now() > 12 * 3_600_000,
+    far ? `${((far[1].until - Date.now()) / 3_600_000).toFixed(1)} h` : 'n/a');
+}
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

@@ -195,6 +195,31 @@ async function run(width, label, { keyed = true } = {}) {
   await page.waitForSelector('.day-traffic:not(.asking)', { timeout: 15000 });
   check(gCalls.length === before, `revisiting the day is free — the answer is cached (${gCalls.length - before} extra)`);
 
+  // ---- the trip overview (owner, Sep 20 2026: "yes add it to the trip
+  // overview too") — the whole trip's traffic cost, and each day's ----
+  const sweepBefore = gCalls.length;
+  await page.locator('.rchip', { hasText: 'Trip' }).first().click();
+  await page.waitForSelector('.ov-days', { timeout: 10000 });
+  await page.waitForTimeout(3000);
+  const ov = await page.evaluate(() => ({
+    chip: document.querySelector('.chip.traffic')?.textContent?.trim() ?? null,
+    perDay: [...document.querySelectorAll('.ov-day')].map((d) => ({
+      when: d.querySelector('.dt')?.innerText.replace(/\n/g, ' '),
+      traffic: d.querySelector('.ov-traffic')?.textContent ?? null,
+    })),
+    sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  }));
+  console.log(`   trip chip: ${ov.chip} · ${ov.perDay.map((d) => `${d.when}=${d.traffic}`).join(' ')}`);
+  check(!!ov.chip, `the trip carries its whole traffic cost (${ov.chip})`);
+  check(/\+\d/.test(ov.chip ?? ''), 'as a delta a rider can act on');
+  check(ov.perDay.filter((d) => d.traffic).length === 1,
+    `only the day still ahead carries one (${ov.perDay.filter((d) => d.traffic).length})`);
+  check(/\+3[67]m/.test(ov.perDay.find((d) => d.traffic)?.traffic ?? ''),
+    `and it is that day's own figure (${ov.perDay.find((d) => d.traffic)?.traffic})`);
+  check(!ov.sideways, 'the overview still scrolls on one axis');
+  check(gCalls.length === sweepBefore,
+    `the sweep re-used what the day panel already bought (${gCalls.length - sweepBefore} new calls)`);
+
   check(errors.length === 0, `no page errors (${errors.length})`);
   await ctx.close();
 }
