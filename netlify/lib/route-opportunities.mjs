@@ -312,6 +312,12 @@ export async function evaluateRouteOptions(input, {
         locations,
         searchPolyline: encodePolyline5(compactShape(legs)),
         metrics: {
+          // The departure this was measured from. Recorded so a later
+          // re-measure (a rider replacing one stop by hand, no model) can
+          // reproduce it exactly — the evaluator defaults to 08:00, and a
+          // model that planned a 06:30 start would otherwise see every
+          // arrival move for a reason that has nothing to do with the swap.
+          depart: clock(departMin),
           miles: round(miles),
           rideMinutes: round(rideMinutes),
           dwellMinutes: round(dwellMinutes),

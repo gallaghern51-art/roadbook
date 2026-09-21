@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { runPlanner } from '../engine/planner.js';
 import { CATEGORIES } from '../engine/nearby.js';
+import { replaceConceptStop, withDeltas, remeasureConcept, decodePolyline5 } from '../engine/conceptEdit.js';
+import { alongOnRoute } from '../engine/tripEngine.js';
 import PlaceSheet from './PlaceSheet.jsx';
+import NearbyPicker from './NearbyPicker.jsx';
 
 const mins = (value) => {
   if (!Number.isFinite(value)) return '—';
@@ -47,8 +50,12 @@ function PlaceGlance({ stop, onDetails }) {
   );
 }
 
-function RouteFacts({ metrics }) {
-  if (!metrics) return <span className="concept-error">Route could not be measured</span>;
+function RouteFacts({ metrics, pending = false, error = '' }) {
+  // A stop was just replaced by hand: the old figures described a road this
+  // option no longer rides, so they are gone and this says so plainly rather
+  // than showing miles that are no longer true.
+  if (pending) return <span className="concept-remeasure">Re-measuring the route…</span>;
+  if (!metrics) return <span className="concept-error">{error || 'Route could not be measured'}</span>;
   return (
     <div className="concept-facts" aria-label="Measured route facts">
       <span><b>{metrics.miles}</b> mi</span>
@@ -65,8 +72,26 @@ function RouteFacts({ metrics }) {
   );
 }
 
-function ConceptDetail({ concept, onRefine, onReject }) {
+// A stop's role, as the category its replacement is searched in: replacing a
+// dinner opens on Food, a fuel stop on Fuel. A road-shape anchor has no
+// category — the rider types what they want instead.
+const KIND_CATEGORY = { fuel: 'fuel', food: 'food', lodging: 'lodging', attraction: 'sights' };
+
+function ConceptDetail({ concept, onRefine, onReject, onReplace }) {
   const [detail, setDetail] = useState(null); // the stop whose place sheet is open
+  // The stop being replaced by hand (owner, Sep 21 2026: "if you recommend one
+  // dinner spot and they dont want to go there. they should be able to choose
+  // replace and then ... search area for food"). Replacing is the rider's own
+  // act: a live search, a pick, a re-measure — no planner turn.
+  const [replacing, setReplacing] = useState(null);
+  const pickerRef = useRef(null);
+  useEffect(() => {
+    if (replacing != null) pickerRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [replacing]);
+  const askPlanner = (stop) => {
+    onReject?.(stop, concept);
+    onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
+  };
   const detailIdx = detail ? concept.locations.indexOf(detail) : -1;
   const canChange = detailIdx > 0 && detailIdx < concept.locations.length - 1;
   return (
@@ -78,15 +103,51 @@ function ConceptDetail({ concept, onRefine, onReject }) {
           kicker={kindLabel[detail.kind] || 'Stop'}
           onClose={() => setDetail(null)}
           actions={canChange ? (
-            <button type="button" className="btn gold" onClick={() => {
-              setDetail(null);
-              onReject?.(detail, concept);
-              onRefine(`Replace ${detail.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
-            }}>Change this stop</button>
+            <>
+              <button type="button" className="btn gold" onClick={() => { setDetail(null); setReplacing(detailIdx); }}>Replace this stop</button>
+              <button type="button" className="btn" onClick={() => { setDetail(null); askPlanner(detail); }}>Ask the planner</button>
+            </>
           ) : null}
         />
       )}
+      {replacing != null && concept.locations[replacing] && (() => {
+        const stop = concept.locations[replacing];
+        const chain = decodePolyline5(concept.searchPolyline);
+        const here = chain.length > 1 ? alongOnRoute(chain, { lat: stop.lat, lng: stop.lng })?.along : null;
+        return (
+          <div ref={pickerRef} className="concept-replace">
+            <NearbyPicker
+              variant="tiles"
+              mode="swap"
+              title={`Replace ${stop.name}`}
+              subtitle={chain.length > 1 ? 'Search around this stop, or along the proposed road' : 'Search around this stop'}
+              near={{ lat: stop.lat, lng: stop.lng }}
+              chain={chain.length > 1 ? chain : null}
+              fromAlong={Number.isFinite(here) ? here : 0}
+              initialCategory={KIND_CATEGORY[stop.kind] ?? null}
+              onPick={(place) => {
+                const i = replacing;
+                setReplacing(null);
+                onReject?.(stop, concept);
+                onReplace?.(i, place);
+              }}
+              onClose={() => setReplacing(null)}
+            />
+            <button type="button" className="concept-replace-ai" onClick={() => { setReplacing(null); askPlanner(stop); }}>
+              Or ask the planner to find alternatives
+            </button>
+          </div>
+        );
+      })()}
       <div className="concept-story">
+        {concept.edits?.length > 0 && (
+          // The planner wrote the notes below about the ORIGINAL stops. Saying
+          // so beats silently showing prose that names a place the rider
+          // just took out.
+          <p className="concept-edited">
+            You replaced {concept.edits.map((e) => `${e.from} with ${e.to}`).join('; ')}. The planner&rsquo;s notes below were written for the original stops.
+          </p>
+        )}
         <p>{concept.routeDescription}</p>
         <dl>
           <div><dt>Why this works</dt><dd>{concept.why}</dd></div>
@@ -106,10 +167,8 @@ function ConceptDetail({ concept, onRefine, onReject }) {
                 {stop.detail && <small>{stop.detail}</small>}
               </span>
               {i > 0 && i < concept.locations.length - 1 && (
-                <button type="button" onClick={() => {
-                  onReject?.(stop, concept);
-                  onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
-                }}>Change</button>
+                <button type="button" className={replacing === i ? 'active' : ''} aria-pressed={replacing === i}
+                  onClick={() => setReplacing(replacing === i ? null : i)}>Replace</button>
               )}
             </div>
             <PlaceGlance stop={stop} onDetails={setDetail} />
@@ -225,6 +284,38 @@ export default function TripConstructionChat({
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
+  // Replace one stop by hand, then re-measure the road with no model. The swap
+  // lands at once (the stop's role and position are kept); the figures clear
+  // to "re-measuring" because they described the old road; and every option's
+  // "vs quickest" comparison is redone across the whole set, since the one
+  // just measured may now be the quickest. Latest-only per option: a rider who
+  // replaces twice in a row never sees the first answer land on top of the
+  // second.
+  const remeasureSeq = useRef({});
+  const replaceStop = async (conceptId, index, place) => {
+    const current = concepts.find((c) => c.id === conceptId);
+    if (!current) return;
+    let edited;
+    try {
+      edited = replaceConceptStop(current, index, place);
+    } catch (e) {
+      setError(String(e.message || e));
+      return;
+    }
+    const my = (remeasureSeq.current[conceptId] = (remeasureSeq.current[conceptId] ?? 0) + 1);
+    setConcepts((cs) => withDeltas(cs.map((c) => (c.id === conceptId ? { ...edited, remeasuring: true, measureError: '' } : c))));
+    try {
+      const measured = await remeasureConcept(edited, basics);
+      if (remeasureSeq.current[conceptId] !== my) return;
+      setConcepts((cs) => withDeltas(cs.map((c) => (c.id === conceptId ? { ...measured, remeasuring: false, measureError: '' } : c))));
+    } catch {
+      if (remeasureSeq.current[conceptId] !== my) return;
+      setConcepts((cs) => cs.map((c) => (c.id === conceptId
+        ? { ...c, remeasuring: false, measureError: 'The stop is replaced, but the route could not be re-measured right now — replace it again to retry, or ask the planner.' }
+        : c)));
+    }
+  };
+
   const selectConcept = (concept) => {
     if (concept.id === selectedId) return;
     setSelectedId(concept.id);
@@ -242,9 +333,17 @@ export default function TripConstructionChat({
         selected,
         conversation: messages.map((m) => `${m.role === 'user' ? 'Rider' : 'Roadbook'}: ${m.content}`).join('\n'),
       };
+      // Stops the rider replaced by hand. The concept's prose (why / tradeoff /
+      // route description) was written BEFORE those edits and may still name
+      // the old places — and the generator is told to "preserve stated
+      // tradeoffs", which without this line invites it to put a place the
+      // rider deliberately removed straight back.
+      const edits = selected.edits?.length
+        ? `\n\nThe rider replaced these stops by hand, and their choice is final: ${selected.edits.map((e) => `"${e.from}" was replaced with "${e.to}"`).join('; ')}. Use the places in \`locations\` exactly. Where the prose mentions a replaced place, it is out of date — do not restore it.`
+        : '';
       const data = await runPlanner({
         mode: 'generate',
-        prompt: `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.\n\n${JSON.stringify(construction)}`,
+        prompt: `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.${edits}\n\n${JSON.stringify(construction)}`,
         basics,
       }, readLine);
       await placePreferences?.record?.('confirmed', selected.locations, { optionId: selected.id });
@@ -323,7 +422,7 @@ export default function TripConstructionChat({
       <section className="construction-plan" aria-label="Route plan">
         {concepts.length > 0 ? (
           <section className="concept-workbench" aria-label="Route options">
-            <div className="concept-head"><span>Route options</span><small>Select one, then refine any piece in the conversation.</small></div>
+            <div className="concept-head"><span>Route options</span><small>Select one. Replace any stop yourself, or refine it in the conversation.</small></div>
             <div className="concept-tabs" role="tablist">
               {concepts.map((concept) => (
                 <button
@@ -338,10 +437,11 @@ export default function TripConstructionChat({
             </div>
             {selected && (
               <div className="concept-selected">
-                <RouteFacts metrics={selected.metrics} />
+                <RouteFacts metrics={selected.metrics} pending={!!selected.remeasuring} error={selected.measureError} />
                 <ConceptDetail
                   concept={selected}
                   onRefine={refine}
+                  onReplace={(index, place) => replaceStop(selected.id, index, place)}
                   onReject={(stop, concept) => placePreferences?.record?.('rejected', [stop], { optionId: concept.id })}
                 />
               </div>
@@ -354,7 +454,7 @@ export default function TripConstructionChat({
         {selected && (
           <div className="construction-confirm">
             <div><b>Nothing is created yet.</b><span>Confirm when the route and its pieces feel right.</span></div>
-            <button type="button" className="btn gold" disabled={busy} onClick={build}>{busyMode === 'build' ? 'Creating…' : 'Create this trip'}</button>
+            <button type="button" className="btn gold" disabled={busy || !!selected?.remeasuring} onClick={build}>{busyMode === 'build' ? 'Creating…' : selected?.remeasuring ? 'Re-measuring…' : 'Create this trip'}</button>
           </div>
         )}
       </section>

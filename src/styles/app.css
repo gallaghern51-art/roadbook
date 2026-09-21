@@ -875,6 +875,32 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .concept-facts b { color: var(--ink); font-size: 11.5px; font-weight: 600; }
 .concept-facts .detour b { color: var(--outbound); }
 .concept-error { color: var(--danger); font-size: 12px; }
+/* Replacing a proposed stop by hand (owner, Sep 21 2026). The picker spans
+   BOTH columns of the detail grid — dropped in as a grid item it would take
+   the story's column and push the stops onto a row of their own. */
+.concept-replace { grid-column: 1 / -1; min-width: 0; }
+/* min-width: 0 is load-bearing. A grid item's automatic minimum is its
+   min-content width, and the cuisine chip strip inside the picker does not
+   wrap — so without this the phone's single `1fr` track resolved to ~980px on
+   a 375px screen, and every tile's second column sat off the right edge
+   (Fuel, Coffee, Sights, Help visible; Food, Lodging, Moto gone). With it the
+   picker is only as wide as the detail, and the strip scrolls as designed. */
+.concept-replace .nearby { margin-top: 0; }
+.concept-replace-ai {
+  display: block; min-height: 44px; margin-top: 6px; padding: 0;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.concept-replace-ai:hover { color: var(--ink); }
+/* the planner's prose predates the rider's edit — said, not hidden */
+.concept-edited {
+  margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid var(--outbound);
+  background: rgba(244, 131, 34, 0.08); border-radius: 0 6px 6px 0;
+  font-size: 12px; color: var(--ink-dim); line-height: 1.45;
+}
+/* the figures are being re-measured, not missing */
+.concept-remeasure { font-family: var(--mono); font-size: 11px; color: var(--route); }
+.concept-stop-row > button.active { border-color: var(--rally); color: var(--ink); }
 .concept-detail { display: grid; grid-template-columns: minmax(210px, 0.8fr) minmax(300px, 1.2fr); gap: 20px; padding-top: 13px; }
 .concept-story > p { margin: 0 0 10px; color: var(--ink); font-size: 13.5px; line-height: 1.45; }
 .concept-story dl { display: grid; gap: 8px; }

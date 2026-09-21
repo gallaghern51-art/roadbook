@@ -18,7 +18,8 @@
     "route-preview:check": "node scripts/route-preview-check.mjs",
     "landing:frame": "node tools/landing-frame.mjs",
     "route-options:check": "node scripts/route-options-check.mjs",
-    "traffic-plan:check": "node scripts/traffic-plan-check.mjs"
+    "traffic-plan:check": "node scripts/traffic-plan-check.mjs",
+    "concept-edit:check": "node scripts/concept-edit-check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
