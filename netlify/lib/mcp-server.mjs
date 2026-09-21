@@ -30,14 +30,15 @@ import { z } from 'zod';
 
 import { valhallaTrips } from '../../src/engine/routing.js';
 import { tripToGpx } from '../../src/engine/exporters.js';
-import { tripPace, tripRoutePrefs, DEFAULT_RANGE } from '../../src/engine/tripEngine.js';
+import { tripPace, tripRoutePrefs, routeFingerprint, routePrefsKey, DEFAULT_RANGE } from '../../src/engine/tripEngine.js';
+import { createHash } from 'node:crypto';
 import { TOOL as CHAT_TOOL } from './planner-core.mjs';
 import { evaluateRouteOptions } from './route-opportunities.mjs';
-import { verifyTrip, verifyProposal, describeVerification } from './verify-places.mjs';
+import { verifyTrip, verifyProposal, describeVerification, planVerification } from './verify-places.mjs';
 import { searchPlacesGoogle } from './places-core.mjs';
 import { computeRoute, isFutureIso } from './google-routes.mjs';
 import { measureOptions, resolvePlace, describeOptions, departureIso, STYLE_IDS } from './mcp-routes.mjs';
-import { putOptionSet, getOptionSet } from './mcp-store.mjs';
+import { putOptionSet, getOptionSet, putDayRoute, getDayRoute } from './mcp-store.mjs';
 import {
   listTrips, getTripRow, saveTrip, tombstoneTrip, tripFromOption, tripFromDays, tripSummary, tripStops, applyTripOps, newTripId, tripUrl, APP_URL, fmtMin,
 } from './mcp-library.mjs';
@@ -92,24 +93,60 @@ const Point = z.object({
 // A place as the model names it: coordinates, or a name to resolve through Places.
 const PlaceIn = z.union([Point, z.string().min(1)]).describe('{lat,lng,name?,placeId?} or a place name like "Red Lodge, MT"');
 
-// Route every day of a trip on real roads, in order, until the deadline.
-async function measureDays(trip, { deadline }) {
+// How long one tool call may spend measuring or verifying. Netlify's
+// synchronous functions die at 10 s, so the default leaves room for the
+// library read and the answer; on a host with longer functions (Vercel) raise
+// it in the environment and every tool measures more per call.
+export const budgetMs = () => Number(process.env.MCP_TOOL_BUDGET_MS) || 6500;
+
+// Route the days of a trip on real roads — in order, RESUMABLY. A day already
+// routed (same stops, same road character) comes from the per-trip cache for
+// free, and the call routes what is still missing until its deadline. So a
+// 30-day trip is measured in passes: call again, and it continues where it
+// stopped; `nextDayId` says where that is, `complete` says when it is done.
+const dayRouteKey = (day, prefs) => createHash('sha256').update(`${routeFingerprint(day)}|${routePrefsKey(prefs)}`).digest('hex').slice(0, 24);
+
+async function measureDays(trip, { deadline, tripId = null, fromDayId = null }) {
   const prefs = tripRoutePrefs(trip);
   const pace = tripPace(trip);
   const out = {};
   const geometry = {};
-  for (const day of trip.days ?? []) {
-    if (Date.now() > deadline) break;
+  let cached = 0; let routed = 0; let nextDayId = null;
+  const days = trip.days ?? [];
+  const startAt = fromDayId ? Math.max(0, days.findIndex((d) => d.id === fromDayId)) : 0;
+  for (let i = 0; i < days.length; i++) {
+    const day = days[i];
     const wps = (day.waypoints ?? []).filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
     if (wps.length < 2) continue;
+    const key = tripId ? dayRouteKey(day, prefs) : null;
+    const hit = key ? await getDayRoute(tripId, key) : null;
+    if (hit) {
+      out[day.id] = { miles: hit.miles, minutes: hit.minutes * pace };
+      geometry[day.id] = hit.geometry;
+      cached += 1;
+      continue;
+    }
+    // a day skipped by fromDayId is still owed — name it as the next one
+    if (i < startAt) { nextDayId ??= day.id; continue; }
+    if (Date.now() > deadline) { nextDayId ??= day.id; continue; }
     try {
       const [t] = await valhallaTrips(wps[0], wps.slice(1), prefs, { alternates: 0 });
       out[day.id] = { miles: t.miles, minutes: t.minutes * pace };
       geometry[day.id] = t.geometry;
-    } catch { /* this day stays unmeasured; the summary says so */ }
+      routed += 1;
+      if (key) await putDayRoute(tripId, key, { miles: t.miles, minutes: t.minutes, geometry: thin(t.geometry, 600) }).catch(() => {});
+    } catch { nextDayId ??= day.id; /* this day stays unmeasured; the summary says so */ }
   }
-  return { measured: out, geometry };
+  const total = days.filter((d) => (d.waypoints ?? []).filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng)).length >= 2).length;
+  return { measured: out, geometry, cached, routed, nextDayId, complete: Object.keys(out).length >= total };
 }
+
+const measureNote = (m) => (m.complete
+  ? `All ${Object.keys(m.measured).length} days are routed on real roads.`
+  : `${Object.keys(m.measured).length} day${Object.keys(m.measured).length === 1 ? '' : 's'} routed so far (${m.routed} this call, ${m.cached} from cache); call again to continue from dayId ${m.nextDayId} — routed days are cached, so each pass adds to the last.`);
+
+// Stops a verification pass has not reached yet — neither verified nor judged.
+const unverifiedLeft = (trip) => planVerification(structuredClone(trip), { retryUnverified: false }).length;
 
 // The clock and the date as WRITTEN in an ISO string — never re-read through
 // Date, which would shift them into this process's zone.
@@ -385,10 +422,12 @@ export function buildServer(session, deps = {}) {
     let note = '';
     if (googleKey) {
       try {
-        const report = await verifyTripImpl(trip, { key: googleKey, deadline: now() + 6000, maxLookups: 40 });
+        const report = await verifyTripImpl(trip, { key: googleKey, deadline: now() + budgetMs() - 500, maxLookups: 60 });
         if (report?.unverified?.length) note = ` Place check: ${report.unverified.length} stop${report.unverified.length === 1 ? '' : 's'} could not be found and ${report.unverified.length === 1 ? 'is' : 'are'} flagged unverified (${report.unverified.map((u) => u.name ?? u).slice(0, 5).join(', ')}).`;
         else if (report?.snapped) note = ` Place check: ${report.snapped} stop${report.snapped === 1 ? '' : 's'} snapped to ${report.snapped === 1 ? 'its' : 'their'} listing.`;
       } catch { /* a plan that could not be checked is still a plan */ }
+      const left = unverifiedLeft(trip);
+      if (left) note += ` ${left} stop${left === 1 ? '' : 's'} not yet checked (a long trip is verified in passes) — call verify_trip to continue.`;
     }
     const tripId = newTripId();
     const row = await saveTrip(db, userId, { tripId, name: trip.meta.title, trip });
@@ -416,21 +455,26 @@ export function buildServer(session, deps = {}) {
     description: 'One trip in full: days, every stop with its id (for update_trip), lodging, meals, gates. With measure=true each day is routed on real roads (miles and riding minutes) as time allows.',
     inputSchema: {
       tripId: z.string(),
-      measure: z.boolean().optional().describe('route the days on real roads (slower)'),
+      measure: z.boolean().optional().describe('route the days on real roads. Resumable: routed days are cached, so call again until the answer says complete'),
+      fromDayId: z.string().optional().describe('with measure: start routing at this day (earlier unrouted days are left for later)'),
     },
     annotations: { readOnlyHint: true },
     _meta: uiMeta('ui://roadbook/trip'),
   }, async (args) => {
     const row = await getTripRow(db, userId, args.tripId);
     if (!row) return fail(`No trip ${args.tripId} in this library.`);
-    let measured = null; let geometry = null;
+    let measured = null; let geometry = null; let m = null;
     if (args.measure) {
-      const r = await measureDaysImpl(row.trip, { deadline: now() + 6500 });
-      measured = r.measured; geometry = Object.fromEntries(Object.entries(r.geometry).map(([k, g]) => [k, thin(g)]));
+      m = await measureDaysImpl(row.trip, { deadline: now() + budgetMs(), tripId: args.tripId, fromDayId: args.fromDayId ?? null });
+      measured = m.measured; geometry = Object.fromEntries(Object.entries(m.geometry).map(([k, g]) => [k, thin(g)]));
     }
     const summary = tripSummary(row, { measured });
     const lines = summary.dayList.map((d) => `• ${d.dow ?? ''} ${d.date ?? ''} ${d.title}: ${d.from} → ${d.to}, ${d.stops} stops${d.roadMiles != null ? `, ${d.roadMiles} mi / ${fmtMin(d.ridingMinutes)}` : ` (~${d.straightLineMiles} mi straight-line)`}${d.lodging ? ` · ${d.lodging}` : ''}${d.unverified.length ? ` · UNVERIFIED: ${d.unverified.join(', ')}` : ''} [dayId ${d.id}]`);
-    return ok(`${summary.title} (${summary.startDate} → ${summary.endDate}, ${summary.riders} rider${summary.riders === 1 ? '' : 's'}, ${summary.routePrefs.style} roads)\n${lines.join('\n')}\nOpen: ${summary.url}`, { trip: summary, stops: tripStops(row.trip), ...(geometry ? { geometry } : {}) });
+    const left = unverifiedLeft(row.trip);
+    return ok(
+      `${summary.title} (${summary.startDate} → ${summary.endDate}, ${summary.riders} rider${summary.riders === 1 ? '' : 's'}, ${summary.routePrefs.style} roads)\n${lines.join('\n')}${m ? `\n${measureNote(m)}` : ''}${left ? `\n${left} stop${left === 1 ? '' : 's'} not yet checked against Places — verify_trip continues that.` : ''}\nOpen: ${summary.url}`,
+      { trip: summary, stops: tripStops(row.trip), ...(geometry ? { geometry } : {}), ...(m ? { measure: { routed: m.routed, cached: m.cached, nextDayId: m.nextDayId, complete: m.complete } } : {}), uncheckedStops: left },
+    );
   });
 
   server.registerTool('update_trip', {
@@ -448,7 +492,7 @@ export function buildServer(session, deps = {}) {
     let checkNote = '';
     if (googleKey) {
       try {
-        const v = await verifyProposalImpl({ ops: args.ops }, { trip: row.trip, key: googleKey, deadline: now() + 5000, maxLookups: 12 });
+        const v = await verifyProposalImpl({ ops: args.ops }, { trip: row.trip, key: googleKey, deadline: now() + Math.min(5000, budgetMs() - 1500), maxLookups: 12 });
         checkNote = describeVerification(v);
       } catch { /* unverifiable is not unappliable */ }
     }
@@ -459,6 +503,32 @@ export function buildServer(session, deps = {}) {
     return ok(
       `Applied ${args.ops.length - errors.length} of ${args.ops.length} change${args.ops.length === 1 ? '' : 's'} to "${trip.meta.title}":\n${described.map((d) => `• ${d}`).join('\n')}${errors.length ? `\nSkipped: ${errors.join('; ')}` : ''}${checkNote ? `\n${checkNote}` : ''}`,
       { trip: summary, stops: tripStops(trip), applied: described, errors, verification: checkNote || null },
+    );
+  });
+
+  server.registerTool('verify_trip', {
+    title: 'Verify a trip\'s places',
+    description: 'Check the trip\'s fuel stops, lodging, restaurants and named stops against Google Places, RESUMABLY: each call checks what has not been checked yet until its time runs out, snaps real places to their listing and flags missing ones unverified; call again until remaining is 0. Use after create_trip on a long trip. retryUnverified re-checks stops already flagged (after you have renamed or moved them).',
+    inputSchema: { tripId: z.string(), retryUnverified: z.boolean().optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, async (args) => {
+    if (!googleKey) return fail('Place verification is not configured on this server (GOOGLE_MAPS_API_KEY).');
+    const row = await getTripRow(db, userId, args.tripId);
+    if (!row) return fail(`No trip ${args.tripId} in this library.`);
+    const trip = structuredClone(row.trip);
+    const before = unverifiedLeft(trip);
+    let report = null;
+    try {
+      report = await verifyTripImpl(trip, { key: googleKey, deadline: now() + budgetMs() - 500, maxLookups: 60, retryUnverified: args.retryUnverified === true });
+    } catch (e) {
+      return fail(`Verification failed: ${String(e.message).slice(0, 200)}`);
+    }
+    await saveTrip(db, userId, { tripId: args.tripId, name: row.name, trip, scenarios: row.scenarios, chat: row.chat, remote: row.remote });
+    const remaining = unverifiedLeft(trip);
+    const flagged = (trip.days ?? []).flatMap((d) => [...(d.waypoints ?? []), d.lodging, ...(d.meals ?? [])].filter((x) => x && x.verified === false).map((x) => x.name));
+    return ok(
+      `Checked ${report?.checked ?? 0} stop${report?.checked === 1 ? '' : 's'} this call (${report?.snapped ?? 0} snapped to a listing, ${report?.unverified?.length ?? 0} not found). ${remaining ? `${remaining} still unchecked — call verify_trip again.` : 'Every stop has been checked.'}${flagged.length ? ` Flagged unverified on the trip: ${flagged.slice(0, 8).join(', ')}${flagged.length > 8 ? '…' : ''} — re-pick or rename them, then verify_trip with retryUnverified.` : ''}`,
+      { tripId: args.tripId, checked: report?.checked ?? 0, snapped: report?.snapped ?? 0, notFound: report?.unverified ?? [], before, remaining, complete: remaining === 0, flagged },
     );
   });
 
@@ -474,7 +544,7 @@ export function buildServer(session, deps = {}) {
 
   server.registerTool('export_gpx', {
     title: 'Export GPX',
-    description: 'The trip (or one day) as a GPX file: waypoints carry the planned ETA in their names, tracks follow the real roads where they could be routed in time (straight lines between stops otherwise).',
+    description: 'The trip (or one day) as a GPX file: waypoints carry the planned ETA in their names, tracks follow the real roads for every day already routed (get_trip measure, cached) plus what this call can route in time; straight lines between stops for the rest, and the answer says how many. For a fully routed long trip, run get_trip measure until complete first.',
     inputSchema: { tripId: z.string(), dayId: z.string().optional() },
     annotations: { readOnlyHint: true },
   }, async (args) => {
@@ -482,16 +552,16 @@ export function buildServer(session, deps = {}) {
     if (!row) return fail(`No trip ${args.tripId} in this library.`);
     const trip = args.dayId ? { ...row.trip, days: row.trip.days.filter((d) => d.id === args.dayId) } : row.trip;
     if (!trip.days.length) return fail(`No day ${args.dayId} on that trip.`);
-    const r = await measureDaysImpl(trip, { deadline: now() + 6000 });
+    const r = await measureDaysImpl(trip, { deadline: now() + budgetMs() - 500, tripId: args.tripId });
     const routes = Object.fromEntries(Object.entries(r.geometry).map(([k, g]) => [k, { geometry: g }]));
     const gpx = tripToGpx(trip, routes, null, args.dayId ?? null);
     const routedDays = Object.keys(routes).length;
     return {
       content: [
-        text(`GPX for "${trip.meta.title}" — ${trip.days.length} day${trip.days.length === 1 ? '' : 's'}, ${routedDays} routed on real roads${routedDays < trip.days.length ? `, ${trip.days.length - routedDays} as straight lines (ran out of time)` : ''}.`),
+        text(`GPX for "${trip.meta.title}" — ${trip.days.length} day${trip.days.length === 1 ? '' : 's'}, ${routedDays} routed on real roads${routedDays < trip.days.length ? `, ${trip.days.length - routedDays} as straight lines. Run get_trip with measure until it reports complete, then export again for a fully routed file.` : '.'}`),
         { type: 'resource', resource: { uri: `roadbook://trips/${args.tripId}/gpx${args.dayId ? `?day=${args.dayId}` : ''}`, mimeType: 'application/gpx+xml', text: gpx } },
       ],
-      structuredContent: { tripId: args.tripId, days: trip.days.length, routedDays, bytes: gpx.length },
+      structuredContent: { tripId: args.tripId, days: trip.days.length, routedDays, complete: r.complete, nextDayId: r.nextDayId, bytes: gpx.length },
     };
   });
 

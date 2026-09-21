@@ -61,5 +61,25 @@ export async function getOptionSet(userId, id) {
   return set;
 }
 
+// Measured day routes, keyed by trip + the day's route fingerprint + road
+// preferences. A day that has been routed once is free on the next call, so a
+// 30-day trip can be measured in passes: each get_trip / export_gpx call routes
+// what is still missing until its deadline and the cache holds the rest.
+const ROUTE_TTL_MS = 7 * 24 * 3_600_000;
+const routeKey = (tripId, dayKey) => `route:${tripId}:${dayKey}`;
+
+export async function putDayRoute(tripId, dayKey, value) {
+  const s = await store();
+  await s.setJSON(routeKey(tripId, dayKey), { ...value, expiresAt: Date.now() + ROUTE_TTL_MS });
+}
+
+export async function getDayRoute(tripId, dayKey) {
+  const s = await store();
+  const v = await s.get(routeKey(tripId, dayKey)).catch(() => null);
+  if (!v) return null;
+  if (v.expiresAt && v.expiresAt < Date.now()) return null;
+  return v;
+}
+
 /** Test seam. */
 export function _resetMemStore() { devMem.clear(); }

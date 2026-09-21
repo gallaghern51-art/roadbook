@@ -61,7 +61,8 @@ opens one shared trip, never a private library.
 | `traffic_eta` | Google's clock for a corridor at a departure (predicted when future), with a toll estimate. |
 | `evaluate_trip_concept` | Up to three multi-day concepts measured on real roads: miles, riding time at pace, per-day arrivals, after-dark, longest fuel gap vs range, climbing, delta vs the quickest (`netlify/lib/route-opportunities.mjs`). |
 | `create_trip` | A whole authored itinerary → a trip document (days, stops in road order, lodging, meals, gates). Fuel / hotels / restaurants without a `placeId` are verified against Places after the fact and snapped or flagged **unverified**, exactly as the in-app planner's are. |
-| `list_trips` / `get_trip` | The library; one trip with every id (`measure: true` routes the days). |
+| `list_trips` / `get_trip` | The library; one trip with every id. `measure: true` routes the days on real roads, **resumably**: routed days are cached per trip (7 days), each call routes what is missing until its budget ends and reports `nextDayId` / `complete`; call again to continue. `fromDayId` starts a pass later in the trip. |
+| `verify_trip` | Places verification, **resumably**: each call checks stops not yet checked until its budget ends and reports `remaining`; call until 0. `retryUnverified` re-checks flagged stops after they were renamed or moved. |
 | `update_trip` | The app's own op vocabulary (`add_waypoint`, `set_day_field`, `set_meta`, `add_gate`, …) applied through `applyOps`; new places verified first; `describeOps` reported back. |
 | `delete_trip` | The app's soft delete (a tombstone). |
 | `export_gpx` | GPX with ETAs in the waypoint names, tracks on real roads where routed in time. |
@@ -122,10 +123,26 @@ carries the same under `[remotes.production.auth.oauth_server]`.
 ## Verify
 
 ```bash
-npm run mcp:check        # 82 checks: protocol, options, save, library, auth, functions
+npm run mcp:check        # protocol, options, save, library, resumable measure/verify, auth, functions
 ```
 
-Budget: Netlify's synchronous function limit is 10 s. `route_options` asks
-each style in order (about a second each against the public Valhalla) and
-Google in parallel; `get_trip measure` and `export_gpx` route days until a
-deadline and say which days they could not reach.
+## Budgets and long trips
+
+Netlify's synchronous function limit is 10 s, so every tool measures in
+order and stops at a deadline. `MCP_TOOL_BUDGET_MS` (default 6500) is the
+per-call budget for routing and verification; raise it on a host with longer
+functions (Vercel) and every tool does more per call without a code change.
+
+The expensive part of a long trip, authoring it, runs in the rider's own AI
+over MCP, not in a function. On Roadbook's side a 30-day trip is:
+
+1. `create_trip` with all 30 days in one call (assembling the document is
+   milliseconds; the first verification pass runs inside the budget).
+2. `verify_trip` until `remaining` is 0 (about 3–4 days of stops per call on
+   Netlify: fuel, bed and meals are ~5 Places lookups a day).
+3. `get_trip` with `measure: true` until `complete` (about 4–5 days per call
+   against the public Valhalla, ~1 s a day; routed days are cached).
+4. `export_gpx` once everything is cached, for a fully routed file.
+
+Chunk size falls out of those numbers: on Netlify, 4 days per pass; on a
+60 s function, the whole trip in one.

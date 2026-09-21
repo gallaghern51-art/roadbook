@@ -141,7 +141,26 @@ function fakeDb() {
 const db = fakeDb();
 db.tables.user_profile.push({ user_id: 'rider-1', profile: { places: [{ role: 'home', name: 'Missoula, MT', lat: 46.87, lng: -113.99 }], bike: '2020 Gold Wing', routePrefs: { style: 'touring', avoidTolls: false }, range: { comfort: 180, absolute: 200 } }, updated_at: '2026-09-01T00:00:00Z' });
 const session = { userId: 'rider-1', email: 'rider@example.com', name: 'Niall', via: 'token', db };
-const deps = { googleKey: 'test-key', verifyTripImpl: async () => ({ checked: 2, snapped: 1, unverified: [], configured: true }), verifyProposalImpl: async () => ({ corrected: [{ kind: 'fuel', was: 'Town Pump Red Lodge', now: 'Town Pump', mi: 0.2 }], unverified: [] }) };
+// A budgeted verification pass: at most two unchecked stops per call, so the
+// resumable path (create_trip → verify_trip → verify_trip) is exercised.
+const verifyStub = async (trip, { retryUnverified = true } = {}) => {
+  const report = { checked: 0, snapped: 0, unverified: [], configured: true };
+  for (const day of trip.days) {
+    for (const w of day.waypoints) {
+      if (report.checked >= 2) return report;
+      if (w.placeId || w.placed) continue;
+      if (w.verified === false && !retryUnverified) continue;
+      if (w.verified === 'google') continue;
+      report.checked += 1;
+      if (/nowhere/i.test(w.name)) { w.verified = false; report.unverified.push({ kind: 'fuel', name: w.name }); }
+      else { w.placeId = `pl_${w.name.replace(/\W+/g, '_')}`; w.verified = 'google'; report.snapped += 1; }
+    }
+    if (day.lodging?.name && !day.lodging.placeId && day.lodging.verified !== false && report.checked < 2) { report.checked += 1; day.lodging.placeId = 'pl_lodge'; day.lodging.verified = 'google'; }
+    for (const m of day.meals ?? []) { if (!m.placeId && report.checked < 2) { report.checked += 1; m.placeId = 'pl_meal'; m.verified = 'google'; } }
+  }
+  return report;
+};
+const deps = { googleKey: 'test-key', verifyTripImpl: verifyStub, verifyProposalImpl: async () => ({ corrected: [{ kind: 'fuel', was: 'Town Pump Red Lodge', now: 'Town Pump', mi: 0.2 }], unverified: [] }) };
 
 let rpcId = 0;
 async function rpc(method, params = {}) {
@@ -165,8 +184,8 @@ console.log('protocol:');
   check('instructions tell the model the flow', /route_options/.test(r.result?.instructions ?? ''));
   const t = await rpc('tools/list');
   const names = (t.result?.tools ?? []).map((x) => x.name);
-  check('twelve tools', names.length === 12, names.join(','));
-  for (const n of ['search_places', 'route_options', 'save_route_option', 'traffic_eta', 'evaluate_trip_concept', 'create_trip', 'list_trips', 'get_trip', 'update_trip', 'delete_trip', 'export_gpx', 'rider_profile']) {
+  check('thirteen tools', names.length === 13, names.join(','));
+  for (const n of ['search_places', 'route_options', 'save_route_option', 'traffic_eta', 'evaluate_trip_concept', 'create_trip', 'list_trips', 'get_trip', 'update_trip', 'delete_trip', 'export_gpx', 'rider_profile', 'verify_trip']) {
     if (!names.includes(n)) check(`tool ${n}`, false);
   }
   const ui = Object.fromEntries((t.result?.tools ?? []).map((x) => [x.name, x._meta?.['ui/resourceUri'] ?? x._meta?.ui?.resourceUri ?? null]));
@@ -269,6 +288,10 @@ console.log('the library:');
   const sc = g.result?.structuredContent;
   check('get_trip returns ids for every stop', sc?.stops?.[0]?.waypoints?.every((w) => w.id && w.name));
   check('measure=true routes the day on real roads', sc?.trip?.dayList?.[0]?.roadMiles > 0 && sc.trip.dayList[0].ridingMinutes > 0 && sc.geometry && Object.keys(sc.geometry).length === 1, JSON.stringify(sc?.trip?.dayList?.[0]));
+  check('the first measure routed the day and says so', sc.measure?.routed === 1 && sc.measure.complete === true, JSON.stringify(sc?.measure));
+  const before = seen.valhalla.length;
+  const g2 = await call('get_trip', { tripId, measure: true });
+  check('a second measure comes from the cache — no router call, still complete', seen.valhalla.length === before && g2.result.structuredContent.measure.cached === 1 && g2.result.structuredContent.measure.routed === 0 && g2.result.structuredContent.measure.complete === true, JSON.stringify(g2.result?.structuredContent?.measure));
   const dayId = sc.trip.dayList[0].id;
   const u = await call('update_trip', { tripId, ops: [
     { op: 'add_waypoint', dayId, index: 1, waypoint: { name: 'Town Pump Red Lodge', lat: 45.18, lng: -109.3, kind: 'fuel', fuel: true } },
@@ -304,8 +327,37 @@ console.log('a multi-day itinerary:');
   check('lodging, meals and a gate pointed at a real stop', row.trip.days[0].lodging.status === 'reserve' && row.trip.days[0].meals[0].meal === 'dinner' && row.trip.days[1].gates[0].waypointId === row.trip.days[1].waypoints[1].id);
   check('the rider\'s road character, riders and phase words are on the trip', row.trip.meta.routePrefs.style === 'backroads' && row.trip.meta.routePrefs.avoidTolls === true && row.trip.meta.riders === 3 && row.trip.meta.phaseLabels.rally === 'Rally');
   check('the place check ran and is reported', /Place check/.test(r.result.content[0].text));
+  check('a long trip is verified in passes — the answer says what is left and names verify_trip', /not yet checked/.test(r.result.content[0].text) && /verify_trip/.test(r.result.content[0].text), r.result.content[0].text.slice(-200));
+  const v1 = await call('verify_trip', { tripId: sc.trip.tripId });
+  const s1 = v1.result?.structuredContent;
+  check('verify_trip checks a batch and reports the remainder', s1 && s1.checked === 2 && s1.remaining > 0 && s1.complete === false && s1.before === s1.remaining + 2, JSON.stringify(s1));
+  let last = s1;
+  for (let i = 0; i < 6 && last && !last.complete; i++) last = (await call('verify_trip', { tripId: sc.trip.tripId })).result?.structuredContent;
+  check('called again until nothing is left, it completes', last?.complete === true && last.remaining === 0, JSON.stringify(last));
+  const wpsNow = db.tables.user_trips.find((x) => x.trip_id === sc.trip.tripId).trip.days.flatMap((d) => d.waypoints);
+  check('every checkable stop is now verified on the saved trip', wpsNow.filter((w) => !w.placed).every((w) => w.verified === 'google' && w.placeId));
+  // the budget is read from the environment per call: a 1 ms budget routes nothing
+  const t3 = await call('create_trip', { name: 'Budget test', startDate: '2027-09-01', days: [
+    { title: 'A', waypoints: [{ name: 'P', lat: A[1], lng: A[0], placeId: 'p1' }, { name: 'Q', lat: B[1], lng: B[0], placeId: 'p2' }] },
+    { title: 'B', waypoints: [{ name: 'Q', lat: B[1], lng: B[0], placeId: 'p2' }, { name: 'R', lat: 45.5, lng: -110.5, placeId: 'p3' }] },
+  ] });
+  const t3id = t3.result.structuredContent.trip.tripId;
+  // the mocked router answers instantly, so a budget already in the past is
+  // the only way to prove the deadline is honoured
+  process.env.MCP_TOOL_BUDGET_MS = '-100000';
+  const b1 = await call('get_trip', { tripId: t3id, measure: true });
+  const bm = b1.result.structuredContent.measure;
+  check('MCP_TOOL_BUDGET_MS bounds a call: an exhausted budget routes nothing and points at the next day', bm.routed === 0 && bm.complete === false && bm.nextDayId === t3.result.structuredContent.trip.dayList[0].id, JSON.stringify(bm));
+  delete process.env.MCP_TOOL_BUDGET_MS;
+  const b2 = await call('get_trip', { tripId: t3id, measure: true, fromDayId: t3.result.structuredContent.trip.dayList[1].id });
+  const bm2 = b2.result.structuredContent.measure;
+  check('fromDayId starts routing at that day and leaves the earlier one for later', bm2.routed === 1 && bm2.complete === false && bm2.nextDayId === t3.result.structuredContent.trip.dayList[0].id, JSON.stringify(bm2));
+  const b3 = await call('get_trip', { tripId: t3id, measure: true });
+  check('the next pass fills the gap from cache plus one route and completes', b3.result.structuredContent.measure.complete === true && b3.result.structuredContent.measure.cached === 1 && b3.result.structuredContent.measure.routed === 1, JSON.stringify(b3.result.structuredContent.measure));
+  const gx = await call('export_gpx', { tripId: t3id });
+  check('export_gpx then rides entirely on cached roads', gx.result.structuredContent.routedDays === 2 && gx.result.structuredContent.complete === true);
   const d = await call('delete_trip', { tripId: sc.trip.tripId });
-  check('delete tombstones the row (the app\'s own soft delete)', d.result?.structuredContent?.deleted === true && row.deleted_at);
+  check('delete tombstones the row (the app\'s own soft delete)', d.result?.structuredContent?.deleted === true && db.tables.user_trips.find((x) => x.trip_id === sc.trip.tripId).deleted_at);
   const g = await call('get_trip', { tripId: sc.trip.tripId });
   check('a deleted trip is gone from reads', g.result?.isError === true);
   const l = await call('list_trips');
