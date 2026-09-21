@@ -9,6 +9,7 @@
 //
 // Run: node scripts/mcp-check.mjs      (or npm run mcp:check)
 
+import { resolvePlace, localDeparture, guessZone, zoneOffsetHours } from '../netlify/lib/mcp-routes.mjs';
 import { handleMcpRequest, buildServer } from '../netlify/lib/mcp-server.mjs';
 import { authenticate, protectedResourceMetadata, wwwAuthenticate, hashToken, mintToken, AuthError } from '../netlify/lib/mcp-auth.mjs';
 import { _resetMemStore } from '../netlify/lib/mcp-store.mjs';
@@ -160,7 +161,7 @@ const verifyStub = async (trip, { retryUnverified = true } = {}) => {
   }
   return report;
 };
-const deps = { googleKey: 'test-key', verifyTripImpl: verifyStub, verifyProposalImpl: async () => ({ corrected: [{ kind: 'fuel', was: 'Town Pump Red Lodge', now: 'Town Pump', mi: 0.2 }], unverified: [] }) };
+const deps = { googleKey: 'test-key', tzImpl: async () => { throw new Error('REQUEST_DENIED'); }, verifyTripImpl: verifyStub, verifyProposalImpl: async () => ({ corrected: [{ kind: 'fuel', was: 'Town Pump Red Lodge', now: 'Town Pump', mi: 0.2 }], unverified: [] }) };
 
 let rpcId = 0;
 async function rpc(method, params = {}) {
@@ -217,9 +218,26 @@ let optionSetId; let options;
 {
   resetRouterBackoff();
   seen.valhalla.length = 0; seen.google.length = 0;
+  // --- the clock is the rider's, at the start (caught live through the Claude connector: "9:00 AM" read as 09:00Z put predicted traffic at 3 AM in Red Lodge)
+  {
+    const spy = []; const searchSpy = async (key, text, near, opts) => { spy.push(opts); return [{ id: 'pl', name: text, lat: 45, lng: -109 }]; };
+    await resolvePlace('k', 'Cooke City', { near: { lat: 45.19, lng: -109.25 }, searchImpl: searchSpy });
+    check('a named place is searched inside Google\'s 50 km bias ceiling (150 km was a 400)', spy[0]?.radiusM <= 50_000, JSON.stringify(spy[0]));
+    check('zones are estimated by band: Red Lodge → Denver, Manhattan → New_York, Phoenix → Phoenix, Chicago → Chicago, LA → Los_Angeles', guessZone(45.19, -109.25) === 'America/Denver' && guessZone(40.7, -74) === 'America/New_York' && guessZone(33.45, -112.07) === 'America/Phoenix' && guessZone(41.9, -87.6) === 'America/Chicago' && guessZone(34.05, -118.25) === 'America/Los_Angeles');
+    check('the offset follows daylight saving for the date (Denver: −6 in July, −7 in January; Phoenix stays −7)', zoneOffsetHours('America/Denver', 2027, 7, 10, 9, 0) === -6 && zoneOffsetHours('America/Denver', 2027, 1, 10, 9, 0) === -7 && zoneOffsetHours('America/Phoenix', 2027, 7, 10, 9, 0) === -7);
+    const est = await localDeparture({ lat: 45.19, lng: -109.25 }, '2027-07-10', '9:00 AM', { key: 'k', tzImpl: async () => { throw new Error('REQUEST_DENIED'); } });
+    check('with no Time Zone API, 9:00 AM in Red Lodge in July is 15:00Z, marked as an estimate', est.iso === '2027-07-10T15:00:00.000Z' && est.offset === -6 && est.zone === 'America/Denver' && est.source === 'estimate', JSON.stringify(est));
+    const goog = await localDeparture({ lat: 33.45, lng: -112.07 }, '2027-07-10', '9:00 AM', { key: 'k', tzImpl: async () => ({ zone: 'America/Phoenix' }) });
+    check('with the API, Google\'s zone wins (Phoenix, no DST: 16:00Z)', goog.iso === '2027-07-10T16:00:00.000Z' && goog.offset === -7 && goog.source === 'google', JSON.stringify(goog));
+    const given = await localDeparture({ lat: 45.19, lng: -109.25 }, '2027-07-10', '9:00 AM', { utcOffset: -4, key: 'k', tzImpl: async () => ({ zone: 'America/Phoenix' }) });
+    check('an explicit utcOffset overrides both', given.iso === '2027-07-10T13:00:00.000Z' && given.source === 'given');
+    const noon = await localDeparture({ lat: 40.7, lng: -74 }, '2027-07-10', '12:30 PM', { key: '' });
+    check('12:30 PM in Manhattan is 16:30Z; no key → estimate without asking Google', noon.iso === '2027-07-10T16:30:00.000Z' && noon.source === 'estimate', JSON.stringify(noon));
+  }
   const r = await call('route_options', { start: { lat: A[1], lng: A[0], name: 'Red Lodge' }, end: 'Cooke City, MT', date: '2027-07-10', time: '9:00 AM', prefer: 'touring' });
   const sc = r.result?.structuredContent;
   check('measures without error', r.result && !r.result.isError, JSON.stringify(r).slice(0, 300));
+  check('route_options resolved 9:00 AM at Red Lodge as 15:00Z and says so', sc?.departureTime === '2027-07-10T15:00:00.000Z' && sc?.departure?.offset === -6 && sc.departure.zone === 'America/Denver' && /Departure 2027-07-10 9:00 AM at Red Lodge \(America\/Denver, UTC−6, zone estimated from the coordinate\)/.test(r.result.content[0].text), `${sc?.departureTime} ${JSON.stringify(sc?.departure)}`);
   check('a named destination was resolved through Places with its id', sc?.end?.placeId === 'pl_Cooke_City_MT' && sc.end.name === 'Cooke City, MT', JSON.stringify(sc?.end));
   check('every style asked one at a time, in order', seen.valhalla.map((b) => b.costing_options.motorcycle.use_highways).join(',') === '1,0.5,0.05', seen.valhalla.map((b) => b.costing_options.motorcycle.use_highways).join(','));
   options = sc?.options ?? [];
@@ -231,9 +249,9 @@ let optionSetId; let options;
   check('the rider\'s own character leads the list', options[0].styles.includes('touring'), options[0].label);
   check('fastest / shortest flags and deltas are set', options.some((o) => o.fastest) && options.some((o) => o.shortest) && options.every((o) => Number.isFinite(o.deltaMinutes)));
   check('a tolled road is flagged and PRICED', quick.hasToll && quick.toll && quick.toll.amount === 7.5 && quick.toll.currency === 'USD', JSON.stringify(quick.toll));
-  check('traffic is quoted per option for the departure', options.every((o) => o.traffic && o.traffic.at === '2027-07-10T09:00:00.000Z' && o.traffic.minutes > 0), JSON.stringify(options[0].traffic));
+  check('traffic is quoted per option for the departure', options.every((o) => o.traffic && o.traffic.at === '2027-07-10T15:00:00.000Z' && o.traffic.minutes > 0), JSON.stringify(options[0].traffic));
   check('a two-point ride pins the quote to Valhalla\'s road with pass-through points', seen.google.every((b) => (b.intermediates ?? []).filter((i) => i.via).length === 4) && options.every((o) => o.traffic.pinned));
-  check('a traffic quote carries the departure to Google', seen.google.every((b) => b.departureTime === '2027-07-10T09:00:00.000Z' && b.routingPreference === 'TRAFFIC_AWARE'));
+  check('a traffic quote carries the departure to Google', seen.google.every((b) => b.departureTime === '2027-07-10T15:00:00.000Z' && b.routingPreference === 'TRAFFIC_AWARE'));
   check('geometry is thinned for the picker, never the survey', options.every((o) => Array.isArray(o.geometry) && o.geometry.length <= 300 && o.geometry.length >= 10));
   check('via labels name the road', options.some((o) => /US-212|I-90|MT-308/.test(o.via ?? '')), options.map((o) => o.via).join(' | '));
   check('text tells the model each option with its id', options.every((o) => r.result.content[0].text.includes(`[${o.id}]`)));
