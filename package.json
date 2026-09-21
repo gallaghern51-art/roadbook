@@ -20,7 +20,8 @@
     "route-options:check": "node scripts/route-options-check.mjs",
     "traffic-plan:check": "node scripts/traffic-plan-check.mjs",
     "mcp:check": "node scripts/mcp-check.mjs",
-    "mcp:bridge": "node mcp/bridge.mjs"
+    "mcp:bridge": "node mcp/bridge.mjs",
+    "passes:check": "node scripts/build-passes-check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
