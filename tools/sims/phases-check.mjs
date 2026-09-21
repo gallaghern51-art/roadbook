@@ -101,6 +101,14 @@ async function run(width, label) {
   // 4. a blank trip inherits nothing: Destination, never Rally
   await page.locator('.mast-back').click();
   await page.waitForSelector('.home', { timeout: 10000 });
+  // coming BACK to the front door closes the drawer again (desktop) and drops
+  // the sheet to its trips row (phone) — the Start-from cards live further up,
+  // so open the sheet the way a rider does before reaching for one
+  { const tb = page.locator('.hm-tripsbtn'); if (await tb.isVisible().catch(() => false)) { await tb.click(); await page.waitForTimeout(400); } }
+  for (let i = 0; i < 3 && !(await page.locator('.start-card').first().isVisible().catch(() => false)); i++) {
+    await page.locator('.hm-handle').click().catch(() => {});
+    await page.waitForTimeout(350);
+  }
   await page.locator('.start-card', { hasText: 'Blank' }).click();
   await page.waitForSelector('.modal', { timeout: 6000 });
   await page.locator('.modal button', { hasText: 'Blank' }).click().catch(() => {});

@@ -795,13 +795,15 @@ export async function routeDayRoads(day) {
 // Throws when Google is not configured or backing off; the caller keeps the
 // static ETA. Never adopts geometry: a time-optimizer will cut a planned pass
 // in half, and the planned road is the point of the ride.
-export async function trafficEta(pos, waypoints, pace = 1, { avoidTolls = false, tolls = false } = {}) {
+export async function trafficEta(pos, waypoints, pace = 1, { avoidTolls = false, tolls = false, departureTime = null } = {}) {
   const wps = waypoints.filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lng));
   if (!wps.length) throw new Error('no destination');
   // `tolls` asks Google what the toll roads on this corridor charge. Valhalla
   // knows a route HAS a toll but never the price, so this is the only source
   // for it — and it is an extra computation, so it is opt-in per call.
-  const g = await googleRoute(pos, wps, { purpose: 'eta', avoidTolls, tolls });
+  // `departureTime` (future, ISO) turns this from "traffic now" into "traffic
+  // predicted for that departure" — what a planning screen is actually asking.
+  const g = await googleRoute(pos, wps, { purpose: 'eta', avoidTolls, tolls, ...(departureTime ? { departureTime } : {}) });
   return {
     seconds: g.durationSeconds * pace,
     miles: g.distanceMeters / 1609.34,
