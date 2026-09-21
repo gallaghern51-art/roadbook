@@ -994,10 +994,35 @@ export async function runExplore({ client, body, emit, budgetMs = BUDGET_MS, bac
 // Every generated itinerary therefore goes through verify-places before it is
 // handed over: real stations, real properties, real restaurants — and an
 // explicit unverified flag on anything the places database cannot confirm.
+// The generate request, with an optional day RANGE. A long trip is built in
+// passes (src/engine/buildPasses.js): the client decides the passes from the
+// intake's day count before the first request, and each pass asks for days
+// from–to of total, told where the previous pass ended so day `from` starts
+// at that stop. The instruction is explicit about what this call must NOT do
+// — reach the final destination early, or re-emit days already built.
+export function generateAsk({ prompt, basics = {}, dayRange = null, priorDays = [] }) {
+  const base = `Build this motorcycle trip:\n\n"${prompt}"\n\nBasics (respect exactly): name: ${basics.name || '(you pick a good one)'}, start date: ${basics.startDate}, days: ${basics.numDays}, riders: ${basics.riders}.`;
+  const total = Number(dayRange?.total) || 0;
+  const from = Number(dayRange?.from) || 1;
+  const to = Number(dayRange?.to) || total;
+  if (!total || (from === 1 && to >= total)) return `${base} Use the generate_trip tool.`;
+  const count = to - from + 1;
+  const bits = [
+    `THIS CALL BUILDS DAYS ${from}–${to} OF THE ${total}-DAY TRIP, AND ONLY THOSE. Emit exactly ${count} day${count === 1 ? '' : 's'} in trip.days, in order — never days before ${from} or after ${to}.`,
+  ];
+  if (from > 1) {
+    bits.push(`Days 1–${from - 1} are already built and must not be repeated. Here they are, most recent in detail:\n${JSON.stringify(priorDays)}\nDay ${from} STARTS where day ${from - 1} ended — its "to" stop, same name and coordinates, as the first waypoint (kind "start").`);
+    bits.push('trip.meta may repeat the title; keep meta.summary to one sentence about these days.');
+  }
+  if (to < total) bits.push(`Day ${to} must END at an overnight on the way (a real lodging town, kind "end", with lodging filled in). The trip's final destination is reached on day ${total}, which is NOT part of this call — do not arrive early, and pace the remaining ${total - to} day${total - to === 1 ? '' : 's'} realistically.`);
+  else bits.push(`Day ${total} ends at the trip's final destination.`);
+  return `${base}\n\n${bits.join('\n')} Use the generate_trip tool.`;
+}
+
 export async function runGenerate({ client, body, emit, budgetMs = BUDGET_MS, background = false, verifyOpts = {} }) {
-  const { prompt, basics = {} } = body;
+  const { prompt, basics = {}, dayRange = null, priorDays = [] } = body;
   const t0 = Date.now();
-  const ask = `Build this motorcycle trip:\n\n"${prompt}"\n\nBasics (respect exactly): name: ${basics.name || '(you pick a good one)'}, start date: ${basics.startDate}, days: ${basics.numDays}, riders: ${basics.riders}. Use the generate_trip tool.`;
+  const ask = generateAsk({ prompt, basics, dayRange, priorDays });
   const stream = client.messages.stream({
     model: 'claude-sonnet-5',
     max_tokens: 16000,
@@ -1050,5 +1075,5 @@ export async function runGenerate({ client, body, emit, budgetMs = BUDGET_MS, ba
   } catch {
     /* best-effort by design — a places outage must not lose a built trip */
   }
-  emit({ type: 'done', trip: block.input.trip, verify });
+  emit({ type: 'done', trip: block.input.trip, verify, ...(dayRange ? { dayRange } : {}) });
 }

@@ -20,6 +20,7 @@ import RideSafety, { rideAckCurrent } from './components/RideSafety.jsx';
 import PrepBoard from './components/PrepBoard.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import HelpGuide from './components/HelpGuide.jsx';
+import OAuthConsent, { isConsentPath } from './components/OAuthConsent.jsx';
 import { isTemplateTrip, tripFromTemplate, daysFromTemplate, insertDaysOp } from './engine/templates.js';
 import { buildQuickTrip, promoteQuickTrip } from './engine/quickRide.js';
 import { bestInsertIndex } from './engine/tripEngine.js';
@@ -179,6 +180,32 @@ export default function App() {
     window.addEventListener('hashchange', read);
     return () => window.removeEventListener('hashchange', read);
   }, []);
+
+  // #trip=<id> — the link a connector hands back after it saves a trip
+  // through the MCP server. The row is in the account, not yet on this
+  // device: pull, then switch to it. Retried briefly, because the merge lands
+  // a render or two after the pull resolves.
+  const wantTripRef = useRef(null);
+  useEffect(() => {
+    const read = () => {
+      const m = /^#trip=(.+)$/.exec(window.location.hash || '');
+      if (!m) return;
+      wantTripRef.current = decodeURIComponent(m[1]);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      backup.refresh?.();
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const id = wantTripRef.current;
+    if (!id) return;
+    if (!state.lib.trips.some((r) => r.id === id)) return;
+    wantTripRef.current = null;
+    if (id !== state.lib.activeId) dispatch({ type: 'switch_trip', id });
+    setScreen('trip');
+  }, [state.lib, backup.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openLegal = (doc) => setLegal(doc);
   const closeLegal = () => {
@@ -764,6 +791,18 @@ export default function App() {
   if (auth.status === 'loading') return <div className="landing-hold" />;
   // A password-reset link wins over everything — the tab is carrying a recovery
   // session and there is nothing to do in the app until it is spent.
+  // An AI host asking to connect (Supabase OAuth server → the app's consent
+  // path). A signed-in rider sees the consent card; anyone else is sent
+  // through the front door first and lands back here, path intact.
+  if (isConsentPath() && auth.enabled && (auth.account || guest)) {
+    return (
+      <OAuthConsent
+        auth={auth}
+        onNeedAccount={() => { try { localStorage.removeItem(GUEST_KEY); } catch { /* non-fatal */ } setGuest(false); }}
+      />
+    );
+  }
+
   if (auth.recovery || auth.finishAccount || (auth.enabled && !auth.account && !guest)) {
     return (
       <Landing

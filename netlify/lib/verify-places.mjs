@@ -266,13 +266,19 @@ export const waypointSpecKind = (w) => {
   if (w.kind === 'photo' || SCENIC_NAME.test(String(w.name ?? ''))) return 'scenic';
   return 'place';
 };
-export function planVerification(trip) {
+// `retryUnverified: false` leaves alone anything an earlier pass already
+// judged unverified — that is what lets a verification RESUME across several
+// short calls (the MCP server's verify_trip) instead of re-spending its budget
+// on the same missing stations every time.
+export function planVerification(trip, { retryUnverified = true } = {}) {
   const tasks = [];
   const rankOf = { fuel: 0, place: 3, scenic: 4 };
+  const judged = (t) => !retryUnverified && t?.verified === false;
   for (const day of trip?.days ?? []) {
     for (const w of day.waypoints ?? []) {
       if (w.placeId) { w.verified = w.verified ?? 'model'; continue; } // came from search_places
       if (w.placed) continue; // the rider (or an earlier pass) placed it on purpose
+      if (judged(w)) continue;
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
       if (isPlaceholderName(w.name)) continue;
       const kind = waypointSpecKind(w);
@@ -283,6 +289,7 @@ export function planVerification(trip) {
     const l = day.lodging;
     if (!l || l.status === 'none' || isPlaceholderName(l.name)) continue;
     if (l.placeId) { l.verified = l.verified ?? 'model'; continue; }
+    if (judged(l)) continue;
     const near = anchorFor(day, 'lodging');
     if (near) tasks.push({ rank: 1, kind: 'lodging', day, target: l, name: l.name, near });
   }
@@ -290,6 +297,7 @@ export function planVerification(trip) {
     for (const m of day.meals ?? []) {
       if (isPlaceholderName(m.name)) continue;
       if (m.placeId) { m.verified = m.verified ?? 'model'; continue; }
+      if (judged(m)) continue;
       const near = anchorFor(day, m.meal);
       if (near) tasks.push({ rank: 2, kind: 'food', day, target: m, name: m.name, near });
     }
@@ -306,11 +314,12 @@ export async function verifyTrip(trip, {
   maxLookups = MAX_LOOKUPS,
   emit,
   searchImpl,
+  retryUnverified = true,
 } = {}) {
   const report = { checked: 0, snapped: 0, unverified: [], skipped: 0, configured: Boolean(key) };
   if (!key || !trip?.days?.length) return report;
 
-  const tasks = planVerification(trip);
+  const tasks = planVerification(trip, { retryUnverified });
   if (!tasks.length) return report;
   emit?.({ type: 'beat', note: `verifying ${tasks.length} places` });
 

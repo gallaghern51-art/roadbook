@@ -388,12 +388,16 @@ enabled = false
 
 # OAuth server configuration
 [auth.oauth_server]
-# Enable OAuth server functionality
-enabled = false
-# Path for OAuth consent flow UI
+# Roadbook's MCP server (netlify/functions/mcp.mjs) authenticates AI hosts
+# through Supabase Auth acting as the OAuth 2.1 server: the host discovers it
+# from /.well-known/oauth-protected-resource, registers itself, and sends the
+# rider to the app's consent page (src/components/OAuthConsent.jsx).
+enabled = true
+# Path for OAuth consent flow UI — an SPA route, see netlify.toml
 authorization_url_path = "/oauth/consent"
-# Allow dynamic client registration
-allow_dynamic_registration = false
+# MCP clients (Claude.ai, ChatGPT, Claude Code…) register themselves; every
+# registration still needs the rider's explicit approval on the consent page.
+allow_dynamic_registration = true
 
 [edge_runtime]
 enabled = true
@@ -451,6 +455,11 @@ project_id = "hnlyqidixkxlgdwvraau"
 [remotes.production.auth]
 site_url = "https://roadbook-app.netlify.app"
 additional_redirect_urls = ["https://roadbook-app.netlify.app/**"]
+
+[remotes.production.auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = true
 
 [remotes.production.auth.mfa.totp]
 enroll_enabled = true
