@@ -680,9 +680,13 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
   flex: none; display: flex; align-items: center; gap: 16px; padding: 9px 24px;
   border-bottom: 1px solid var(--line); color: var(--ink-faint); background: var(--asphalt-1);
 }
-.builder-context > div { flex: 1; display: flex; gap: 0; min-width: 0; }
+/* The facts WRAP on a narrow strip: nowrap in a min-width:0 box painted
+   "touring roads" straight over the Edit button at 375px. A second line beats
+   hiding the road choice, which is the fact the rider most needs to see. The
+   separator trails each fact so a wrapped line never opens with a dot. */
+.builder-context > div { flex: 1; display: flex; flex-wrap: wrap; gap: 2px 0; min-width: 0; }
 .builder-context span { font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
-.builder-context span + span::before { content: '·'; margin: 0 10px; color: var(--line); }
+.builder-context span:not(:last-child)::after { content: '·'; margin: 0 10px; color: var(--line); }
 .builder-context button { flex: none; color: var(--rally); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
 .builder-context button:hover { color: var(--ink); }
 .ai-workspace { flex: 1; min-height: 0; display: flex; }
@@ -1734,7 +1738,7 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .builder-basics-grid .basics-done { grid-column: 1 / -1; }
   .builder-context { padding: 8px 14px; }
   .builder-context span { font-size: 9.5px; }
-  .builder-context span + span::before { margin-inline: 7px; }
+  .builder-context span:not(:last-child)::after { margin-inline: 7px; }
   .construction-chat.started { display: flex; flex-direction: column; }
   .construction-chat.started .construction-dialogue { border-right: 0; }
   .construction-mobile-nav {
