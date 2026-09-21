@@ -1,6 +1,6 @@
 // Re-measure a proposed route WITHOUT the model.
 //
-// Owner, Sep 21 2026: "for changing/editing AI recommended stops should not
+// Owner, Sep 20 2026: "for changing/editing AI recommended stops should not
 // necessarily require another full AI build. they could click a recommended
 // stop and then replace with another location."
 //

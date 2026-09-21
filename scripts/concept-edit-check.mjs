@@ -1,4 +1,4 @@
-// Replacing a proposed stop by hand, with no model (Sep 21, 2026).
+// Replacing a proposed stop by hand, with no model (Sep 20, 2026).
 //
 // Owner: "for changing/editing AI recommended stops should not necessarily
 // require another full AI build. they could click a recommended stop and then
@@ -14,7 +14,7 @@
 //
 // Run: node scripts/concept-edit-check.mjs
 
-import { replaceConceptStop, withDeltas, decodePolyline5, remeasureConcept } from '../src/engine/conceptEdit.js';
+import { replaceConceptStop, withDeltas, decodePolyline5, remeasureConcept, conceptToTrip } from '../src/engine/conceptEdit.js';
 
 let pass = 0;
 let fail = 0;
@@ -207,6 +207,80 @@ console.log('\nthe evaluate-route function itself');
   check('more stops than a route can carry is a 400 that says the limit', bad3.status === 400 && /20/.test((await bad3.json()).error));
   const bad4 = await handler(new Request('http://x/', { method: 'GET' }));
   check('only POST', bad4.status === 405);
+}
+
+console.log('\nthe proposal becomes a trip — instantly, no model');
+{
+  // Owner: "roadbook spits out a recommended plan and then user should be able
+  // to edit that and then move things around, or save for later". The trip
+  // editor already does all of that; what stood in the way was "Create this
+  // trip" running a second full planner generation.
+  const sanJuan = {
+    id: 'mountain', title: 'Passes + hot springs',
+    routeDescription: 'US-550 over the San Juan passes, then a hot-springs stay.',
+    metrics: { depart: '06:45', miles: 238 },
+    locations: [
+      { name: 'Durango', lat: 37.2753, lng: -107.8801, kind: 'start' },
+      { name: 'Million Dollar Highway', lat: 37.9, lng: -107.67, kind: 'road', detail: 'US-550' },
+      { name: 'Conoco, Ouray', lat: 38.02, lng: -107.67, kind: 'fuel', placeId: 'fuel-1', verified: 'google' },
+      { name: 'Brickhouse 737', lat: 38.021, lng: -107.671, kind: 'food', placeId: 'food-1', verified: 'google', detail: '737 Main St, Ouray', dwell: 60 },
+      { name: 'Ouray Hot Springs', lat: 38.03, lng: -107.67, kind: 'lodging', placeId: 'stay-1', detail: 'Recovery-night anchor' },
+      { name: 'Red Mountain Pass', lat: 37.9, lng: -107.71, kind: 'road' },
+      { name: 'Silverton Diner', lat: 37.81, lng: -107.66, kind: 'food', detail: 'Verified breakfast stop' },
+      { name: 'Durango', lat: 37.2753, lng: -107.8801, kind: 'end' },
+    ],
+  };
+  const basics = { name: 'San Juan Roadbook', riders: 4, pace: 1.15, routePrefs: { style: 'touring', avoidTolls: false } };
+  const out = conceptToTrip(sanJuan, basics);
+  const days = out.trip.days;
+
+  check('it returns the planner\'s own shape, so it goes through the same normalisation',
+    Array.isArray(out.trip?.days) && typeof out.trip?.meta === 'object');
+  check('an overnight splits the ride into days', days.length === 2, `${days.length}`);
+  check('the overnight ENDS day one…', days[0].waypoints.at(-1).name === 'Ouray Hot Springs');
+  check('…and STARTS day two, which is what an overnight is', days[1].waypoints[0].name === 'Ouray Hot Springs');
+  const allStops = days.flatMap((d, i) => (i === 0 ? d.waypoints : d.waypoints.slice(1))).map((w) => w.name);
+  check('every stop is kept, in order, none lost at the split',
+    JSON.stringify(allStops) === JSON.stringify(sanJuan.locations.map((l) => l.name)), allStops.join(' → '));
+  check('each day starts on a start and ends on an end',
+    days.every((d) => d.waypoints[0].kind === 'start' && d.waypoints.at(-1).kind === 'end'));
+  const fuel = days[0].waypoints.find((w) => w.name === 'Conoco, Ouray');
+  check('a fuel stop is a fuel stop, and counts toward the fuel plan', fuel.kind === 'fuel' && fuel.fuel === true);
+  check('a road-shape anchor stays on the route as a via', days[0].waypoints.find((w) => w.name === 'Million Dollar Highway').kind === 'via');
+  check('verified identity comes through — no stop is re-looked-up or downgraded',
+    fuel.placeId === 'fuel-1' && fuel.verified === 'google');
+  check('time on the ground comes through', days[0].waypoints.find((w) => w.name === 'Brickhouse 737').dwell === 60);
+  check('the overnight becomes that day\'s lodging, to reserve',
+    days[0].lodging.name === 'Ouray Hot Springs' && days[0].lodging.status === 'reserve');
+  check('the last day has no lodging — it ends at home', days[1].lodging.status === 'none');
+  check('a food stop also becomes a meal, verified', days[0].meals[0]?.name === 'Brickhouse 737' && days[0].meals[0]?.placeId === 'food-1');
+  check('the meal uses the planner\'s own word when it said one ("breakfast stop")',
+    days[1].meals[0]?.meal === 'breakfast', JSON.stringify(days[1].meals));
+  check('the departure comes through as the app writes it', days[0].depart === '6:45 AM', days[0].depart);
+  check('an out-and-back rides its last day home', days[0].phase === 'outbound' && days[1].phase === 'return');
+  check('the trip is named what the rider called it', out.trip.meta.title === 'San Juan Roadbook');
+  check('the planner\'s route description becomes the trip summary — its words, kept',
+    out.trip.meta.summary === sanJuan.routeDescription);
+  check('riders, pace and the road rule come from the frame the options were measured under',
+    out.trip.meta.riders === 4 && out.trip.meta.pace === 1.15 && out.trip.meta.routePrefs?.style === 'touring');
+  check('per-day narratives are NOT invented — left for the planner or the rider',
+    days.every((d) => d.summary === ''));
+
+  const oneWay = conceptToTrip({ ...sanJuan, locations: [sanJuan.locations[0], sanJuan.locations[2], { name: 'Montrose', lat: 38.47, lng: -107.87, kind: 'end' }] }, basics);
+  check('a one-day ride with no overnight is one day', oneWay.trip.days.length === 1);
+  check('and a one-way ride is outbound, never "return"', oneWay.trip.days[0].phase === 'outbound');
+
+  // the stop the rider replaced is the one that gets built
+  const edited = replaceConceptStop(sanJuan, 3, { id: 'g-maggies', source: 'google', name: "Maggie's Kitchen", lat: 38.022, lng: -107.672 });
+  const built = conceptToTrip(edited, basics);
+  const names = built.trip.days[0].waypoints.map((w) => w.name);
+  check('a stop the rider replaced by hand is the one that ends up in the trip',
+    names.includes("Maggie's Kitchen") && !names.includes('Brickhouse 737'), names.join(' → '));
+  check('…as the day\'s meal too', built.trip.days[0].meals[0]?.name === "Maggie's Kitchen");
+
+  let threw = false;
+  try { conceptToTrip({ locations: [{ name: 'x', lat: 1, lng: 1 }] }); } catch { threw = true; }
+  check('a proposal with no route is refused, not turned into an empty trip', threw);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

@@ -687,6 +687,15 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .builder-context button:hover { color: var(--ink); }
 .ai-workspace { flex: 1; min-height: 0; display: flex; }
 .ai-workspace[hidden] { display: none; }
+/* Before the first planning turn the builder is a FORM — the trip frame, the
+   intro, the composer and (when there is one) the unfinished-plan offer. A form
+   taller than the screen scrolls as one page. Clipping it instead let the
+   dialogue shrink below its content, and its centring then spilled that
+   content UP over the frame: the resume offer landed on the Avoid tolls row
+   (Sep 20 2026). The workspace still grows to fill a tall screen, so the
+   composer stays centred where there is room. */
+.modal.trip-builder:not(.construction-active) .modal-body { overflow-y: auto; overscroll-behavior: contain; }
+.modal.trip-builder:not(.construction-active) .ai-workspace { flex: 1 0 auto; }
 .construction-chat {
   flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
   border-top: 1px solid var(--line); background: var(--asphalt-0);
@@ -875,7 +884,7 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .concept-facts b { color: var(--ink); font-size: 11.5px; font-weight: 600; }
 .concept-facts .detour b { color: var(--outbound); }
 .concept-error { color: var(--danger); font-size: 12px; }
-/* Replacing a proposed stop by hand (owner, Sep 21 2026). The picker spans
+/* Replacing a proposed stop by hand (owner, Sep 20 2026). The picker spans
    BOTH columns of the detail grid — dropped in as a grid item it would take
    the story's column and push the stops onto a row of their own. */
 .concept-replace { grid-column: 1 / -1; min-width: 0; }
@@ -901,6 +910,29 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 /* the figures are being re-measured, not missing */
 .concept-remeasure { font-family: var(--mono); font-size: 11px; color: var(--route); }
 .concept-stop-row > button.active { border-color: var(--rally); color: var(--ink); }
+/* two ways to create: now (and edit it), or have the planner write it up */
+.construction-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.construction-confirm-actions .btn { min-height: 44px; }
+.construction-writeup { font-size: 13px; }
+/* the explanation takes the room; the buttons keep their own width
+   (`.construction-confirm > div` would otherwise split the bar 50/50) */
+.construction-confirm > .construction-confirm-actions { flex: none; }
+/* an unfinished plan kept on this device, offered back rather than overwritten */
+.builder-resume {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 12px; padding: 11px 13px; border: 1px solid var(--route); border-radius: 10px;
+  background: rgba(47, 191, 179, 0.07);
+}
+.builder-resume b { display: block; font-size: 13.5px; }
+.builder-resume span { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-dim); }
+.builder-resume-actions { display: flex; align-items: center; gap: 6px; }
+.builder-resume-actions .btn { min-height: 44px; }
+.builder-resume-drop, .builder-startover {
+  min-height: 44px; padding: 0 6px; font-family: var(--mono); font-size: 11px;
+  color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+.builder-startover { display: block; margin: 0 0 8px auto; }
+.builder-resume-drop:hover, .builder-startover:hover { color: var(--ink); }
 .concept-detail { display: grid; grid-template-columns: minmax(210px, 0.8fr) minmax(300px, 1.2fr); gap: 20px; padding-top: 13px; }
 .concept-story > p { margin: 0 0 10px; color: var(--ink); font-size: 13.5px; line-height: 1.45; }
 .concept-story dl { display: grid; gap: 8px; }
@@ -968,6 +1000,7 @@ html[data-app-display='standalone'] :is(.app, .home, .landing, .ride-mode) {
 .construction-confirm b, .construction-confirm span { display: block; }
 .construction-confirm b { font-size: 12px; color: var(--ink); }
 .construction-confirm span { margin-top: 1px; font-size: 11px; color: var(--ink-faint); }
+.construction-confirm .cc-short { display: none; }
 .construction-error { flex: none; margin: 0 14px 10px; }
 .template-create p { font-size: 12.5px; color: var(--ink-dim); }
 
@@ -1777,6 +1810,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .builder-context { padding: 8px 14px; }
   .builder-context span { font-size: 9.5px; }
   .builder-context span + span::before { margin-inline: 7px; }
+  /* the facts wrap rather than run under Edit trip details — "no tolls" is
+     the last fact and the one a clipped strip would lose */
+  .builder-context > div { flex-wrap: wrap; row-gap: 2px; }
   .construction-chat.started { display: flex; flex-direction: column; }
   .construction-chat.started .construction-dialogue { border-right: 0; }
   .construction-mobile-nav {
@@ -1813,7 +1849,27 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .construction-composer textarea { flex: 1 0 100%; min-height: 72px; font-size: 16px; }
   .construction-composer .btn { width: 100%; justify-content: center; }
   .construction-confirm { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
-  .construction-confirm span { display: none; }
+  /* one column on a phone: what happens, then the one button most riders
+     want at full width, then the slower write-up as a quiet second choice.
+     The explanation stays — it is what tells a rider the trip is editable. */
+  /* `.construction-chat` lifts these over the design pass's later
+     `.construction-confirm { padding: 13px 20px }`, which also dropped the
+     home-indicator inset under the bar's last button */
+  .construction-chat .construction-confirm {
+    flex-direction: column; align-items: stretch; gap: 8px;
+    padding: 10px 14px calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  .construction-confirm > div:first-child b { display: inline; }
+  .construction-confirm > div:first-child .cc-long { display: none; }
+  .construction-confirm > div:first-child .cc-short { display: inline; margin: 0 0 0 4px; }
+  .construction-confirm-actions { display: flex; flex-direction: column; gap: 0; }
+  .construction-confirm-actions .btn.gold { width: 100%; justify-content: center; }
+  .construction-confirm-actions .construction-writeup {
+    align-self: center; min-height: 44px; border: 0; background: none;
+    color: var(--ink-dim); font-family: var(--body); font-size: 13px; font-weight: 500;
+    letter-spacing: 0; text-transform: none; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .construction-confirm-actions .construction-writeup:hover { background: none; color: var(--ink); }
 
   .chat-panel { position: static; height: auto; z-index: auto; }
   .chat-msgs { padding: 12px; overscroll-behavior: contain; }

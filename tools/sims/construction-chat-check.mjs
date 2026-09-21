@@ -180,7 +180,7 @@ const phoneFits = await page.locator('.trip-builder').evaluate((el) => el.scroll
 check(phoneFits, 'construction workbench fits a phone without horizontal clipping');
 await page.screenshot({ path: SHOT('construction-chat-phone'), fullPage: true });
 
-// ── Replace a proposed stop by hand (owner, Sep 21 2026: "if you recommend
+// ── Replace a proposed stop by hand (owner, Sep 20 2026: "if you recommend
 // one dinner spot and they dont want to go there. they should be able to
 // choose replace and then ... search area for food" — "i dont want to force
 // people into lengthy full AI rebuilds") ──
@@ -281,9 +281,17 @@ const createBtn = page.locator('.construction-confirm .btn.gold');
 check(/Re-measuring|Create this trip/.test(await createBtn.innerText()), 'Create waits while the route is re-measured');
 await page.waitForFunction(() => /Create this trip/.test(document.querySelector('.construction-confirm .btn.gold')?.textContent ?? ''), null, { timeout: 8000 });
 
-await page.locator('.construction-confirm .btn', { hasText: 'Create this trip' }).click();
+// two ways to create: now, or have the planner write it up
+const confirmText = await page.locator('.construction-confirm').innerText();
+check(/Create this trip/.test(confirmText) && /Have the planner write it up/.test(confirmText),
+  'the rider chooses: create it now, or have the planner write it up');
+check(/reorder, add or remove stops/.test(confirmText), 'and is told what they can do with it once it exists');
+
+// this run takes the planner's write-up, to prove the edit survives THAT door;
+// the instant door has its own sim (concept-instant-create-check)
+await page.locator('.construction-confirm .btn', { hasText: 'Have the planner write it up' }).click();
 await page.waitForSelector('.modebar', { timeout: 10000 });
-check(generateCalls === 1, 'final itinerary generation waits for explicit confirmation');
+check(generateCalls === 1, 'the planner\'s write-up runs only when the rider asks for it');
 const genPrompt = lastGenerate?.prompt ?? '';
 check(/"Gateway Canyons Grill" was replaced with "Ouray Main Street Grill"/.test(genPrompt),
   'the generator is told the rider replaced that stop');

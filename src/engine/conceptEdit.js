@@ -1,6 +1,6 @@
 // Editing a proposed route by hand — no model in the loop.
 //
-// Owner, Sep 21 2026: "if you recommend one dinner spot and they dont want to
+// Owner, Sep 20 2026: "if you recommend one dinner spot and they dont want to
 // go there. they should be able to choose replace and then go to map and
 // search area for food etc for the stop" — "i dont want to force people into
 // lengthy full AI rebuilds".
@@ -149,5 +149,137 @@ export async function remeasureConcept(concept, basics, { fetchImpl = fetch, dep
     locations: option.locations ?? concept.locations,
     searchPolyline: option.searchPolyline ?? concept.searchPolyline,
     metrics: option.metrics,
+  };
+}
+
+// ---- the proposal, as a trip, with no model ----
+
+// Owner, Sep 20 2026 — the builder should let a rider "edit that and then move
+// things around, or save for later". Every one of those tools already exists
+// in the trip editor (drag to reorder, move a stop between days, add, remove,
+// undo, saved Plans, and a library that backs up to the account). What stood
+// between a chosen proposal and those tools was "Create this trip", which ran
+// a SECOND full planner generation — 20 to 60 seconds of model time spent
+// re-writing a plan the rider had already chosen.
+//
+// This builds the trip straight from the proposal instead. It returns the SAME
+// shape the planner's generate tool returns ({ trip: { meta, days } }), so it
+// goes through the very same normalisation — ids, endpoint kinds, gates, the
+// date cascade — and the two doors can never produce differently-shaped trips.
+//
+// What it carries: every stop in order, split into days at each overnight,
+// with its role, its verified identity, fuel flags, the overnights as the
+// day's lodging, the dinners and lunches as meals, and the planner's own
+// route description as the trip summary. What it honestly does NOT invent:
+// per-day narrative summaries. Those are left empty (the day panel says "no
+// description yet") and the planner can write them up on request.
+
+// the app writes day.depart as a 12-hour clock
+const twelveHour = (hhmm) => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm ?? ''));
+  if (!m) return '8:00 AM';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+const near = (a, b) => a && b && Math.abs(a.lat - b.lat) < 0.015 && Math.abs(a.lng - b.lng) < 0.015;
+
+// A food stop's meal: the planner's own word for it when it used one, else by
+// its order in the day. A guess only in the second case, and an editable one.
+function mealsFor(foodStops) {
+  const said = (s) => {
+    const t = `${s.name} ${s.detail ?? ''} ${s.reason ?? ''}`.toLowerCase();
+    return /breakfast|brunch/.test(t) ? 'breakfast' : /dinner|supper/.test(t) ? 'dinner' : /lunch/.test(t) ? 'lunch' : null;
+  };
+  const byOrder = foodStops.length === 1 ? ['lunch']
+    : foodStops.length === 2 ? ['lunch', 'dinner']
+      : ['breakfast', 'lunch', 'dinner'];
+  const used = new Set();
+  return foodStops.slice(0, 3).map((s, i) => {
+    let meal = said(s) ?? byOrder[i] ?? 'lunch';
+    if (used.has(meal)) meal = ['breakfast', 'lunch', 'dinner'].find((m) => !used.has(m)) ?? meal;
+    used.add(meal);
+    return {
+      meal,
+      name: s.name,
+      where: s.detail ?? '',
+      ...(Number.isFinite(s.lat) ? { lat: s.lat, lng: s.lng } : {}),
+      ...(s.placeId ? { placeId: s.placeId, verified: 'google' } : {}),
+    };
+  });
+}
+
+// concept kinds → the trip's waypoint kinds (start / via / fuel / photo / end)
+const waypointOf = (s) => ({
+  name: s.name,
+  lat: s.lat,
+  lng: s.lng,
+  kind: s.kind === 'fuel' ? 'fuel' : 'via', // endpoints are re-kinded by position below
+  ...(s.kind === 'fuel' ? { fuel: true } : {}),
+  note: s.detail ?? '',
+  ...(Number.isFinite(s.dwell) ? { dwell: s.dwell } : {}),
+  ...(s.placeId ? { placeId: s.placeId, verified: 'google' } : s.verified === false ? { verified: false } : {}),
+});
+
+/**
+ * @param {object} concept   a proposal — { title, routeDescription, locations, metrics }
+ * @param {object} basics    the builder's frame — { name, riders, pace, range, routePrefs }
+ * @returns {{ trip: { meta, days } }} the planner's generate shape
+ */
+export function conceptToTrip(concept, basics = {}) {
+  const stops = (concept?.locations ?? []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng));
+  if (stops.length < 2) throw new Error('the proposal has no route to build a trip from');
+
+  // Split into days at each overnight. The overnight ENDS one day and STARTS
+  // the next, which is what an overnight is.
+  const segments = [];
+  let cur = [stops[0]];
+  for (let i = 1; i < stops.length; i++) {
+    cur.push(stops[i]);
+    const last = i === stops.length - 1;
+    if (stops[i].kind === 'lodging' && !last) {
+      segments.push(cur);
+      cur = [stops[i]];
+    }
+  }
+  segments.push(cur);
+
+  const depart = twelveHour(concept?.metrics?.depart);
+  const roundTrip = near(stops[0], stops[stops.length - 1]);
+
+  const days = segments.map((seg, d) => {
+    const first = seg[0];
+    const last = seg[seg.length - 1];
+    const overnight = last.kind === 'lodging' ? last : null;
+    const waypoints = seg.map(waypointOf);
+    waypoints[0].kind = 'start';
+    if (waypoints.length > 1) waypoints[waypoints.length - 1].kind = 'end';
+    return {
+      title: `${first.name} → ${last.name}`,
+      // An out-and-back rides its last day home; everything else is outbound.
+      // The trip names its phases later if the rider wants a destination stay.
+      phase: roundTrip && segments.length > 1 && d === segments.length - 1 ? 'return' : 'outbound',
+      depart,
+      summary: '', // not invented — the planner can write it up on request
+      waypoints,
+      meals: mealsFor(seg.slice(1, -1).filter((s) => s.kind === 'food')),
+      lodging: overnight
+        ? { status: 'reserve', name: overnight.name, where: overnight.detail ?? '', note: '', ...(overnight.placeId ? { placeId: overnight.placeId } : {}) }
+        : { status: 'none', name: '', where: '', note: '' },
+    };
+  });
+
+  return {
+    trip: {
+      meta: {
+        title: String(basics.name || concept.title || 'New trip'),
+        subtitle: concept.title ?? '',
+        summary: concept.routeDescription ?? '',
+        ...(Number.isFinite(basics.riders) ? { riders: basics.riders } : {}),
+        ...(Number.isFinite(basics.pace) ? { pace: basics.pace } : {}),
+        ...(basics.routePrefs ? { routePrefs: basics.routePrefs } : {}),
+      },
+      days,
+    },
   };
 }
