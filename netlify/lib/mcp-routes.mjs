@@ -47,7 +47,9 @@ export async function resolvePlace(key, input, { near = null, searchImpl = searc
   const text = typeof input === 'string' ? input.trim() : String(input?.name ?? '').trim();
   if (!text) throw new Error('a place needs a name or a lat/lng');
   if (!key) throw new Error(`"${text}" needs coordinates — place search is not configured on this server (GOOGLE_MAPS_API_KEY).`);
-  const hits = await searchImpl(key, text, near, { limit: 1, radiusM: 150_000 });
+  // Google's circle bias tops out at 50,000 m — 150 km came back 400
+  // INVALID_ARGUMENT the first time a host named both ends of a ride.
+  const hits = await searchImpl(key, text, near, { limit: 1, radiusM: 50_000 });
   const hit = hits?.[0];
   if (!hit) throw new Error(`could not find a place called "${text}"`);
   return {
@@ -164,8 +166,7 @@ export async function measureOptions({
 const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 
 /** A departure "Saturday 9 AM" style ISO from parts, or null. */
-export function departureIso(date, time, utcOffset = null) {
-  if (!date) return null;
+export function parseClock(time) {
   const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i.exec(String(time ?? '9:00 AM').trim());
   let hour = m ? Number(m[1]) : 9;
   const min = m ? Number(m[2]) : 0;
@@ -174,11 +175,86 @@ export function departureIso(date, time, utcOffset = null) {
     if (pm && hour !== 12) hour += 12;
     if (!pm && hour === 12) hour = 0;
   }
+  return { hour, min };
+}
+
+export function departureIso(date, time, utcOffset = null) {
+  if (!date) return null;
+  const { hour, min } = parseClock(time);
   const [y, mo, d] = String(date).split('-').map(Number);
   if (![y, mo, d].every(Number.isFinite)) return null;
-  const off = Number.isFinite(Number(utcOffset)) ? Number(utcOffset) : 0;
+  const off = utcOffset != null && utcOffset !== '' && Number.isFinite(Number(utcOffset)) ? Number(utcOffset) : 0;
   return new Date(Date.UTC(y, mo - 1, d, hour - off, min)).toISOString();
 }
+
+// ------------------------------------------------------- local time ----
+//
+// "9:00 AM" is the rider's clock at the START of the ride. Read as UTC it
+// became 3 AM in Red Lodge, and the predicted traffic was for a road nobody
+// was on (caught live through the Claude connector). Google's Time Zone API
+// names the zone exactly when the key has it enabled; otherwise a US-band
+// estimate, resolved through Intl so daylight saving is right for the date.
+
+/** The zone a US coordinate most likely keeps — a fallback, not a survey. */
+export function guessZone(lat, lng) {
+  if (lat > 50 && lng < -129) return 'America/Anchorage';
+  if (lat < 23 && lng < -154) return 'Pacific/Honolulu';
+  if (lng >= -85) return 'America/New_York';
+  if (lng >= -102) return 'America/Chicago';
+  if (lng >= -114) return (lat > 31 && lat < 37.2 && lng < -109) ? 'America/Phoenix' : 'America/Denver';
+  return 'America/Los_Angeles';
+}
+
+function offsetAt(zone, ms) {
+  const dtf = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const p = Object.fromEntries(dtf.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  const local = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour) % 24, Number(p.minute), Number(p.second));
+  return Math.round(((local - ms) / 3600e3) * 4) / 4;
+}
+
+/** Hours from UTC that `zone` keeps at the given LOCAL wall time. */
+export function zoneOffsetHours(zone, y, mo, d, hour, min) {
+  const asUtc = Date.UTC(y, mo - 1, d, hour, min);
+  const first = offsetAt(zone, asUtc);
+  return offsetAt(zone, asUtc - first * 3600e3);
+}
+
+export async function googleTimeZone(key, { lat, lng }, timestampSec, { fetchImpl = fetch } = {}) {
+  const url = `https://maps.googleapis.com/maps/api/timezone/json?location=${lat},${lng}&timestamp=${Math.floor(timestampSec)}&key=${encodeURIComponent(key)}`;
+  const res = await fetchImpl(url);
+  const j = await res.json();
+  if (j?.status !== 'OK' || !j.timeZoneId) throw new Error(j?.status || 'no zone');
+  return { zone: j.timeZoneId };
+}
+
+/**
+ * The departure instant for "date + time" said at `place`.
+ * → { iso, offset, zone, source: 'given' | 'google' | 'estimate' | 'utc' }
+ */
+export async function localDeparture(place, date, time, { utcOffset = null, key = '', tzImpl = googleTimeZone } = {}) {
+  if (!date) return null;
+  const { hour, min } = parseClock(time);
+  const [y, mo, d] = String(date).split('-').map(Number);
+  if (![y, mo, d].every(Number.isFinite)) return null;
+  if (utcOffset != null && utcOffset !== '' && Number.isFinite(Number(utcOffset))) {
+    const off = Number(utcOffset);
+    return { iso: departureIso(date, time, off), offset: off, zone: null, source: 'given' };
+  }
+  let zone = null;
+  let source = 'utc';
+  const at = place && Number.isFinite(place.lat) && Number.isFinite(place.lng) ? place : null;
+  if (at && key && tzImpl) {
+    try {
+      const r = await tzImpl(key, at, Date.UTC(y, mo - 1, d, hour, min) / 1000);
+      if (r?.zone) { zone = r.zone; source = 'google'; }
+    } catch { /* not enabled on this key, or unreachable — estimate below */ }
+  }
+  if (!zone && at) { zone = guessZone(at.lat, at.lng); source = 'estimate'; }
+  const offset = zone ? zoneOffsetHours(zone, y, mo, d, hour, min) : 0;
+  return { iso: departureIso(date, time, offset), offset, zone, source };
+}
+
+export const offsetLabel = (off) => `UTC${off >= 0 ? '+' : '−'}${Math.abs(off)}`;
 
 /** One line per option, the way a rider would say it. */
 export function describeOptions(set, { options, at, notes }) {

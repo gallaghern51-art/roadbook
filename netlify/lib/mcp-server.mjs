@@ -37,7 +37,7 @@ import { evaluateRouteOptions } from './route-opportunities.mjs';
 import { verifyTrip, verifyProposal, describeVerification, planVerification } from './verify-places.mjs';
 import { searchPlacesGoogle } from './places-core.mjs';
 import { computeRoute, isFutureIso } from './google-routes.mjs';
-import { measureOptions, resolvePlace, describeOptions, departureIso, STYLE_IDS } from './mcp-routes.mjs';
+import { measureOptions, resolvePlace, describeOptions, localDeparture, offsetLabel, googleTimeZone, STYLE_IDS } from './mcp-routes.mjs';
 import { putOptionSet, getOptionSet, putDayRoute, getDayRoute } from './mcp-store.mjs';
 import {
   listTrips, getTripRow, saveTrip, tombstoneTrip, tripFromOption, tripFromDays, tripSummary, tripStops, applyTripOps, newTripId, tripUrl, APP_URL, fmtMin,
@@ -176,6 +176,7 @@ export function buildServer(session, deps = {}) {
     searchImpl = searchPlacesGoogle,
     routeImpl, // routeOptions
     googleImpl = computeRoute,
+    tzImpl = googleTimeZone,
     evaluateImpl = evaluateRouteOptions,
     measureDaysImpl = measureDays,
     verifyTripImpl = verifyTrip,
@@ -251,7 +252,8 @@ export function buildServer(session, deps = {}) {
       prefer: z.enum(['quick', 'touring', 'backroads']).optional().describe('the rider\'s usual road character — leads the list and breaks ties'),
       departureTime: z.string().optional().describe('ISO datetime; a FUTURE departure gets predicted traffic for that moment, otherwise traffic now'),
       date: z.string().optional().describe('YYYY-MM-DD ride date (alternative to departureTime, with time)'),
-      time: z.string().optional().describe('e.g. "9:00 AM", with date'),
+      time: z.string().optional().describe('e.g. "9:00 AM" — the clock at the START of the ride, with date; the server resolves the zone from the start point'),
+      utcOffset: z.number().optional().describe('hours from UTC at the start (e.g. -6 for Mountain Daylight Time); only needed to override the server\'s zone lookup'),
       traffic: z.boolean().optional().describe('default true; false skips Google (no traffic, no toll price)'),
       pace: z.number().optional().describe('group-pace multiplier, default 1.08'),
     },
@@ -263,7 +265,8 @@ export function buildServer(session, deps = {}) {
       const end = await resolvePlace(googleKey, args.end, { near: start, searchImpl });
       const stops = [];
       for (const s of args.stops ?? []) stops.push(await resolvePlace(googleKey, s, { near: start, searchImpl }));
-      const departureTime = args.departureTime ?? departureIso(args.date, args.time);
+      const local = args.departureTime ? null : await localDeparture(start, args.date, args.time, { utcOffset: args.utcOffset, key: googleKey, tzImpl });
+      const departureTime = args.departureTime ?? local?.iso ?? null;
       const set = { start, stops, end, avoidTolls: !!args.avoidTolls };
       const result = await measureOptions({
         ...set,
@@ -282,9 +285,11 @@ export function buildServer(session, deps = {}) {
       const optionSetId = await putOptionSet(userId, { ...set, options: result.options, departureTime: result.at, date: args.date ?? wallDate(departureTime), time: args.time ?? wallClock(departureTime) });
       const suggestedDate = args.date ?? (result.at ? result.at.slice(0, 10) : null);
       const body = describeOptions(set, result);
+      const departure = local ? { date: args.date, time: args.time ?? '9:00 AM', offset: local.offset, zone: local.zone, source: local.source, iso: local.iso } : null;
+      const whenLine = departure ? `\nDeparture ${departure.date} ${departure.time} at ${start.name} (${departure.zone ?? offsetLabel(departure.offset)}, ${offsetLabel(departure.offset)}${departure.source === 'estimate' ? ', zone estimated from the coordinate' : ''}) = ${departure.iso}.` : '';
       return ok(
-        `${body}\noptionSetId: ${optionSetId} — call save_route_option with an optionId to make one a trip, or search_places with alongOptionSetId for fuel and food on that road.`,
-        { optionSetId, ...set, departureTime: result.at, suggestedDate, options: result.options, notes: result.notes },
+        `${body}${whenLine}\noptionSetId: ${optionSetId} — call save_route_option with an optionId to make one a trip, or search_places with alongOptionSetId for fuel and food on that road.`,
+        { optionSetId, ...set, departureTime: result.at, departure, suggestedDate, options: result.options, notes: result.notes },
       );
     } catch (e) {
       return fail(`Could not measure these roads: ${String(e.message).slice(0, 200)}`);
@@ -328,6 +333,9 @@ export function buildServer(session, deps = {}) {
       start: PlaceIn, end: PlaceIn,
       stops: z.array(PlaceIn).max(8).optional(),
       departureTime: z.string().optional().describe('ISO; future → predicted'),
+      date: z.string().optional().describe('YYYY-MM-DD, with time — an alternative to departureTime'),
+      time: z.string().optional().describe('e.g. "9:00 AM", the clock at the start point'),
+      utcOffset: z.number().optional().describe('hours from UTC at the start; only to override the server\'s zone lookup'),
       avoidTolls: z.boolean().optional(),
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
@@ -338,13 +346,16 @@ export function buildServer(session, deps = {}) {
       const end = await resolvePlace(googleKey, args.end, { near: start, searchImpl });
       const stops = [];
       for (const s of args.stops ?? []) stops.push(await resolvePlace(googleKey, s, { near: start, searchImpl }));
-      const future = isFutureIso(args.departureTime);
-      const g = await googleImpl(googleKey, { origin: start, waypoints: [...stops, end], avoidTolls: !!args.avoidTolls, tolls: true, ...(future ? { departureTime: args.departureTime } : {}) });
+      const local = args.departureTime ? null : await localDeparture(start, args.date, args.time, { utcOffset: args.utcOffset, key: googleKey, tzImpl });
+      const departureTime = args.departureTime ?? local?.iso ?? null;
+      const future = isFutureIso(departureTime);
+      const g = await googleImpl(googleKey, { origin: start, waypoints: [...stops, end], avoidTolls: !!args.avoidTolls, tolls: true, ...(future ? { departureTime } : {}) });
       const minutes = Math.round(g.durationSeconds / 60);
       const miles = Math.round((g.distanceMeters / 1609.34) * 10) / 10;
+      const when = local ? `${args.date} ${args.time ?? '9:00 AM'} at ${start.name} (${local.zone ?? offsetLabel(local.offset)}) = ${local.iso}` : departureTime;
       return ok(
-        `${start.name} → ${end.name}: ${miles} mi, ${fmtMin(minutes)} in ${future ? `traffic predicted for ${args.departureTime}` : 'current traffic'}${g.toll ? `, tolls ≈ ${g.toll.currency} ${g.toll.amount.toFixed(2)}` : ''}${args.departureTime && !future ? ' (the departure given was in the past, so this is now)' : ''}.`,
-        { miles, minutes, departureTime: future ? args.departureTime : null, toll: g.toll ?? null, start, end },
+        `${start.name} → ${end.name}: ${miles} mi, ${fmtMin(minutes)} in ${future ? `traffic predicted for ${when}` : 'current traffic'}${g.toll ? `, tolls ≈ ${g.toll.currency} ${g.toll.amount.toFixed(2)}` : ''}${departureTime && !future ? ' (the departure given was in the past, so this is now)' : ''}.`,
+        { miles, minutes, departureTime: future ? departureTime : null, departure: local ? { date: args.date, time: args.time ?? '9:00 AM', offset: local.offset, zone: local.zone, source: local.source, iso: local.iso } : null, toll: g.toll ?? null, start, end },
       );
     } catch (e) {
       return fail(`Traffic could not be measured: ${String(e.message).slice(0, 200)}`);
