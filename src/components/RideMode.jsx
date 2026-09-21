@@ -441,7 +441,16 @@ export default function RideMode({ onClose }) {
 
   const day = trip.days.find((d) => d.id === dayId) ?? trip.days[0];
   const pace = tripPace(trip);
-  const routePrefs = tripRoutePrefs(trip);
+  // The road character the rider is RIDING under. It starts as the trip's own
+  // and can be changed mid-ride (owner, Sep 19 2026: "if user wants to switch
+  // to a different 'quick, touring, backroads' mid ride they should be able to
+  // do that"). It deliberately does NOT rewrite trip.meta.routePrefs: changing
+  // a trip's road character is a planning act with its own protected replan
+  // (draft, compare, reconcile the stops), and none of that can be read at
+  // 70 mph. This changes the road AHEAD and leaves the plan alone.
+  const tripPrefs = tripRoutePrefs(trip);
+  const [rideStyle, setRideStyle] = useState(null); // null = ride the trip's own
+  const routePrefs = rideStyle ? { ...tripPrefs, style: rideStyle } : tripPrefs;
   const routePrefSig = routePrefsKey(routePrefs);
   const tl = useMemo(() => dayTimeline(day, routedLegsByDay[day.id]), [day, routedLegsByDay]);
   const totalMiles = tl.stops.reduce((a, s) => a + s.legMiles, 0);
@@ -798,11 +807,11 @@ export default function RideMode({ onClose }) {
   // One reroute path for every deliberate retarget (skip, restore, go-next).
   // Takes the remaining list explicitly — setState hasn't landed yet when the
   // caller just changed the skip set.
-  const goRoute = (rem) => {
+  const goRoute = (rem, prefs = routePrefs) => {
     if (!fix || !rem.length) return;
     setRerouting(true);
     lastRerouteAtRef.current = Date.now();
-    routeFrom(navOrigin(), rem, pace, routePrefs)
+    routeFrom(navOrigin(), rem, pace, prefs)
       .then((r) => {
         setReroute({ ...r, byOffRoute: false });
         setRerouteFailed(false);
@@ -1916,6 +1925,32 @@ export default function RideMode({ onClose }) {
                     is a planning act and lives in PLAN. */}
 
                 <div className="sheet-block sheet-settings">
+                  {/* The road character, mid-ride. Glove-sized like the rest of
+                      this block: a rider changes their mind about the road at a
+                      fuel stop, and the answer used to be "end the ride, go to
+                      the trip, replan". This reroutes what is AHEAD. */}
+                  <div className="rm-row">
+                    <span className="rm-label">{t('Roads')}</span>
+                    <div className="rm-seg">
+                      {[['quick', 'Quick'], ['touring', 'Touring'], ['backroads', 'Back roads']].map(([id, label]) => (
+                        <button
+                          key={id}
+                          className={routePrefs.style === id ? 'active' : ''}
+                          onClick={() => {
+                            if (routePrefs.style === id) return;
+                            setRideStyle(id);
+                            const rem = remainingNav;
+                            if (!rem.length) return;
+                            speak(`${t(label)} roads. Recalculating.`);
+                            goRoute(rem, { ...tripPrefs, style: id });
+                          }}
+                        >{t(label)}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {rideStyle && rideStyle !== tripPrefs.style && (
+                    <p className="rm-note">{t('Riding a different road than the plan — the trip is unchanged.')}</p>
+                  )}
                   <div className="rm-row">
                     <span className="rm-label">{t('Basemap')}</span>
                     <div className="rm-seg">

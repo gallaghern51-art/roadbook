@@ -22,6 +22,10 @@ const FIELD_MASK = [
   'routes.legs.steps.staticDuration',
   'routes.legs.steps.navigationInstruction',
   'routes.legs.steps.startLocation',
+  // What a toll road actually costs. Valhalla knows a route HAS a toll
+  // (summary.has_toll) but never what it charges; Google prices it. Asked for
+  // only when the caller wants it, because TOLLS is an extra computation.
+  'routes.travelAdvisory.tollInfo',
 ].join(',');
 
 const latLng = (p) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
@@ -45,7 +49,7 @@ export default async (req) => {
   } catch {
     return Response.json({ error: 'bad JSON' }, { status: 400 });
   }
-  const { origin, waypoints } = body ?? {};
+  const { origin, waypoints, avoidTolls = false, tolls = false, departureTime = null } = body ?? {};
   const ok = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
   if (!ok(origin) || !Array.isArray(waypoints) || !waypoints.length || !waypoints.every(ok)) {
     return Response.json({ error: 'need origin {lat,lng} and waypoints [{lat,lng},…]' }, { status: 400 });
@@ -69,6 +73,17 @@ export default async (req) => {
     routingPreference: 'TRAFFIC_AWARE', // live traffic — bills as the Pro SKU
     polylineEncoding: 'GEO_JSON_LINESTRING',
     units: 'IMPERIAL',
+    // The rider's own toll rule has to ride into this request, or the price
+    // quoted back describes a road they asked not to be sent down.
+    ...(avoidTolls ? { routeModifiers: { avoidTolls: true } } : {}),
+    ...(tolls ? { extraComputations: ['TOLLS'] } : {}),
+    // PLANNING asks about a departure that has not happened yet. With a future
+    // departureTime the Routes API answers with PREDICTED traffic for that
+    // moment rather than with traffic right now — which is the whole point on
+    // a planning screen: a Sunday evening run off Long Island is not a Tuesday
+    // morning one. Google rejects a departureTime in the past, so the caller
+    // only sends future ones.
+    ...(departureTime ? { departureTime } : {}),
   };
 
   let gRes;
@@ -93,10 +108,23 @@ export default async (req) => {
   const route = json.routes?.[0];
   if (!route) return Response.json({ error: 'no route' }, { status: 502 });
 
+  // Google returns a price per toll pass/currency; the first entry is the
+  // cash estimate for this corridor. It is an ESTIMATE against GOOGLE's road
+  // between these points, not a receipt for the Valhalla line we draw — the
+  // UI says so rather than quoting it as a fact.
+  const price = route.travelAdvisory?.tollInfo?.estimatedPrice?.[0];
+  const toll = price
+    ? {
+      currency: price.currencyCode ?? 'USD',
+      amount: Number(price.units ?? 0) + (Number(price.nanos ?? 0) / 1e9),
+    }
+    : null;
+
   return Response.json({
     geometry: route.polyline?.geoJsonLinestring?.coordinates ?? [],
     distanceMeters: route.distanceMeters ?? 0,
     durationSeconds: seconds(route.duration),
+    ...(toll ? { toll } : {}),
     legs: (route.legs ?? []).map((leg) => ({
       distanceMeters: leg.distanceMeters ?? 0,
       durationSeconds: seconds(leg.duration),

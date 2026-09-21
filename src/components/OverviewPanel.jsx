@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -8,8 +8,9 @@ import { fmtDayDate, fmtLongDate } from '../engine/dates.js';
 import { useT, useTT, useUnits } from '../engine/settings.jsx';
 import { uid } from '../engine/ops.js';
 import { tripPace, tripRoutePrefs } from '../engine/tripEngine.js';
-import { to24h, from24h } from '../engine/timeline.js';
+import { to24h, from24h, fmtDur } from '../engine/timeline.js';
 import ScenarioStrip from './ScenarioStrip.jsx';
+import { sweepTripTraffic, dayIsAskable } from '../engine/trafficPlan.js';
 import { Sheet } from './Sheets.jsx';
 import { libraryTemplates, daysFromTemplate, insertDaysOp } from '../engine/templates.js';
 
@@ -36,6 +37,23 @@ const LOCK_VERTICAL = ({ transform }) => ({ ...transform, x: 0 });
 
 export default function OverviewPanel() {
   const { state, dispatch, summary, ui } = useTrip();
+  // Every day still ahead, measured in the traffic predicted for its own
+  // departure — one at a time, from a persisted cache, and abandoned the
+  // moment this panel closes. TRAFFIC_AWARE is the Pro SKU and the overview
+  // shows the whole trip at once, so the sweep has to cost only what changed.
+  const [traffic, setTraffic] = useState({});
+  const tripForSweep = state.trip;
+  const sweepKey = useMemo(() => (tripForSweep.days ?? [])
+    .map((d) => `${d.id}:${d.date}:${d.depart}:${(d.waypoints ?? []).map((w) => `${w.lat},${w.lng}`).join('|')}`)
+    .join('~') + `#${tripForSweep.meta?.routePrefs?.avoidTolls ? 1 : 0}`, [tripForSweep]);
+  useEffect(() => {
+    const ctl = new AbortController();
+    sweepTripTraffic(tripForSweep, tripForSweep.meta?.pace ?? 1, {
+      signal: ctl.signal,
+      onDay: (dayId, value) => setTraffic((m) => (m[dayId] === value ? m : { ...m, [dayId]: value })),
+    });
+    return () => ctl.abort();
+  }, [sweepKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const { trip } = state;
   const t = useT();
   const tt = useTT();
@@ -68,6 +86,25 @@ export default function OverviewPanel() {
         <div className="datebar">
           <span className="chip">{trip.days[0]?.dow} {fmtLongDate(trip.days[0]?.date ?? trip.meta.startDate)} → {trip.days[trip.days.length - 1]?.dow} {fmtLongDate(trip.days[trip.days.length - 1]?.date ?? trip.meta.startDate)}</span>
           <span className="chip">{u.mi(summary.totalMiles)}</span>
+          {(() => {
+            // the trip's whole delta, over the days that could be measured —
+            // and it says HOW MANY, because a figure covering four of eleven
+            // days would otherwise read as covering the trip
+            const rows = Object.entries(traffic).filter(([, v]) => v);
+            if (!rows.length) return null;
+            const delta = rows.reduce((a, [id, v]) => {
+              const per = summary.perDay.find((p) => p.id === id);
+              return a + (v.minutes - (per?.rideHours ?? 0) * 60);
+            }, 0);
+            if (Math.round(delta) < 5) return null;
+            const asked = (state.trip.days ?? []).filter((d) => dayIsAskable(state.trip, d)).length;
+            return (
+              <span className="chip traffic" title={t('Predicted for each day\'s own departure')}>
+                +{fmtDur(delta)} {t('in traffic')}
+                {rows.length < asked ? ` (${rows.length}/${asked})` : ''}
+              </span>
+            );
+          })()}
           <span className="chip">{trip.meta.nights} {t('nights')}</span>
           <span className="chip">{trip.meta.riders} {t('riders')}</span>
         </div>
@@ -84,7 +121,7 @@ export default function OverviewPanel() {
         <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[LOCK_VERTICAL]} onDragEnd={onDragEnd}>
           <SortableContext items={trip.days.map((d) => d.id)} strategy={verticalListSortingStrategy}>
             <div className="ov-days">
-              {trip.days.map((d) => <SortableDay key={d.id} day={d} summary={summary} dispatch={dispatch} />)}
+              {trip.days.map((d) => <SortableDay key={d.id} day={d} summary={summary} dispatch={dispatch} traffic={traffic[d.id]} />)}
             </div>
           </SortableContext>
         </DndContext>
@@ -581,7 +618,7 @@ function RouteCharacterPreview({ trip, preview, onClose, onRetry, onApply, onRes
 // behaves that way, which is exactly how it reads as loose. Reordering now
 // belongs to a visible grip: the row is a button again, the card can only
 // travel along its own column, and no amount of dragging the row moves it.
-function SortableDay({ day, summary, dispatch }) {
+function SortableDay({ day, summary, dispatch, traffic = null }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: day.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const per = summary.perDay.find((p) => p.id === day.id);
@@ -616,6 +653,12 @@ function SortableDay({ day, summary, dispatch }) {
       </div>
       <div className="m">
         {u.mi(per?.miles ?? day.miles)} · {(per ? per.rideHours + per.stopHours : day.hours).toFixed(0)}h
+        {(() => {
+          if (!traffic) return null;
+          const delta = Math.round(traffic.minutes - (per?.rideHours ?? 0) * 60);
+          if (delta < 5) return null;
+          return <div className={`ov-traffic${delta >= 20 ? ' heavy' : ''}`} title={t('Predicted traffic on this departure')}>+{delta}m</div>;
+        })()}
         {dangers > 0 && <div className="warn-inline">▲ {dangers}</div>}
       </div>
     </div>

@@ -377,8 +377,11 @@ async function run(width, label) {
   await page.locator('.drop-pin .dp-act.confirm').click();
   await page.waitForSelector('.hm-place.placed', { timeout: 6000 });
   await page.locator('.hm-place .btn:visible', { hasText: 'Ride here' }).click(); // the card's on a phone, the full page's on a desktop
-  await page.waitForSelector('.hm-ride-confirm .btn.gold', { timeout: 5000 });
-  await page.locator('.hm-ride-confirm .btn.gold').click();
+  // Sep 20, 2026: Ride here opens the ROUTE SHEET — the roads measured and
+  // drawn before Go — and a placed pin is a legitimate destination on it.
+  await page.waitForSelector('.route-sheet', { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelectorAll('.rs-opt').length > 0, null, { timeout: 30000 });
+  await page.locator('.rs-actions .btn', { hasText: 'Go' }).click();
   await page.waitForSelector('.ride-bar', { timeout: 15000 });
   const l7 = await lib();
   const dest = l7.trip.days[0].waypoints[1];

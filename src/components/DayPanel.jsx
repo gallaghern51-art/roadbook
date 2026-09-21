@@ -14,6 +14,7 @@ import { tripRoutePrefs, alongOnRoute, tripRange } from '../engine/tripEngine.js
 import ConditionsCard from './ConditionsCard.jsx';
 import { tripToGpx, downloadFile } from '../engine/exporters.js';
 import { useT, useTT, useUnits, useSettings } from '../engine/settings.jsx';
+import { dayTrafficEta, departureAt, isFutureDeparture } from '../engine/trafficPlan.js';
 import { dayRoadShields } from '../engine/roads.js';
 import RoadShield from './RoadShield.jsx';
 import { parksForDay } from '../data/parks.js';
@@ -46,6 +47,50 @@ export function VerifyTag({ on, placed, t, onPlace }) {
     return <span className="tag placed" title={placed === 'ai' ? t('A scenic spot the planner placed on the map — no listing names it. Confirm the pin before you ride.') : t('A spot placed on the map on purpose — not a listed business.')}>◎ {t('placed')}</span>;
   }
   return null;
+}
+
+// What this day will actually cost in traffic, for the departure it is planned
+// from (owner, Sep 20 2026: "show me the traffic time on the planning screen
+// too"). Roadbook's planned hours are Valhalla's — honest about the road, and
+// free-flowing by construction. Measured eastern Long Island → NYC, the same
+// 104 miles answer 117 min leaving 3 AM Wednesday, 166 min Sunday at 5, and
+// 175 min Tuesday at 9, against a free-flowing 129. Which of those a rider is
+// signing up for is exactly what a planning screen should say.
+//
+// One Google call for the day on screen, cached per departure — TRAFFIC_AWARE
+// bills as the Pro SKU. Silent when there is nothing to ask about: a day in
+// the past, a day with no route, or a deploy with no key.
+function DayTraffic({ trip, day, per, pace }) {
+  const t = useT();
+  const u = useUnits();
+  const [state, setState] = useState(null); // null = asking, false = nothing to say
+  const at = departureAt(trip, day);
+  const askable = isFutureDeparture(at) && (day.waypoints ?? []).filter((w) => Number.isFinite(w.lat)).length >= 2;
+  const sig = (day.waypoints ?? []).map((w) => `${w.lat},${w.lng}`).join(';');
+
+  React.useEffect(() => {
+    if (!askable) { setState(false); return undefined; }
+    let dead = false;
+    setState(null);
+    dayTrafficEta(trip, day, pace)
+      .then((r) => { if (!dead) setState(r); })
+      .catch(() => { if (!dead) setState(false); });
+    return () => { dead = true; };
+  }, [day.id, day.date, day.depart, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (state === false) return null;
+  const plannedMin = (per?.rideHours ?? 0) * 60;
+  const when = at ? `${fmtLongDate(day.date).replace(/,.*$/, '')} ${day.depart}` : '';
+  if (state === null) return <div className="day-traffic asking">{t('Checking traffic for your departure…')}</div>;
+  const delta = Math.round(state.minutes - plannedMin);
+  return (
+    <div className={`day-traffic${delta >= 20 ? ' heavy' : ''}`}>
+      <b>{fmtDur(state.minutes)}</b> {t('riding in traffic')}
+      {plannedMin > 0 && delta >= 5 && <> · <b>+{delta} min</b> {t('over the free-flowing road')}</>}
+      {plannedMin > 0 && delta < 5 && <> · {t('the road is clear at this hour')}</>}
+      {when && <span className="dt-when">{t('predicted for')} {when}</span>}
+    </div>
+  );
 }
 
 export default function DayPanel({ day }) {
@@ -175,6 +220,8 @@ export default function DayPanel({ day }) {
         <div className="stat"><div className="n">{per ? per.stopHours.toFixed(1) : '—'}</div><div className="l">{t('Stop hrs')}</div></div>
         <div className="stat"><div className="n">{longestGap ? u.miNum(longestGap) : '—'}</div><div className="l">{t('Longest fuel gap')}{u.metric ? ' (km)' : ''}</div></div>
       </div>
+
+      <DayTraffic trip={state.trip} day={day} per={per} pace={state.trip.meta.pace ?? 1} />
 
       {per?.warnings.map((w, i) => (
         <div key={i} className={`warning${w.level === 'danger' ? ' danger' : ''}`}>⚠ {tt(w.text)}</div>

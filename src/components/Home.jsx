@@ -14,6 +14,7 @@ import { CATEGORIES, searchNearby, poiCategory, poiGlyph, poiIsNatural, cuisineL
 import { hoursOnly, todayIndex, reverseGeocode, coordLabel } from '../engine/places.js';
 import InstallPrompt from './InstallPrompt.jsx';
 import NearbyPicker from './NearbyPicker.jsx';
+import RouteSheet from './RouteSheet.jsx';
 import { useIsMobile } from '../hooks/useMediaQuery.js';
 import HomeMap from './HomeMap.jsx';
 import { BASEMAPS } from '../engine/basemaps.js';
@@ -57,12 +58,23 @@ const SHEET_PX = { min: 0.06, peek: 0.42, up: 0.86 };
 const SURFACE_PX = {
   pick: { min: 0.06, peek: 0.72, up: 0.92 },
   place: { min: 0.06, peek: 0.46, up: 0.86 },
+  // the route sheet holds From, the stops, To, the options and Go — it peeks
+  // tall because the From/To rows ARE the surface, and a peek that hid them
+  // behind a scroll was the first thing the built screen got wrong
+  // 0.58 is measured, not guessed: From / stops / To, the toll rule, the
+  // options and Go come to ~470px at 375×812, and anything taller buries the
+  // very map the options are drawn on.
+  route: { min: 0.06, peek: 0.58, up: 0.94 },
 };
 const detentsFor = (surface) => SURFACE_PX[surface] ?? SHEET_PX;
 const DETENTS = ['min', 'peek', 'up'];
 const nearestDetent = (frac, px = SHEET_PX) => DETENTS.reduce((best, k) => (Math.abs(px[k] - frac) < Math.abs(px[best] - frac) ? k : best), 'peek');
 
-export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults }) {
+// `ride` (the composition in progress) is App's state, not Home's: it has to
+// survive Ride Mode, which unmounts this screen entirely. Cancelling
+// navigation then lands back HERE with the ride intact.
+export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults, ride = null, onRideChange }) {
+  const setRide = onRideChange;
   const { state, routedLegsByDay } = useTrip();
   const { lib } = state;
   const t = useT();
@@ -211,7 +223,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   // phone vs desktop: the search is a full screen or a dropdown under the pill
   const isPhone = useIsMobile();
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
-  const surface = place ? 'place' : chip ? 'pick' : null;
+  // the route sheet is showing the add-a-stop picker — declared here because
+  // `surface` below reads it, and `surface` sizes the sheet
+  const [ridePicking, setRidePicking] = useState(false);
+  const surface = ride ? (ridePicking ? 'pick' : 'route') : place ? 'place' : chip ? 'pick' : null;
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * detentsFor(surface)[sheet]);
@@ -260,6 +275,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         aria: t('Show the list'),
       };
     }
+    if (surface === 'route') return { label: t('Show the route'), aria: t('Show the route') };
     if (surface === 'place') return { label: t('Show the place'), aria: t('Show the place') };
     return {
       label: <>{t('Your trips')}<span className="cnt">{cards.length}</span></>,
@@ -315,7 +331,15 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
       });
     }, 350);
   };
+  // the ride being composed: it outlives Ride Mode, so cancelling navigation
+  // hands back the sheet with the ride still on it rather than dumping the
+  // rider into the trip workspace
+  const [routeOpts, setRouteOpts] = useState([]);
+  const [routeSel, setRouteSel] = useState(null);
+  const [routeFitAt, setRouteFitAt] = useState(0);
+
   const sheetBeforeDrop = useRef(null);
+  const pickingStopRef = useRef(false); // "Choose on map" is waiting for a pin
   const dropPin = (pt) => {
     const key = Date.now();
     setChip(null); setPins([]); setPlace(null);
@@ -331,6 +355,17 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const settleDrop = ([lng, lat]) => setDropped((d) => { if (d) nameDrop(d.key, { lat, lng }); return d; });
   const confirmDrop = () => {
     if (!dropped) return;
+    // "Choose on map" in the add-a-stop picker armed this: the needle the
+    // rider placed is a STOP on the route they are composing, not a card to
+    // read. Everything else about the drop is unchanged.
+    if (pickingStopRef.current) {
+      pickingStopRef.current = false;
+      const stop = { name: dropped.name ?? coordLabel(dropped), lat: dropped.lat, lng: dropped.lng, detail: dropped.detail ?? '', placed: 'rider' };
+      setRide?.((r) => (r ? { ...r, stops: [...(r.stops ?? []), stop] } : r));
+      setDropped(null);
+      if (sheetBeforeDrop.current != null) { setSheet(sheetBeforeDrop.current); sheetBeforeDrop.current = null; }
+      return;
+    }
     showPlace({ name: dropped.name ?? coordLabel(dropped), lat: dropped.lat, lng: dropped.lng, cls: '', subclass: '', placed: 'rider', detail: dropped.detail ?? '' });
   };
   const cancelDrop = () => {
@@ -339,12 +374,38 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
   const dropReadout = dropped ? `${dropped.name ?? coordLabel(dropped, 5)}${dropped.name ? ` · ${coordLabel(dropped, 5)}` : ''}` : '';
 
-  // start: a chosen place, or (undefined) where the rider is — the card's From row
-  const rideTo = async (dest, prefs, start) => {
-    start = start ?? fix ?? (await locate());
-    if (!start) return;
-    onQuickRide({ start, dest, routePrefs: { style: prefs?.style ?? quickDefaults?.routePrefs?.style ?? 'touring', avoidTolls: prefs?.avoidTolls ?? !!quickDefaults?.routePrefs?.avoidTolls } });
+  // "Ride here" no longer goes straight to Go. It opens the ROUTE SHEET — the
+  // ride laid out as From / stops / To with every road measured and on the map
+  // — because a rider choosing between Quick and Back roads was choosing
+  // blind, and because there was nowhere to add a stop before setting off
+  // (owner, Sep 19 2026). Go, from that sheet, is what starts the ride.
+  const rideTo = async (dest) => {
+    // The sheet opens FIRST and waits for the fix. Before this, a rider with
+    // location off or denied tapped "Ride here" and nothing happened at all —
+    // no sheet, no note, no error. The sheet answers that honestly: From reads
+    // "Pick a start", Go is disabled until both ends exist, and the fix drops
+    // in behind it if one arrives.
+    const known = ride?.start ?? fix;
+    const asStart = (p) => (p
+      ? { name: p.name ?? t('Current location'), lat: p.lat, lng: p.lng, ...(p.placeId ? { placeId: p.placeId } : {}) }
+      : null);
+    setRide({
+      start: asStart(known),
+      stops: [],
+      end: dest,
+      avoidTolls: !!quickDefaults?.routePrefs?.avoidTolls,
+      optionId: null,
+    });
+    setPlace(null);
+    setSheet((cur) => { if (sheetBeforeRaise.current == null) sheetBeforeRaise.current = cur; return 'peek'; });
+    requestAnimationFrame(() => { const b = rootRef.current?.querySelector('.hm-body'); if (b) b.scrollTop = 0; });
+    // the sheet is already up; the fix, if one can be had, drops in behind it
+    if (!known) {
+      const got = await locate().catch(() => null);
+      if (got) setRide((r) => (r && !r.start ? { ...r, start: asStart(got) } : r));
+    }
   };
+  const closeRide = () => { setRide(null); setRidePicking(false); setRouteOpts([]); setRouteSel(null); lowerAfter(); };
 
   return (
     <div ref={rootRef} className="home home-map">
@@ -363,6 +424,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         fitAt={fitAt}
         sheetPx={sheetPx}
         drop={dropped}
+        routeOpts={routeOpts}
+        routeSel={routeSel}
+        onRouteSel={(id) => { setRouteSel(id); setRide((r) => (r ? { ...r, optionId: id } : r)); }}
+        routeFitAt={routeFitAt}
         onPinTap={(id) => setTapped({ id, at: Date.now() })}
         onCenter={onCenter}
         onBearing={setBearing}
@@ -467,7 +532,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         />
       )}
 
-      <div ref={sheetRef} className={`hm-sheet${place ? ' place' : ''}${chip ? ' pick' : ''}${drawer || place || chip ? ' open' : ''}`} data-state={sheet}>
+      <div ref={sheetRef} className={`hm-sheet${ride ? ' route' : ''}${place && !ride ? ' place' : ''}${(chip && !ride) || ridePicking ? ' pick' : ''}${drawer || place || chip || ride ? ' open' : ''}`} data-state={sheet}>
         <button
           className="hm-handle"
           aria-label={handle.aria}
@@ -478,7 +543,29 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           onPointerCancel={onHandleUp}
         ><i /><span className="hm-handle-txt">{handle.label}</span></button>
         <div className="hm-body">
-          {place ? (
+          {ride ? (
+            <RouteSheet
+              ride={ride}
+              pace={quickDefaults?.pace ?? 1}
+              prefer={quickDefaults?.routePrefs?.style ?? null}
+              onChange={setRide}
+              onOptions={(list, sel) => {
+                setRouteOpts(list);
+                setRouteSel(sel);
+                if (list.length) setRouteFitAt(Date.now());
+              }}
+              onGo={(r, option) => onQuickRide({
+                start: r.start, stops: r.stops ?? [], dest: r.end,
+                routePrefs: option?.prefs ?? { style: 'touring', avoidTolls: !!r.avoidTolls },
+              })}
+              onClose={closeRide}
+              onAdding={setRidePicking}
+              onChooseOnMap={() => {
+                pickingStopRef.current = true;
+                setSheet((cur) => { if (sheetBeforeDrop.current == null) sheetBeforeDrop.current = cur; return 'min'; });
+              }}
+            />
+          ) : place ? (
             <HomePlaceCard
               poi={place.poi} row={place.row} fix={fix} defaults={quickDefaults}
               onRide={rideTo}
@@ -627,33 +714,17 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
   const isPhone = useIsMobile();
   const placed = poi.placed ?? null; // a dropped pin: nothing to look up, nothing to verify
   const looked = usePoiMatch(row || placed ? null : poi);
-  // Ride here opens the one thing a map app will not offer a motorcyclist —
-  // the Roads choice — as a one-line strip, then Go
-  const [confirm, setConfirm] = useState(false);
-  // From → To, like a directions sheet: From is where the rider is unless they
-  // pick a place; ⇅ swaps the two (ride home from here, plan the return leg)
-  const [from, setFrom] = useState(null);        // null = the rider's fix; else { name, lat, lng, placeId? }
-  const [swapped, setSwapped] = useState(false); // the tapped place is the START and From is the destination
-  const [fromEdit, setFromEdit] = useState(false);
-  const [fromQ, setFromQ] = useState('');
-  const [fromRows, setFromRows] = useState([]);
-  useEffect(() => {
-    if (!fromEdit || fromQ.trim().length < 2) { setFromRows([]); return undefined; }
-    let dead = false;
-    const id = setTimeout(async () => {
-      try { const rows = await searchNearby({ category: null, query: fromQ.trim(), near: { lat: poi.lat, lng: poi.lng }, radiusMi: 150, limit: 5 }); if (!dead) setFromRows(rows); } catch { if (!dead) setFromRows([]); }
-    }, 350);
-    return () => { dead = true; clearTimeout(id); };
-  }, [fromQ, fromEdit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [style, setStyle] = useState(defaults?.routePrefs?.style ?? 'touring');
-  const [avoidTolls, setAvoidTolls] = useState(!!defaults?.routePrefs?.avoidTolls);
+  // "Ride here" hands the place to the ROUTE SHEET rather than opening a Roads
+  // radio here. The road character is no longer a setting chosen blind: the
+  // roads themselves are measured, drawn and labelled there, and From / stops
+  // / To live on the same surface (owner, Sep 19 2026).
   const match = placed ? null : (row ?? looked);
   const natural = !row && !placed && poiIsNatural(poi.cls, poi.subclass); // a peak, a pass, a forest: a placed pin, never a lookup
   const cat = poiCategory(poi.cls, poi.subclass) ?? (match?.primaryType?.includes('gas') ? 'fuel' : null);
   const glyph = placed ? '◎' : row ? (CATEGORIES.find((c) => c.id === poiCategory(row.primaryType, row.primaryType))?.glyph ?? '📍') : poiGlyph(poi.cls, poi.subclass);
   const [details, setDetails] = useState(!isPhone);
-  // a different place opens on its own page again (desktop), never mid-ride-strip
-  useEffect(() => { setDetails(!isPhone); setConfirm(false); }, [poi?.lat, poi?.lng, row?.id, isPhone]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a different place opens on its own page again (desktop)
+  useEffect(() => { setDetails(!isPhone); }, [poi?.lat, poi?.lng, row?.id, isPhone]); // eslint-disable-line react-hooks/exhaustive-deps
   const place = match
     ? { ...match, name: match.name, lat: match.lat, lng: match.lng, detail: match.detail, placeId: match.id, id: match.id, source: 'google', verified: 'google' }
     : placed
@@ -681,7 +752,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
         : null}
       facts={placed || dist ? <>{placed && <span className="tag placed">◎ {t('placed')}</span>}{dist && <span className="nb-note">{dist}</span>}</> : null}
       onClose={isPhone ? () => setDetails(false) : onClose}
-      actions={(<><button className="btn gold" disabled={match === undefined} onClick={() => { setDetails(false); setConfirm(true); }}>{t('Ride here')}</button><button className="btn" disabled={match === undefined} onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
+      actions={(<><button className="btn gold" disabled={match === undefined} onClick={() => { setDetails(false); onRide(place); }}>{t('Ride here')}</button><button className="btn" disabled={match === undefined} onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
     />
   ) : null;
   if (sheet && !isPhone) return <div className={`hm-place${placed ? ' placed' : ''}`} role="dialog" aria-label={place.name}>{sheet}</div>;
@@ -708,61 +779,11 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
           </>
         )}
       </div>
-      {confirm ? (
-        <section className="quick-ride hm-ride-confirm">
-          {(() => {
-            const here = fix ? { name: t('Current location'), lat: fix.lat, lng: fix.lng } : null;
-            const a = from ?? here; // the From place (or nothing, if no fix and none chosen)
-            const start = swapped ? place : a;
-            const end = swapped ? a : place;
-            const go = () => { if (!start || !end) return; onRide(end, { style, avoidTolls }, start); };
-            return (
-              <>
-                <div className="hm-od" role="group" aria-label={t('Route')}>
-                  <div className="hm-od-row">
-                    <span className="hm-od-k">{t('From')}</span>
-                    <span className="hm-od-v">{start?.name ?? t('Pick a start')}</span>
-                    {!swapped && <button className="mini-edit" onClick={() => setFromEdit((v) => !v)} aria-label={t('Change start')}>✎</button>}
-                  </div>
-                  <button className="btn hm-od-swap" onClick={() => setSwapped((v) => !v)} aria-label={t('Swap')} title={t('Swap')}>⇅</button>
-                  <div className="hm-od-row">
-                    <span className="hm-od-k">{t('To')}</span>
-                    <span className="hm-od-v">{end?.name ?? t('Pick a destination')}</span>
-                    {swapped && <button className="mini-edit" onClick={() => setFromEdit((v) => !v)} aria-label={t('Change destination')}>✎</button>}
-                  </div>
-                  {fromEdit && (
-                    <div className="hm-od-search">
-                      <input className="hm-input" autoFocus value={fromQ} onChange={(e) => setFromQ(e.target.value)} placeholder={t('Search a place')} aria-label={t('Search a place')} />
-                      <div className="hm-results">
-                        {here && from && <button onClick={() => { setFrom(null); setFromEdit(false); setFromQ(''); }}>◎ {t('Current location')}</button>}
-                        {fromRows.map((r) => <button key={r.id} onClick={() => { setFrom({ name: r.name, lat: r.lat, lng: r.lng, placeId: r.id, verified: 'google' }); setFromEdit(false); setFromQ(''); }}>{r.name}<small> {r.detail}</small></button>)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="qk-prefs">
-            <div className="qk-roads" role="radiogroup" aria-label={t('Roads')}>
-              {[['quick', t('Quick')], ['touring', t('Touring')], ['backroads', t('Back roads')]].map(([id, label]) => (
-                <button key={id} role="radio" aria-checked={style === id} className={style === id ? 'active' : ''} onClick={() => setStyle(id)}>{label}</button>
-              ))}
-            </div>
-            <label className="qk-tolls"><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /> {t('Avoid tolls')}</label>
-          </div>
-                <div className="hm-place-actions">
-                  <button className="btn gold" disabled={!start || !end} onClick={go}>▶ {t('Go')}</button>
-                  <button className="btn" onClick={() => { setConfirm(false); if (!isPhone) setDetails(true); }}>{t('Back')}</button>
-                </div>
-              </>
-            );
-          })()}
-        </section>
-      ) : (
-        <div className="hm-place-actions">
-          <button className="btn gold" disabled={match === undefined} onClick={() => setConfirm(true)}>{t('Ride here')}</button>
-          <button className="btn" disabled={match === undefined} onClick={() => onAdd(place)}>{t('Add to a trip')}</button>
-          {match && <button className="btn" onClick={() => setDetails(true)}>{t('Details')}</button>}
-        </div>
-      )}
+      <div className="hm-place-actions">
+        <button className="btn gold" disabled={match === undefined} onClick={() => onRide(place)}>{t('Ride here')}</button>
+        <button className="btn" disabled={match === undefined} onClick={() => onAdd(place)}>{t('Add to a trip')}</button>
+        {match && <button className="btn" onClick={() => setDetails(true)}>{t('Details')}</button>}
+      </div>
       {/* a phone: Details opens the page as the bottom sheet over the card */}
       {sheet}
     </div>

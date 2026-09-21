@@ -19,17 +19,29 @@ const enc6 = (pts) => {
 };
 const HERE = { lat: 44.0805, lng: -103.2310 }; // Rapid City
 const DEST = { lat: 43.8791, lng: -103.4591 }; // Mount Rushmore
+// Each character gets its OWN road, the way a real corridor answers: US-16
+// direct, and the Iron Mountain Road the long way round. A fixture that hands
+// back one road for all three collapses them into a single merged option —
+// correct behaviour, but then there is no character left to choose and
+// nothing to assert about the choice.
+const ROADS = {
+  1: { bow: 0, miles: 24, mins: 40, road: 'US-16' },
+  0.5: { bow: 0, miles: 24, mins: 40, road: 'US-16' },
+  0.05: { bow: 0.12, miles: 31, mins: 62, road: 'US-16A' },
+};
 function valhalla(body) {
   const locs = body.locations.map((l) => [l.lon, l.lat]);
+  const spec = ROADS[body.costing_options?.motorcycle?.use_highways] ?? ROADS[0.5];
   const legs = [];
   for (let i = 0; i < locs.length - 1; i++) {
     const a = locs[i], b = locs[i + 1];
-    legs.push({ shape: enc6([a, lerp(a, b, 0.5), b]), summary: { length: 24, time: 2400 }, maneuvers: [
-      { type: 1, instruction: 'Ride.', street_names: ['US-16'], length: 24, time: 2400, begin_shape_index: 0 },
+    const mid = lerp(a, b, 0.5);
+    legs.push({ shape: enc6([a, [mid[0], mid[1] + spec.bow], b]), summary: { length: spec.miles, time: spec.mins * 60 }, maneuvers: [
+      { type: 1, instruction: 'Ride.', street_names: [spec.road], length: spec.miles, time: spec.mins * 60, begin_shape_index: 0 },
       { type: 4, instruction: 'Arrive.', length: 0, time: 0, begin_shape_index: 2 },
     ] });
   }
-  return { trip: { legs, summary: { length: 24 * legs.length, time: 2400 * legs.length }, status: 0, units: 'miles' } };
+  return { trip: { legs, summary: { length: spec.miles * legs.length, time: spec.mins * 60 * legs.length }, status: 0, units: 'miles' } };
 }
 let lastValhalla = null;
 
@@ -58,21 +70,26 @@ await page.waitForSelector('.home', { timeout: 15000 });
 const lib = () => page.evaluate(() => JSON.parse(localStorage.getItem('moto.trips.v1')));
 const before = (await lib()).trips.length;
 
-// 1. the pill is the one door: a place → its card → Ride here → the Roads choice → Go
+// 1. the pill is the one door: a place → its card → Ride here → the ROUTE
+// SHEET (Sep 20, 2026 — the Roads radio became the roads themselves: every
+// character measured, drawn on the map and labelled before Go) → Go
 await page.locator('.hm-pill').click();
 await page.fill('.hm-input', 'Rushmore');
 await page.waitForSelector('.hm-results button', { timeout: 8000 });
 await page.locator('.hm-results button').first().click();
 await page.waitForSelector('.hm-place', { timeout: 8000 });
 await page.locator('.hm-place-actions .btn', { hasText: 'Ride here' }).click();
-await page.waitForSelector('.quick-ride', { timeout: 8000 });
-check(await page.locator('.quick-ride').count() === 1, 'Ride here opens the quick-ride strip on the card');
-const roads = await page.locator('.qk-roads button').allTextContents();
-check(roads.length === 3 && /Back roads/.test(roads[2]), `Roads choice is on the face of it (${roads.join(' · ')})`);
-await page.locator('.qk-roads button', { hasText: 'Back roads' }).click();
-await page.locator('.qk-tolls input').check();
+await page.waitForSelector('.route-sheet', { timeout: 10000 });
+check(await page.locator('.route-sheet').count() === 1, 'Ride here opens the route sheet');
+await page.waitForFunction(() => document.querySelectorAll('.rs-opt').length > 0, null, { timeout: 30000 });
+const roads = await page.locator('.rs-opt .rs-opt-head b').allTextContents();
+check(roads.some((r) => /Back roads/.test(r)), `every road character is offered, measured (${roads.join(' · ')})`);
+await page.locator('.rs-tolls input').check();
+await page.waitForFunction(() => document.querySelectorAll('.rs-opt').length > 0, null, { timeout: 30000 });
+await page.locator('.rs-opt', { hasText: 'Back roads' }).first().click();
+await page.waitForTimeout(400);
 await page.screenshot({ path: SHOT('quick-ride-pick') });
-await page.locator('.quick-ride .btn.gold').click();
+await page.locator('.rs-actions .btn', { hasText: 'Go' }).click();
 
 // 2. straight into Ride Mode on a real one-day trip
 await page.waitForSelector('.ride-bar', { timeout: 15000 });
@@ -84,7 +101,7 @@ check(l.trips.length === before + 1 && rec.trip.meta.quick === true, 'a quick ri
 check(rec.trip.days.length === 1 && rec.trip.days[0].waypoints.length === 2, 'one day, start → destination');
 check(rec.trip.days[0].waypoints[0].name === 'Current location' && Math.abs(rec.trip.days[0].waypoints[0].lat - HERE.lat) < 1e-6, 'start is the GPS fix');
 check(rec.trip.days[0].waypoints[1].placeId === 'rush' && rec.trip.days[0].waypoints[1].verified === 'google', 'destination carries place identity');
-check(rec.trip.meta.routePrefs.style === 'backroads' && rec.trip.meta.routePrefs.avoidTolls === true, 'the Roads choice rode onto the trip');
+check(rec.trip.meta.routePrefs.style === 'backroads' && rec.trip.meta.routePrefs.avoidTolls === true, 'the chosen road character rode onto the trip');
 check(lastValhalla?.costing_options?.motorcycle?.use_highways === 0.05 && lastValhalla?.costing_options?.motorcycle?.use_tolls === 0, 'and Valhalla was asked for back roads, no tolls');
 check(rec.trip.days[0].date === new Date().toISOString().slice(0, 10), 'dated today');
 await page.screenshot({ path: SHOT('quick-ride-riding') });
@@ -93,8 +110,12 @@ await page.screenshot({ path: SHOT('quick-ride-riding') });
 await page.locator('.ride-x, .ride-fab[aria-label="Close"], button[aria-label="End ride"], .ride-overlay-top button', { hasText: /✕|End/ }).first().click().catch(() => {});
 await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /^✕$/.test(x.textContent.trim())); b?.click(); });
 await page.waitForTimeout(400);
-await page.locator('.mast-back').click().catch(() => {});
 await page.waitForSelector('.home', { timeout: 10000 });
+// the ride sheet is still up with the ride on it — close it to see the library
+await page.locator('.rs-head .mini-edit').click().catch(() => {});
+await page.waitForTimeout(400);
+await page.locator('.hm-handle').click().catch(() => {});
+await page.waitForTimeout(400);
 check(await page.locator('.quick-row').count() === 1, 'Home lists it under Quick rides');
 const tripNames = await page.locator('.trip-grid:not(.start-grid) .trip-card:not(.tpl-card) .tc-name').allTextContents();
 check(!tripNames.some((n) => /Ride to/.test(n)), 'and NOT under Your trips');
