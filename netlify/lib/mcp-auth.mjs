@@ -123,6 +123,10 @@ export function wwwAuthenticate(resourceMetadataUrl, err) {
   const bits = ['Bearer'];
   const attrs = [`resource_metadata="${resourceMetadataUrl}"`];
   if (err?.code) attrs.push(`error="${err.code}"`);
-  if (err?.message) attrs.push(`error_description="${String(err.message).replace(/"/g, "'")}"`);
+  // HTTP header values are Latin-1: an em dash in the message (U+2014) made
+  // the Response constructor throw, so every auth failure was a 500 in
+  // production instead of a 401. Fold the prose to ASCII for the header; the
+  // JSON body still carries the message as written.
+  if (err?.message) attrs.push(`error_description="${String(err.message).replace(/"/g, "'").replace(/[\u2013\u2014]/g, '-').replace(/[^\x20-\x7e]/g, '')}"`);
   return `${bits.join(' ')} ${attrs.join(', ')}`;
 }

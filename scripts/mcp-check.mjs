@@ -400,6 +400,9 @@ console.log('auth:');
   check('resource metadata points at Supabase Auth as the authorization server', meta.resource === 'https://roadbook-app.netlify.app/mcp' && meta.authorization_servers[0] === 'https://proj.supabase.co/auth/v1' && meta.bearer_methods_supported.includes('header'));
   const hdr = wwwAuthenticate('https://roadbook-app.netlify.app/.well-known/oauth-protected-resource', new AuthError('Sign in'));
   check('WWW-Authenticate names the metadata document', /^Bearer resource_metadata="https:\/\/roadbook-app\.netlify\.app\/\.well-known\/oauth-protected-resource"/.test(hdr) && /error="invalid_token"/.test(hdr));
+  // the real messages carry an em dash; a header value outside Latin-1 made the Response constructor throw a 500 in production
+  const hdr2 = wwwAuthenticate('https://roadbook-app.netlify.app/.well-known/oauth-protected-resource', new AuthError('This connector token is not valid — make a new one in Roadbook → Settings → Connect your AI.'));
+  check('the header description is folded to ASCII so a prose message can never turn a 401 into a 500', /^[\x20-\x7e]+$/.test(hdr2) && /not valid - make a new one/.test(hdr2) && (() => { try { new Response('', { status: 401, headers: { 'WWW-Authenticate': hdr2 } }); return true; } catch { return false; } })(), hdr2);
 }
 
 console.log('the functions:');
