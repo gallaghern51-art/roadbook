@@ -562,6 +562,13 @@ export function clearRouteCaches() {
   for (const key of [CACHE_KEY, STEP_CACHE, ROAD_CACHE]) {
     try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
   }
+  // The in-memory copy has to go too. Emptying only localStorage left the
+  // module still answering from `cache` until the next reload, so Settings'
+  // "clear route caches" appeared to do nothing and the next save wrote the
+  // old routes straight back. Found while verifying windowed routing: two
+  // checks that cleared between them were silently served the first one's
+  // answer instead of calling the router.
+  cache = null;
 }
 
 // Test seam. Each router tier backs off for minutes after a failure, which is
