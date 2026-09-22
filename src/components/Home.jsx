@@ -258,6 +258,23 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     roRef.current = true;
     return () => { ro.disconnect(); roRef.current = false; };
   }, []);
+  // The top chrome's real bottom edge, written as `--hm-top` the same way, so
+  // everything that hangs under it (the layers pill, Search this area, the
+  // desktop drawer) sits under what is ACTUALLY there. They were pinned to one
+  // row's height, and a desktop window narrow enough to wrap the chips onto a
+  // second row put the Satellite pill across them (owner, Sep 20 2026: "the
+  // satellite button is crossing into the header").
+  const topRef = useRef(null);
+  useLayoutEffect(() => {
+    const root = rootRef.current, el = topRef.current;
+    if (!root || !el) return;
+    const write = () => root.style.setProperty('--hm-top', `${Math.round(el.getBoundingClientRect().bottom - root.getBoundingClientRect().top)}px`);
+    write();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(write);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // a browser with no ResizeObserver still gets the detent it just moved to
   useLayoutEffect(() => {
     if (roRef.current || !rootRef.current || !sheetRef.current) return;
@@ -442,7 +459,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         onPoi={(poi) => { if (poi) showPlace(poi); else if (dropped) cancelDrop(); else if (place) { setPlace(null); lowerAfter(); } else if (!chip) stepDown(); }} // a tap on open map: the pin goes, the card closes, or the sheet steps down
       />
 
-      <div className={`hm-top${searching && !isPhone ? ' searching' : ''}`}>
+      <div ref={topRef} className={`hm-top${searching && !isPhone ? ' searching' : ''}`}>
         <div className="hm-pillrow">
           <div className="hm-brand" aria-hidden="true"><RoadbookBrand beta /></div>
           {/* on a desktop the pill becomes the field and its answers drop down under it */}
@@ -460,8 +477,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               <span>{t('Where do you want to ride?')}</span>
             </button>
           )}
-          <button className={`hm-tripsbtn${drawer ? ' active' : ''}`} onClick={() => { setDrawer(!drawer); setPlace(null); setChip(null); }} aria-pressed={drawer}>{t('Your trips')} <span className="cnt">{cards.length}</span></button>
-          <button className="hm-round" onClick={onSettings} aria-label={t('Settings')}><SettingsIcon /></button>
+          <div className="hm-actions">
+            <button className={`hm-tripsbtn${drawer ? ' active' : ''}`} onClick={() => { setDrawer(!drawer); setPlace(null); setChip(null); }} aria-pressed={drawer}>{t('Your trips')} <span className="cnt">{cards.length}</span></button>
+            <button className="hm-round" onClick={onSettings} aria-label={t('Settings')}><SettingsIcon /></button>
+          </div>
         </div>
         <div className="hm-chips" role="tablist">
           {/* Coffee stays a category in the picker and the mid-ride quick add; the
