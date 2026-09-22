@@ -19,6 +19,7 @@
     "landing:frame": "node tools/landing-frame.mjs",
     "route-options:check": "node scripts/route-options-check.mjs",
     "traffic-plan:check": "node scripts/traffic-plan-check.mjs",
+    "route-windows:check": "node scripts/route-windows-check.mjs",
     "concept-edit:check": "node scripts/concept-edit-check.mjs",
     "mcp:check": "node scripts/mcp-check.mjs",
     "mcp:bridge": "node mcp/bridge.mjs",
