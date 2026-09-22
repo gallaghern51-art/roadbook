@@ -5030,6 +5030,7 @@ input:focus, textarea:focus, select:focus {
 }
 .hm-ai { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--asphalt-1); border: 1px solid var(--line); text-align: left; color: var(--ink); text-transform: none; letter-spacing: 0; font-family: var(--body); }
 .hm-ai.lead { border-color: var(--route); }
+.hm-paste-note { margin: 0; }
 .hm-ai-glyph { color: var(--route); font-size: 18px; }
 .hm-ai b { display: block; font-size: 14px; }
 .hm-ai small { display: block; margin-top: 2px; color: var(--ink-dim); font-size: 12.5px; line-height: 1.4; }
@@ -5759,6 +5760,11 @@ input:focus, textarea:focus, select:focus {
 .hm-list-actions .btn { min-height: 44px; }
 .hm-list-actions .btn.gold { flex: 1 1 160px; justify-content: center; }
 .hm-list-rows .hm-res-pin { color: #f5b82e; width: 18px; text-align: center; }
+/* a share link opened in the phone's browser: the way across to the Home Screen app */
+.hm-inapp { display: grid; gap: 6px; justify-items: start; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--route); background: color-mix(in srgb, var(--route) 8%, var(--asphalt-1)); }
+.hm-inapp b { font-size: 14px; color: var(--ink); }
+.hm-inapp p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-dim); }
+.hm-inapp .btn { min-height: 44px; margin-top: 4px; }
 .hm-list.shared .hm-list-rows .hm-res-pin { color: var(--route); }
 .hm-list-note { color: var(--ink-dim); font-style: italic; }
 .hm-list-saved { font-style: normal; font-weight: 500; color: var(--ok); }

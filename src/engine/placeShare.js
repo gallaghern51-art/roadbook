@@ -62,6 +62,18 @@ export function shareTokenFrom(hash) {
   return m ? m[1] : null;
 }
 
+/**
+ * A share token anywhere in pasted text — a bare link, or the whole message
+ * it arrived in ("Photo spots — 2 places in Roadbook https://…/#places=p…").
+ * The Home Screen app is how iPhone riders use Roadbook, and iOS never hands
+ * it a tapped link (links open in Safari, whose storage is separate), so the
+ * rider copies the link and pastes it into the app's search instead.
+ */
+export function shareTokenIn(text) {
+  const m = /#places=([A-Za-z0-9._-]+)/.exec(String(text ?? ''));
+  return m ? m[1] : null;
+}
+
 /** The shared payload behind a token: { name, kind, places }. Throws when there is none. */
 export async function loadShare(token, { fetchImpl = fetch } = {}) {
   if (token.startsWith('i.')) {

@@ -188,17 +188,24 @@ export default function App() {
   // with the list in the sheet and Save to take them. A visitor with no
   // account and no guest choice yet goes straight to the map for this visit:
   // the link is what they came for, and the front door is one tap away later.
-  const [shared, setShared] = useState(null); // { name, kind, places, error? }
+  const [shared, setShared] = useState(null); // { name, kind, places, token, error? }
   const [shareVisit] = useState(() => { try { return !!shareTokenFrom(window.location.hash); } catch { return false; } });
+  // One door for a share, whichever way it arrived: a tapped link (the hash)
+  // or a link pasted into the search — the Home Screen app's only way in,
+  // because iOS opens tapped links in the browser, never in the installed app.
+  // The token rides along so the browser can offer the link back to copy.
+  const openShare = (token) => {
+    setScreen('home');
+    loadShare(token)
+      .then((share) => setShared({ ...share, token }))
+      .catch((e) => setShared({ name: 'Shared places', kind: 'list', places: [], token, error: String(e.message || e) }));
+  };
   useEffect(() => {
     const read = () => {
       const token = shareTokenFrom(window.location.hash || '');
       if (!token) return;
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      setScreen('home');
-      loadShare(token)
-        .then((share) => setShared(share))
-        .catch((e) => setShared({ name: 'Shared places', kind: 'list', places: [], error: String(e.message || e) }));
+      openShare(token);
     };
     read();
     window.addEventListener('hashchange', read);
@@ -861,6 +868,7 @@ export default function App() {
           profile={profile}
           shared={shared}
           onSharedClose={() => setShared(null)}
+          onOpenShare={openShare}
           ride={ride}
           onRideChange={setRide}
           onQuickRide={({ start, stops = [], dest, routePrefs }) => {

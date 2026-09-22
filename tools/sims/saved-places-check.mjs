@@ -261,6 +261,13 @@ console.log('\n── the rider the link was sent to ──');
     return pts.every((p) => { const s = map.project([p.lng, p.lat]); return s.x >= 0 && s.x <= c.width && s.y >= top && s.y <= sheetTop - c.top - 30; });
   }, [PIN, PIN2], { timeout: 6000 }).then(() => true).catch(() => false);
   check(coldFramed, 'and framed on their screen above the sheet, though the link beat the map to it');
+  // this is the phone's BROWSER: point a Home Screen rider across to their app
+  const hint = await page.locator('.hm-inapp').innerText().catch(() => '');
+  check(/Home Screen/i.test(hint) && /paste it into the search/i.test(hint), 'a phone browser explains how to get the places into the Home Screen app');
+  await page.locator('.hm-inapp .btn').click();
+  const token = shareUrl.split('#places=')[1];
+  const copiedUrl = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+  check(copiedUrl === `${BASE}/#places=${token}`, `its Copy link copies the link itself, though the address bar was cleared (${copiedUrl})`);
   await page.screenshot({ path: SHOT('saved-received-375') });
 
   await page.locator('.hm-list-actions .btn.gold', { hasText: 'Save them to my places' }).click();
@@ -276,6 +283,58 @@ console.log('\n── the rider the link was sent to ──');
   await page.goto(`${BASE}/#places=pzzzzzzzzzzzz`);
   const dead = await page.waitForFunction(() => /no places behind it/i.test(document.querySelector('.hm-list')?.innerText ?? ''), null, { timeout: 8000 }).then(() => true).catch(() => false);
   check(dead, 'a dead link says it has no places behind it');
+  check(!(await page.locator('.hm-inapp').isVisible().catch(() => false)), '…and offers nothing to copy');
+  check(errors.length === 0, `no page errors (${errors.join('; ') || 'none'})`);
+  await ctx.close();
+}
+
+// ── the Home Screen app: iOS never hands it a tapped link, so it is PASTED ──
+console.log('\n── pasting the link into the Home Screen app ──');
+{
+  const { ctx, page, errors } = await newPage(375);
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'standalone', { value: true, configurable: true }); });
+  await openHome(page);
+  const message = `Photo spots — 2 places in Roadbook ${shareUrl}`;
+
+  // the empty search offers the door
+  await page.locator('.hm-top .hm-pill').click();
+  const row = page.locator('.hm-paste');
+  check(await row.isVisible().catch(() => false), 'an empty search offers "Open a shared link"');
+  check((await row.boundingBox())?.height >= 44, 'at a glove-sized height');
+
+  // nothing on the clipboard that is a link → it says how to get one
+  await page.evaluate(() => navigator.clipboard.writeText('Rosco\'s Motorcycles'));
+  await row.click();
+  const note = await page.locator('.hm-paste-note').innerText().catch(() => '');
+  check(/copy the link first/i.test(note), `a clipboard with no link says what to do (${note})`);
+  await page.screenshot({ path: SHOT('saved-paste-row-375') });
+
+  // the whole message on the clipboard → the row opens the share
+  await page.evaluate((m) => navigator.clipboard.writeText(m), message);
+  await row.click();
+  await page.waitForSelector('.hm-list', { timeout: 8000 }).catch(() => {});
+  check(/Shared with you/i.test(await page.locator('.hm-list').innerText().catch(() => '')) && /Photo spots/.test(await page.locator('.hm-list-title').innerText().catch(() => '')),
+    'the Paste row opens the shared places, read out of the whole message');
+  await page.waitForFunction(() => document.querySelectorAll('.pl-pin.pl-cat-shared').length >= 2, null, { timeout: 8000 }).catch(() => {});
+  check((await page.locator('.pl-pin.pl-cat-shared').count()) === 2, 'with both places on the map');
+  check(!(await page.locator('.hm-inapp').isVisible().catch(() => false)), 'and no "open it in the app" hint — this IS the app');
+  check(!(await page.locator('.hm-search').isVisible().catch(() => false)), 'the search is closed behind it');
+  const pastedFramed = await page.waitForFunction((pts) => {
+    const map = window.__homeMap; if (!map || map.isMoving()) return false;
+    const c = map.getContainer().getBoundingClientRect();
+    const sheetTop = document.querySelector('.hm-sheet')?.getBoundingClientRect().top ?? c.bottom;
+    const top = (document.querySelector('.hm-top')?.getBoundingClientRect().bottom ?? c.top) - c.top;
+    return pts.every((p) => { const s = map.project([p.lng, p.lat]); return s.x >= 0 && s.x <= c.width && s.y >= top && s.y <= sheetTop - c.top - 30; });
+  }, [PIN, PIN2], { timeout: 6000 }).then(() => true).catch(() => false);
+  check(pastedFramed, 'framed above the sheet, as a tapped link would be');
+  await page.screenshot({ path: SHOT('saved-pasted-375') });
+
+  // pasting straight into the field works the same
+  await page.locator('.hm-list-back').click();
+  await page.locator('.hm-top .hm-pill').click();
+  await page.locator('.hm-input').fill(message);
+  await page.waitForSelector('.hm-list', { timeout: 8000 }).catch(() => {});
+  check(/Photo spots/.test(await page.locator('.hm-list-title').innerText().catch(() => '')), 'a link pasted into the search field opens it too');
   check(errors.length === 0, `no page errors (${errors.join('; ') || 'none'})`);
   await ctx.close();
 }
