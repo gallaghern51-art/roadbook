@@ -4927,6 +4927,20 @@ input:focus, textarea:focus, select:focus {
 .hm-place-actions .btn.gold { flex: 1 1 120px; justify-content: center; }
 .hm-search { position: absolute; inset: 0; z-index: 6; background: rgba(8, 10, 11, 0.9); backdrop-filter: blur(8px); padding: calc(var(--viewport-safe-top) + 12px) 12px 24px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 12px; }
 .hm-input { flex: 1; min-width: 0; height: 48px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--route); background: var(--asphalt-1); color: var(--ink); font-family: var(--body); font-size: 16px; }
+/* iOS zooms the page toward a focused field that is narrow relative to the
+   viewport — even at 16px, which is the usual guard and was already in place.
+   Measured on an iPhone 17 Pro: the ‹ back button beside the input left it
+   320pt of a 402pt screen, and focusing it scaled the page ~1.09x, clipping
+   "Plan a trip with AI" to "an a trip with AI" and running the card borders
+   off both edges. The button moves INSIDE the field, so the input is
+   full-bleed and there is nothing left to zoom toward. Pinch-zoom stays
+   available — the fix is the layout, not a viewport lock. */
+.hm-search:not(.dropdown) .hm-pillrow { position: relative; }
+.hm-search:not(.dropdown) .hm-input { padding-left: 54px; }
+.hm-search:not(.dropdown) .hm-pillrow > .hm-round {
+  position: absolute; left: 3px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: 0; z-index: 1;
+}
 .hm-ai { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--asphalt-1); border: 1px solid var(--line); text-align: left; color: var(--ink); text-transform: none; letter-spacing: 0; font-family: var(--body); }
 .hm-ai.lead { border-color: var(--route); }
 .hm-ai-glyph { color: var(--route); font-size: 18px; }
