@@ -3756,8 +3756,11 @@ input:focus, textarea:focus, select:focus {
 .btn:disabled { opacity: 0.42; transform: none; }
 
 /* Wordmark and the two pieces of persistent chrome. */
-.roadbook-lockup { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
-.roadbook-mark { width: 29px; height: 29px; flex: none; overflow: visible; }
+/* The space is the mark's, not a lockup-wide gap: the beta chip sits much
+   closer to the wordmark than the mark does (it belongs to the name), and a
+   surface that hides the mark (the phone masthead) needs no gap rule of its own. */
+.roadbook-lockup { display: inline-flex; align-items: center; gap: 0; min-width: 0; }
+.roadbook-mark { width: 29px; height: 29px; flex: none; overflow: visible; margin-right: 9px; }
 .roadbook-mark .mark-frame { fill: var(--asphalt-2); stroke: var(--line-strong); stroke-width: 1.2; }
 .roadbook-mark .mark-route { fill: none; stroke: var(--rally); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .roadbook-mark .mark-start { fill: var(--route); }
@@ -3779,21 +3782,36 @@ input:focus, textarea:focus, select:focus {
    1.5px rule with a soft corner and real horizontal padding — a chip, not a
    tag. Sized in em so a 20px nav bar and a 28px mast get the same shape, and
    clamped so it never grows into a second logotype. */
+/* Tightened and aligned (owner, Sep 21 2026: "move the beta chip closer to
+   logo as well and keep aligned, slightly smaller beta chip as well"). Sized
+   against the WORDMARK, which every surface sets as the lockup's font size:
+   the chip's type is 0.42 of it, and its box is exactly the wordmark's cap
+   height — 0.708 of the wordmark in Barlow Condensed — so the chip runs from
+   the top of the capitals to the baseline instead of overhanging both. With
+   line-height 1 those capitals sit 0.046 of the wordmark below the middle of
+   their line (measured), so the chip is nudged down the same amount (0.11 of
+   its own em) to share their centre. About 4px from the wordmark at the home
+   header's 20px, where it was 11. */
 .beta-chip {
   flex: none;
   align-self: center;
-  margin-left: 0.22em;
-  padding: 0.16em 0.46em 0.14em;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 1.69em;
+  margin-left: 0.5em;
+  padding: 0 0.48em;
   border: 1.5px solid currentColor;
   border-radius: 0.34em;
   opacity: 0.82;
   font-family: var(--body);
   font-weight: 700;
-  font-size: clamp(10px, 0.46em, 14px);
-  letter-spacing: 0.05em;
-  line-height: 1.2;
+  font-size: clamp(8px, 0.42em, 13px);
+  letter-spacing: 0.06em;
+  line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
+  transform: translateY(0.11em);
 }
 .brand .yr { color: var(--rally); }
 .chrome-icon { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
@@ -4016,7 +4034,6 @@ input:focus, textarea:focus, select:focus {
   .trip-grid { grid-template-columns: 1fr; gap: 12px; }
   .masthead { min-height: 60px; padding-inline: 10px; }
   .masthead .roadbook-mark { display: none; }
-  .masthead .roadbook-lockup { gap: 0; }
   .masthead .actions .theme-toggle { display: none; }
   .side { background: var(--asphalt-1); box-shadow: -12px 0 34px rgba(0,0,0,0.3); }
   :root[data-theme='light'] .side { box-shadow: -12px 0 34px rgba(27,38,35,0.16); }
@@ -4777,6 +4794,7 @@ input:focus, textarea:focus, select:focus {
 }
 .hm-top { position: absolute; left: 12px; right: 12px; top: calc(var(--viewport-safe-top) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; }
 .hm-pillrow { display: flex; align-items: center; gap: 10px; }
+.hm-actions { flex: none; display: flex; align-items: center; gap: 8px; }
 .hm-brand, .hm-tripsbtn { display: none; }
 .hm-pill {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
@@ -4795,7 +4813,7 @@ input:focus, textarea:focus, select:focus {
 .hm-chip i { font-style: normal; font-size: 13px; }
 .hm-chip.active { border-color: var(--rally); color: var(--rally); }
 /* the right-edge column under the chips: layers pill, then locate, then North up (only while the map is turned) */
-.basemap-switch.hm-layers { top: calc(var(--viewport-safe-top) + 128px); right: 12px; left: auto; z-index: 4; }
+.basemap-switch.hm-layers { top: calc(var(--hm-top, calc(var(--viewport-safe-top) + 116px)) + 12px); right: 12px; left: auto; z-index: 4; }
 .basemap-switch.hm-layers.closed { left: auto; }
 /* the bottom-right column floats just above the sheet (the root carries --hm-sheet) and follows it between detents */
 /* NO transition on `bottom`: --hm-sheet is rewritten on every frame of the
@@ -4804,8 +4822,8 @@ input:focus, textarea:focus, select:focus {
    after the sheet each time and trailed the finger (owner: "there's a lag on
    the locator buttons on side when you expand bottom"). */
 .hm-fabs { position: absolute; right: 12px; bottom: calc(var(--hm-sheet, 0px) + 12px); z-index: 3; display: flex; flex-direction: column; gap: 10px; }
-.map-area-btn.hm-area { top: calc(var(--viewport-safe-top) + 128px); z-index: 4; }
-.hm-near { position: absolute; left: 12px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; min-height: 36px; padding: 6px 12px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); cursor: pointer; }
+.map-area-btn.hm-area { top: calc(var(--hm-top, calc(var(--viewport-safe-top) + 116px)) + 12px); z-index: 4; }
+.hm-near { position: absolute; left: 12px; top: calc(var(--hm-top, calc(var(--viewport-safe-top) + 116px)) + 20px); z-index: 3; min-height: 36px; padding: 6px 12px; border-radius: 999px; background: rgba(8, 10, 11, 0.82); border: 1px solid var(--line); font-size: 10px; color: var(--ink-dim); cursor: pointer; }
 .hm-near:hover { color: var(--ink); border-color: var(--ink-faint); }
 /* the rider: Google's blue dot with a white ring, and a cone for the direction
    they face once a heading is known (map-aligned, so it stays geographic) */
@@ -4938,29 +4956,48 @@ input:focus, textarea:focus, select:focus {
      library is a drawer that opens from Your trips (or a place card / a
      chip's picker), collapsed by default, and closes from its own ✕ / the
      same button. */
-  .hm-top { left: 0; right: 0; top: 0; padding: 10px 16px; gap: 8px; flex-direction: row; align-items: center; flex-wrap: wrap; background: rgba(8, 10, 11, 0.86); backdrop-filter: blur(14px) saturate(1.2); border-bottom: 1px solid var(--line-soft); }
-  .hm-pillrow { flex: 1 1 520px; min-width: 0; }
-  .hm-brand { display: block; flex: 0 0 auto; margin-right: 6px; }
-  .hm-brand .roadbook-wordmark { font-size: 20px; }
+  /* No bar (owner, Sep 20 2026: "we dont need the solid black header have the
+     surfaces and then map behind it"): each control is its own glass surface
+     floating over the map, the same grammar as the phone. The row itself is
+     transparent AND lets clicks through its gaps, so the map between the
+     surfaces is map — draggable, tappable — not a dead strip. */
+  /* Two rows at every desktop width (owner, same day: "do two rows in
+     desktop" and "center the category pills"): the wordmark left, the search
+     in the middle, Your trips + settings right; the categories centred under
+     the search. One row at wide widths and two at narrow ones made the chrome
+     change shape with the window. */
+  .hm-top { left: 16px; right: 16px; top: 12px; padding: 0; gap: 10px; flex-direction: column; align-items: stretch; background: none; backdrop-filter: none; border: 0; pointer-events: none; }
+  /* the two sides share one minimum (the wordmark's width), so the search is
+     centred on the screen at every width — over the centred categories —
+     rather than pushed off-centre by the wider left side; the search is what
+     gives way on a narrow window */
+  .hm-top > .hm-pillrow { display: grid; grid-template-columns: minmax(212px, 1fr) minmax(0, 560px) minmax(212px, 1fr); gap: 10px; min-width: 0; pointer-events: none; }
+  .hm-top > .hm-pillrow > .hm-brand { justify-self: start; }
+  .hm-top > .hm-pillrow > .hm-actions { justify-self: end; }
+  /* sized to its chips and centred; a window too narrow for them scrolls from the first */
+  .hm-top > .hm-chips { align-self: center; max-width: 100%; padding-bottom: 0; pointer-events: none; }
+  .hm-top > .hm-pillrow > *, .hm-top > .hm-chips > * { pointer-events: auto; }
+  .hm-brand { display: flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 999px; background: rgba(8, 10, 11, 0.9); border: 1px solid var(--line-strong); }
+  .hm-brand { font-size: 20px; } /* on the lockup, like every other surface, so the chip is sized from the wordmark */
   .hm-brand .yr { color: var(--rally); }
-  .hm-pill { max-width: 520px; height: 44px; }
-  .hm-chips { flex: 0 1 auto; padding-bottom: 0; }
-  .hm-chip { background: transparent; }
-  .hm-tripsbtn { display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font-family: var(--body); font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+  .hm-pill { max-width: none; height: 44px; }
+  .hm-tripsbtn { display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: rgba(8, 10, 11, 0.9); color: var(--ink); font-family: var(--body); font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+  /* a surface over bright imagery (snow, salt flats, a light basemap) needs its own edge */
+  .hm-top .hm-brand, .hm-top .hm-pill, .hm-top .hm-tripsbtn, .hm-top .hm-round, .hm-top .hm-chip, .basemap-switch.hm-layers { box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); }
   .hm-tripsbtn .cnt { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-weight: 400; }
   .hm-tripsbtn.active { border-color: var(--rally); color: var(--rally); }
-  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place, .hm-sheet.route { left: 16px; right: auto; top: 84px; bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); transition: transform 0.22s ease, opacity 0.22s ease; }
+  .hm-sheet, .hm-sheet[data-state='up'], .hm-sheet.pick, .hm-sheet.place, .hm-sheet.route { left: 16px; right: auto; top: calc(var(--hm-top, 68px) + 12px); bottom: 16px; width: 440px; height: auto; max-height: none; border-radius: 16px; border: 1px solid var(--line); transition: transform 0.22s ease, opacity 0.22s ease; }
   .hm-sheet:not(.open) { transform: translateX(-24px); opacity: 0; pointer-events: none; }
   .hm-handle { display: none; }
-  .basemap-switch.hm-layers { top: 100px; }
+  .basemap-switch.hm-layers { top: calc(var(--hm-top, 68px) + 12px); right: 16px; }
   .hm-fabs { right: 16px; bottom: 16px; } /* the drawer is on the left; nothing under the column */
   /* the desktop column sits at the middle of the right edge, Near me on top of
      the round buttons, all right-aligned (Home adds .desk off the phone layout) */
   .hm-fabs.desk { top: 50%; bottom: auto; transform: translateY(-50%); align-items: flex-end; }
   .hm-fabs.desk .hm-near { position: static; }
-  .map-area-btn.hm-area { top: 100px; }
-  .hm-near { left: 16px; top: 108px; }
-  .hm-search { left: 16px; top: 84px; bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
+  .map-area-btn.hm-area { top: calc(var(--hm-top, 68px) + 12px); }
+  .hm-near { left: 16px; top: calc(var(--hm-top, 68px) + 20px); }
+  .hm-search { left: 16px; top: calc(var(--hm-top, 68px) + 12px); bottom: 16px; right: auto; width: 440px; border-radius: 16px; border: 1px solid var(--line); }
 }
 
 /* Desktop home, two field notes (owner, Sep 14 2026, screenshots): a place's
@@ -4984,9 +5021,9 @@ input:focus, textarea:focus, select:focus {
      the left side tab on desktop even need to be that big? … the details info
      doesn't take up the whole tab size") — the full height was sized for the
      trips library, and a chip's list still gets it. A long page scrolls inside. */
-  .hm-sheet.place, .hm-sheet.place[data-state] { bottom: auto; max-height: calc(100% - 100px); }
+  .hm-sheet.place, .hm-sheet.place[data-state] { bottom: auto; max-height: calc(100% - var(--hm-top, 68px) - 28px); }
   .hm-search.dropdown {
-    position: relative; inset: auto; z-index: auto; flex: 1 1 auto; min-width: 0; max-width: 520px; width: auto;
+    position: relative; inset: auto; z-index: auto; flex: 1 1 auto; min-width: 0; max-width: none; width: auto;
     display: block; padding: 0; overflow: visible; background: none; backdrop-filter: none; border: 0; border-radius: 0;
   }
   .hm-pill.hm-pill-input { width: 100%; max-width: none; cursor: text; border-color: var(--route); }
@@ -5110,7 +5147,7 @@ input:focus, textarea:focus, select:focus {
 .drop-pin .dp-act.info { transform: translate(62px, -40px); }
 @media (prefers-reduced-motion: reduce) { .drop-pin .dp-needle { animation: none; transition: none; } }
 /* the readout: the home map's hint chip while a pin is down */
-.hm-drop-hint { position: absolute; left: 12px; right: 68px; top: calc(var(--viewport-safe-top) + 136px); z-index: 3; padding: 7px 11px; border-radius: 10px; background: rgba(8, 10, 11, 0.86); border: 1px solid var(--line); font-size: 12px; line-height: 1.35; color: var(--ink); }
+.hm-drop-hint { position: absolute; left: 12px; right: 68px; top: calc(var(--hm-top, calc(var(--viewport-safe-top) + 116px)) + 20px); z-index: 3; padding: 7px 11px; border-radius: 10px; background: rgba(8, 10, 11, 0.86); border: 1px solid var(--line); font-size: 12px; line-height: 1.35; color: var(--ink); }
 .hm-drop-hint b { color: var(--route, #3fd0c9); font-weight: 500; }
 .hm-place.placed .poi-facts .tag.placed { margin-right: 4px; }
 .ss-facts { display: grid; gap: 8px; }
