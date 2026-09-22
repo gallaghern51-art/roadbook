@@ -5,6 +5,7 @@ import { translationCoverage } from '../i18n/collect.js';
 import { clearTranslateFailure } from '../engine/autoTranslate.js';
 import SyncPanel from './SyncPanel.jsx';
 import AccountPanel from './AccountPanel.jsx';
+import ConnectorPanel from './ConnectorPanel.jsx';
 import PlacesPanel from './PlacesPanel.jsx';
 import RiderPanel from './RiderPanel.jsx';
 import { cacheReport, clearRouteCaches } from '../engine/routing.js';
@@ -27,6 +28,7 @@ import { cacheReport, clearRouteCaches } from '../engine/routing.js';
 
 const SECTIONS = [
   { id: 'account', label: 'Account', lead: 'Account session and backup status.' },
+  { id: 'connect', label: 'Connect your AI', lead: 'Plan with the AI you already use and save the ride here.' },
   { id: 'places', label: 'Places', lead: 'Places used by the planner and trip shortcuts.' },
   { id: 'riding', label: 'Riding', lead: 'Bike profile, route style, and trip preferences.' },
   { id: 'display', label: 'Display', lead: 'Theme, language, and units for this screen.' },
@@ -142,6 +144,14 @@ export default function SettingsModal({ sync, auth, backup, profile, onCreateAcc
             <p className="set-section-lead">{t(SECTION_LEAD['account'])}</p>
             <div className="set-section">
               <AccountPanel auth={auth} backup={backup} onCreateAccount={onCreateAccount} />
+            </div>
+          </section>
+
+          <section id="set-connect" className="set-block" data-set="connect">
+            <h4 className="set-h">{t(SECTION_LABEL['connect'])}</h4>
+            <p className="set-section-lead">{t(SECTION_LEAD['connect'])}</p>
+            <div className="set-section">
+              <ConnectorPanel auth={auth} />
             </div>
           </section>
 
