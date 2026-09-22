@@ -28,7 +28,8 @@ for (const width of [375, 1280]) {
     const modal = document.querySelector('.modal.settings');
     return { blocks, x: x ? { w: x.width, h: x.height } : null, tabsTop: tabs.top, modalTop: modal.getBoundingClientRect().top, scrollable: modal.scrollHeight > modal.clientHeight, tabBtn: Math.min(...[...document.querySelectorAll('.set-tabs button')].map((b) => b.getBoundingClientRect().height)) };
   });
-  check(st.blocks.length === 9 && st.blocks[0] === 'account' && st.blocks[8] === 'about', `all nine sections are on one page (${st.blocks.join(' · ')})`);
+  // ten since Connect your AI joined (the MCP connector, Sep 21 2026)
+  check(st.blocks.length === 10 && st.blocks[0] === 'account' && st.blocks.includes('connect') && st.blocks[9] === 'about', `all ten sections are on one page (${st.blocks.join(' · ')})`);
   check(st.scrollable, 'the page scrolls');
   if (phone) check(st.x && st.x.w >= 48 && st.x.h >= 48, `the ✕ is glove-sized (${Math.round(st.x?.w)}×${Math.round(st.x?.h)})`);
   if (phone) check(st.tabBtn >= 44, `the jump links are ≥44pt (${Math.round(st.tabBtn)})`);

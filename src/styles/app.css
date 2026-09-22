@@ -4963,6 +4963,9 @@ input:focus, textarea:focus, select:focus {
   .hm-sheet.route:not(.pick)[data-state='peek'] { height: 58%; }
 
   .hm-sheet.route:not(.pick)[data-state='up'] { height: 94%; }
+  /* a saved list, or a share: half the screen, so its places show above it */
+  .hm-sheet.list[data-state='peek'] { height: 50%; }
+  .hm-sheet.list[data-state='up'] { height: 90%; }
 }
 :root { --hm-handle-h: 56px; }
 .hm-handle { min-height: var(--hm-handle-h); width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 0; padding: 6px 0 4px; flex: 0 0 auto; color: var(--ink-dim); font-family: var(--body); font-size: 13.5px; font-weight: 600; text-transform: none; letter-spacing: 0; transition: color 0.14s ease, background 0.14s ease; }
@@ -5119,7 +5122,7 @@ input:focus, textarea:focus, select:focus {
      the left side tab on desktop even need to be that big? … the details info
      doesn't take up the whole tab size") — the full height was sized for the
      trips library, and a chip's list still gets it. A long page scrolls inside. */
-  .hm-sheet.place, .hm-sheet.place[data-state] { bottom: auto; max-height: calc(100% - var(--hm-top, 68px) - 28px); }
+  .hm-sheet.place, .hm-sheet.place[data-state], .hm-sheet.list, .hm-sheet.list[data-state] { bottom: auto; max-height: calc(100% - var(--hm-top, 68px) - 28px); }
   .hm-search.dropdown {
     position: relative; inset: auto; z-index: auto; flex: 1 1 auto; min-width: 0; max-width: none; width: auto;
     display: block; padding: 0; overflow: visible; background: none; backdrop-filter: none; border: 0; border-radius: 0;
@@ -5713,3 +5716,90 @@ input:focus, textarea:focus, select:focus {
 .consent-scopes { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 .consent-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
 .consent-actions .btn { min-height: 44px; padding: 0 18px; }
+
+/* ---------- Saved places, lists and share links (owner, Sep 22 2026: "save
+   the location as favorite or a list and then share locations to someone with
+   link and they can click and open in their roadbook") ---------- */
+
+/* saved places are gold stars on the map; places someone shared are turquoise
+   diamonds — route intelligence's colour, because they arrived with a link */
+.pl-pin.pl-cat-saved .pl-glyph { background: #f5b82e; color: #1a1205; }
+.pl-pin.pl-cat-shared .pl-glyph { background: var(--route); color: #04191a; }
+
+/* the place card: where it is kept, the rider's note, and Save · Share */
+.tag.saved { color: #f5b82e; border-color: color-mix(in srgb, #f5b82e 45%, transparent); background: color-mix(in srgb, #f5b82e 10%, transparent); }
+.hm-saved-note { flex: 1 1 100%; color: var(--ink-dim); font-style: italic; }
+.hm-place-more { display: flex; gap: 8px; }
+.hm-place-more .btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
+.btn.hm-keep.on { color: #f5b82e; border-color: color-mix(in srgb, #f5b82e 55%, transparent); }
+
+/* the library's Saved row: Home, Work, Favorites, then the rider's lists */
+.hm-saved-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.hm-saved-row::-webkit-scrollbar { display: none; }
+.hm-list-chip {
+  flex: 0 0 auto; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center;
+  min-height: 56px; min-width: 128px; max-width: 220px; padding: 8px 14px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--asphalt-1); color: var(--ink); text-align: left; text-transform: none; letter-spacing: 0; font-family: var(--body);
+}
+.hm-list-chip i { grid-row: 1 / 3; font-style: normal; font-size: 18px; color: #f5b82e; }
+.hm-list-chip b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-list-chip small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-list-chip:hover { border-color: var(--line-strong); }
+
+/* a list in the sheet */
+.hm-list { display: flex; flex-direction: column; gap: 12px; }
+.hm-list-head { display: flex; align-items: center; gap: 10px; }
+.hm-list-back { flex: none; font-size: 22px; }
+.hm-list .hm-list-back { background: var(--asphalt-2); border-color: var(--line-strong); color: var(--ink); }
+.hm-list-title { display: flex; flex-direction: column; min-width: 0; }
+.hm-list-title .mono { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.hm-list-title b { font-family: var(--display); font-size: 22px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-list-title small { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+.hm-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hm-list-actions .btn { min-height: 44px; }
+.hm-list-actions .btn.gold { flex: 1 1 160px; justify-content: center; }
+.hm-list-rows .hm-res-pin { color: #f5b82e; width: 18px; text-align: center; }
+.hm-list.shared .hm-list-rows .hm-res-pin { color: var(--route); }
+.hm-list-note { color: var(--ink-dim); font-style: italic; }
+.hm-list-saved { font-style: normal; font-weight: 500; color: var(--ok); }
+.hm-saved-results .hm-res-pin { color: #f5b82e; }
+
+/* the Save sheet */
+.sv-sheet { display: flex; flex-direction: column; gap: 14px; }
+.sv-group { display: flex; flex-direction: column; gap: 6px; }
+.sv-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.sv-label span { text-transform: none; letter-spacing: 0; font-family: var(--body); font-size: 11.5px; margin-left: 6px; }
+.sv-toggle {
+  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--asphalt-1); color: var(--ink); text-align: left;
+  font-family: var(--body); font-size: 14.5px; text-transform: none; letter-spacing: 0;
+}
+.sv-toggle.on { border-color: color-mix(in srgb, #f5b82e 55%, transparent); background: color-mix(in srgb, #f5b82e 8%, var(--asphalt-1)); }
+.sv-box { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 6px; border: 1.5px solid var(--line-strong); font-size: 13px; color: #1a1205; }
+.sv-toggle.on .sv-box { background: #f5b82e; border-color: #f5b82e; }
+.sv-glyph { color: #f5b82e; width: 16px; text-align: center; }
+.sv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-add { align-self: flex-start; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--route); font-family: var(--body); font-size: 14px; text-transform: none; letter-spacing: 0; }
+.sv-new { display: flex; gap: 8px; }
+.sv-new input { flex: 1; min-width: 0; }
+.sv-roles { align-self: flex-start; }
+
+/* the Share sheet */
+.share-sheet { display: flex; flex-direction: column; gap: 12px; }
+.share-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.share-list li { display: flex; flex-direction: column; padding: 8px 12px; }
+.share-list li + li { border-top: 1px solid var(--line-soft); }
+.share-list small { color: var(--ink-faint); font-size: 12px; }
+.share-list .more { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; }
+.share-sheet .fld input { font-family: var(--mono); font-size: 12px; }
+.nb-note.ok { color: var(--ok); }
+
+/* a one-line confirmation over the map */
+.hm-toast {
+  position: absolute; left: 50%; transform: translateX(-50%); z-index: 9;
+  top: calc(var(--hm-top, calc(var(--viewport-safe-top) + 116px)) + 12px);
+  max-width: min(92vw, 460px); padding: 10px 16px; border-radius: 999px;
+  background: rgba(8, 10, 11, 0.92); border: 1px solid var(--line-strong); color: #f6f3eb;
+  font-size: 13.5px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4); pointer-events: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

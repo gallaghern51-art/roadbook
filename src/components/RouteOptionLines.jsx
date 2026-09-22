@@ -60,7 +60,7 @@ const fc = (options, selected) => ({
 });
 
 export default function RouteOptionLines({
-  map, options = [], selected = null, onSelect, fitAt = 0, padBottom = 0, padTop = 200,
+  map, options = [], selected = null, onSelect, fitAt = 0, padBottom = 0, padTop = 200, padLeft = 0,
 }) {
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
@@ -219,7 +219,7 @@ export default function RouteOptionLines({
       const b = new mapboxgl.LngLatBounds();
       for (const o of options) for (const c of o.geometry ?? []) b.extend(c);
       if (b.isEmpty()) return;
-      map.fitBounds(b, { padding: { top: padTop, bottom: padBottom + 24, left: 36, right: 36 }, duration: 700 });
+      map.fitBounds(b, { padding: { top: padTop, bottom: padBottom + 24, left: 36 + padLeft, right: 36 }, duration: 700 });
     } catch { /* torn down mid-fit */ }
   }, [fitAt]); // eslint-disable-line react-hooks/exhaustive-deps
 

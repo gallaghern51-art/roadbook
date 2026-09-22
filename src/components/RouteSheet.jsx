@@ -35,7 +35,7 @@ import NearbyPicker from './NearbyPicker.jsx';
 //   onChange(next)     edit in place
 //   onGo(ride, option) the rider committed
 //   onOptions(opts, selectedId)  the map draws them
-export default function RouteSheet({ ride, onChange, onGo, onClose, onOptions, onChooseOnMap, onAdding, pace = 1, busyLabel, prefer = null }) {
+export default function RouteSheet({ ride, onChange, onGo, onClose, onOptions, onChooseOnMap, onAdding, pace = 1, busyLabel, prefer = null, saved = [] }) {
   const t = useT();
   const u = useUnits();
   const [opts, setOpts] = useState(null);
@@ -129,6 +129,7 @@ export default function RouteSheet({ ride, onChange, onGo, onClose, onOptions, o
           : start}
         chain={chosen?.geometry?.map(([lng, lat]) => ({ lat, lng })) ?? null}
         routePrefs={chosen?.prefs}
+        saved={saved}
         onPick={(place) => {
           setStops([...stops, {
             name: place.name, lat: place.lat, lng: place.lng, detail: place.detail ?? '',
