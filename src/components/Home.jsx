@@ -20,7 +20,10 @@ import HomeMap from './HomeMap.jsx';
 import { BASEMAPS } from '../engine/basemaps.js';
 import PlaceSheet from './PlaceSheet.jsx';
 import { usePoiMatch } from './PoiCard.jsx';
-import { Sheet } from './Sheets.jsx';
+import { Sheet, InputSheet } from './Sheets.jsx';
+import SavePlaceSheet from './SavePlaceSheet.jsx';
+import SharePlacesSheet from './SharePlacesSheet.jsx';
+import { findSaved, placesInList } from '../engine/profile.js';
 
 // The front door is the MAP (owner, Sep 13 2026: "build out option A"). The
 // Mapbox map near you with tappable POIs, the picker's categories as chips, a
@@ -65,6 +68,10 @@ const SURFACE_PX = {
   // options and Go come to ~470px at 375×812, and anything taller buries the
   // very map the options are drawn on.
   route: { min: 0.06, peek: 0.58, up: 0.94 },
+  // a saved list, or places someone shared: a few rows, and the map above
+  // them has to show the places — the picker's 72% left ~110px of map on a
+  // phone, too little to frame anything in
+  list: { min: 0.06, peek: 0.5, up: 0.9 },
 };
 const detentsFor = (surface) => SURFACE_PX[surface] ?? SHEET_PX;
 const DETENTS = ['min', 'peek', 'up'];
@@ -73,7 +80,7 @@ const nearestDetent = (frac, px = SHEET_PX) => DETENTS.reduce((best, k) => (Math
 // `ride` (the composition in progress) is App's state, not Home's: it has to
 // survive Ride Mode, which unmounts this screen entirely. Cancelling
 // navigation then lands back HERE with the ride intact.
-export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults, ride = null, onRideChange }) {
+export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults, ride = null, onRideChange, profile = null, shared = null, onSharedClose }) {
   const setRide = onRideChange;
   const { state, routedLegsByDay } = useTrip();
   const { lib } = state;
@@ -223,13 +230,35 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   // phone vs desktop: the search is a full screen or a dropdown under the pill
   const isPhone = useIsMobile();
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
+  // Saved places (owner, Sep 22 2026: "save the location as favorite or a list
+  // and then share locations to someone with link"). They live on the rider's
+  // PROFILE — the account's, not the device's — so the map, the sheet, the
+  // search and the add-a-stop picker all read the one list.
+  const prof = profile?.profile ?? { places: [], lists: [] };
+  const savedRows = prof.places ?? [];
+  const [saving, setSaving] = useState(null);     // a place → the Save sheet
+  const [sharing, setSharing] = useState(null);   // { name, kind, places } → the Share sheet
+  const [listView, setListView] = useState(null); // 'favorites' | a list id → that list in the sheet
+  const [toast, setToast] = useState('');
+  const toastTimer = useRef(null);
+  const flash = (msg) => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); };
   // the route sheet is showing the add-a-stop picker — declared here because
   // `surface` below reads it, and `surface` sizes the sheet
   const [ridePicking, setRidePicking] = useState(false);
-  const surface = ride ? (ridePicking ? 'pick' : 'route') : place ? 'place' : chip ? 'pick' : null;
+  // a list of saved places — or places someone shared — is its own surface:
+  // shorter than the picker, so the places it lists are visible above it
+  const surface = ride ? (ridePicking ? 'pick' : 'route') : place ? 'place' : chip ? 'pick' : (listView || shared) ? 'list' : null;
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   const sheetPx = Math.round((typeof window !== 'undefined' ? window.innerHeight : 800) * detentsFor(surface)[sheet]);
+  // What covers the map, for framing: the SHEET along the bottom on a phone;
+  // on a desktop the drawer down the left (440px + its 16px inset) and nothing
+  // along the bottom. Framing used the phone's detent on a desktop too, which
+  // padded the bottom 72% of the window and squeezed a list into the top strip.
+  const drawerShown = !isPhone && !!(drawer || place || chip || ride || listView || shared);
+  // the top clears the chrome AND a pin's own label (a phone's layers pill
+  // hangs lower, under the chips)
+  const mapPad = isPhone ? { top: 240, bottom: sheetPx, left: 0 } : { top: 190, bottom: 0, left: drawerShown ? 472 : 0 };
   // The fab column floats off the sheet's REAL height, not the detent fraction:
   // at `min` the sheet is the handle plus the phone's home-indicator inset
   // (56 + 34px on an iPhone), while 6% of the viewport is ~52px — so the
@@ -307,7 +336,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     const map = window.__homeMap;
     if (!map || !tripPts.length) return;
     const xs = tripPts.map((p) => p[0]), ys = tripPts.map((p) => p[1]);
-    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 150, bottom: sheetPx + 24, left: 32, right: 72 }, duration: 700, maxZoom: 11 });
+    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 150, bottom: mapPad.bottom + 24, left: 32 + mapPad.left, right: 72 }, duration: 700, maxZoom: 11 });
   };
 
   // The sheet only ever RISES for the rider's own tap on the handle. A card or
@@ -327,6 +356,34 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     if (row) pushRecent({ name: row.name, lat: row.lat, lng: row.lng, detail: row.detail ?? '' });
   };
   const rowToPoi = (r) => ({ name: r.name, lat: r.lat, lng: r.lng, cls: r.primaryType ?? '', subclass: r.primaryType ?? '' });
+  // A saved (or shared) place opens as what it is: a listing reopens as that
+  // listing — the card and its Details look it up by id — and a pin the rider
+  // dropped reopens as a placed spot, never looked up.
+  const openSaved = (p) => {
+    const name = p.label ?? p.name;
+    setChip(null); setPins([]);
+    if (p.placeId) showPlace({ name, lat: p.lat, lng: p.lng, cls: '', subclass: '' }, { id: p.placeId, name, lat: p.lat, lng: p.lng, detail: p.address ?? '', source: 'google' });
+    else showPlace({ name, lat: p.lat, lng: p.lng, cls: '', subclass: '', placed: 'rider', detail: p.address ?? '' });
+  };
+  const openList = (id) => { setPlace(null); setChip(null); setPins([]); setListView(id); raiseFor(); setFitAt(Date.now()); };
+  const closeList = () => { setListView(null); lowerAfter(); };
+  const listName = (id) => (id === 'favorites' ? t('Favorites') : prof.lists.find((l) => l.id === id)?.name ?? '');
+  // a link someone sent: the places come up on the map, framed, with the list in the sheet
+  useEffect(() => {
+    if (!shared) return;
+    setPlace(null); setChip(null); setPins([]); setListView(null); setDrawer(false);
+    raiseFor();
+    setFitAt(Date.now());
+  }, [shared]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveShared = () => {
+    if (!shared || !profile) return;
+    if (shared.places.length === 1) { const p = shared.places[0]; setSaving({ name: p.name, lat: p.lat, lng: p.lng, detail: p.address ?? '', placeId: p.placeId, placed: p.placed, note: p.note }); return; }
+    const id = profile.createList(shared.name);
+    shared.places.forEach((p) => profile.addToList({ name: p.name, lat: p.lat, lng: p.lng, address: p.address ?? '', placeId: p.placeId, placed: p.placed }, id, { label: p.name, note: p.note ?? '' }));
+    flash(`${t('Saved to')} ${shared.name}`);
+    onSharedClose?.();
+    openList(id);
+  };
   // A long press (or right-click) on open map drops a PIN — a needle on the
   // exact spot with the wheel around it (the RouteWheel grammar: adjust and
   // confirm are separate acts). The rider drags it onto the pullout they
@@ -424,6 +481,22 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   };
   const closeRide = () => { setRide(null); setRidePicking(false); setRouteOpts([]); setRouteSel(null); lowerAfter(); };
 
+  // What the map shows: the picker's rows while a chip is open; otherwise the
+  // rider's saved places (just one list's while a list is open, or the places
+  // someone shared while their link is open), with the open card's place hot —
+  // or its own pin when it is not one of them.
+  const baseRows = shared
+    ? shared.places.map((p, i) => ({ ...p, key: `shared:${i}`, label: p.name }))
+    : (listView ? placesInList(prof, listView) : savedRows).map((p) => ({ ...p, key: `saved:${p.id}` }));
+  const at = (p) => `${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}`;
+  const hotAt = place ? at(place.poi) : null;
+  const savedGlyph = (p) => (shared ? '◆' : p.role === 'home' ? '⌂' : p.role === 'work' ? '▣' : p.role === 'favorite' ? '★' : '▤');
+  const basePins = baseRows.map((p) => ({ id: p.key, lat: Number(p.lat), lng: Number(p.lng), name: p.label ?? p.name, glyph: savedGlyph(p), cat: shared ? 'shared' : 'saved', hot: hotAt === at(p) }));
+  const cardPin = place && !place.poi.placed && !basePins.some((b) => b.hot)
+    ? [{ id: 'place', lat: place.poi.lat, lng: place.poi.lng, name: place.poi.name, glyph: place.row ? (CATEGORIES.find((c) => c.id === poiCategory(place.row.primaryType, place.row.primaryType))?.glyph ?? '📍') : poiGlyph(place.poi.cls, place.poi.subclass), cat: place.row ? poiCategory(place.row.primaryType, place.row.primaryType) : poiCategory(place.poi.cls, place.poi.subclass), hot: true, halo: !place.row }]
+    : [];
+  const mapPins = pins.length ? pins : [...basePins, ...(dropped ? [] : cardPin)];
+
   return (
     <div ref={rootRef} className="home home-map">
       <HomeMap
@@ -437,15 +510,21 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         // creating a bigger Whole Foods icon rather than just emphasizing the
         // one already on the map"). The picker's pins win while they are up,
         // and a dropped needle is its own marker.
-        pins={pins.length || dropped ? pins : place && !place.poi.placed ? [{ id: 'place', lat: place.poi.lat, lng: place.poi.lng, name: place.poi.name, glyph: place.row ? (CATEGORIES.find((c) => c.id === poiCategory(place.row.primaryType, place.row.primaryType))?.glyph ?? '📍') : poiGlyph(place.poi.cls, place.poi.subclass), cat: place.row ? poiCategory(place.row.primaryType, place.row.primaryType) : poiCategory(place.poi.cls, place.poi.subclass), hot: true, halo: !place.row }] : []}
+        pins={mapPins}
         fitAt={fitAt}
-        sheetPx={sheetPx}
+        sheetPx={mapPad.bottom}
+        padLeft={mapPad.left}
+        padTop={mapPad.top}
         drop={dropped}
         routeOpts={routeOpts}
         routeSel={routeSel}
         onRouteSel={(id) => { setRouteSel(id); setRide((r) => (r ? { ...r, optionId: id } : r)); }}
         routeFitAt={routeFitAt}
-        onPinTap={(id) => setTapped({ id, at: Date.now() })}
+        onPinTap={(id) => {
+          if (id.startsWith('saved:')) { const p = savedRows.find((x) => `saved:${x.id}` === id); if (p) openSaved(p); return; }
+          if (id.startsWith('shared:')) { const p = shared?.places[Number(id.slice(7))]; if (p) openSaved(p); return; }
+          setTapped({ id, at: Date.now() });
+        }}
         onCenter={onCenter}
         onBearing={setBearing}
         basemap={basemap}
@@ -470,6 +549,8 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               onClose={() => setSearching(false)}
               onPlan={(q) => { setSearching(false); onNewTrip({ tab: 'ai', prompt: q }); }}
               onPick={(row) => { setSearching(false); setChip(null); showPlace(rowToPoi(row), row); }}
+              saved={savedRows}
+              onSaved={(p) => { setSearching(false); openSaved(p); }}
             />
           ) : (
             <button className="hm-pill" onClick={() => setSearching(true)} aria-label={t('Search a place, or describe a ride')}>
@@ -548,10 +629,12 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           onClose={() => setSearching(false)}
           onPlan={(q) => { setSearching(false); onNewTrip({ tab: 'ai', prompt: q }); }}
           onPick={(row) => { setSearching(false); setChip(null); showPlace(rowToPoi(row), row); }}
+          saved={savedRows}
+          onSaved={(p) => { setSearching(false); openSaved(p); }}
         />
       )}
 
-      <div ref={sheetRef} className={`hm-sheet${ride ? ' route' : ''}${place && !ride ? ' place' : ''}${(chip && !ride) || ridePicking ? ' pick' : ''}${drawer || place || chip || ride ? ' open' : ''}`} data-state={sheet}>
+      <div ref={sheetRef} className={`hm-sheet${ride ? ' route' : ''}${place && !ride ? ' place' : ''}${(chip && !ride) || ridePicking ? ' pick' : ''}${surface === 'list' ? ' list' : ''}${drawer || place || chip || ride || listView || shared ? ' open' : ''}`} data-state={sheet}>
         <button
           className="hm-handle"
           aria-label={handle.aria}
@@ -578,6 +661,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
                 routePrefs: option?.prefs ?? { style: 'touring', avoidTolls: !!r.avoidTolls },
               })}
               onClose={closeRide}
+              saved={savedRows}
               onAdding={setRidePicking}
               onChooseOnMap={() => {
                 pickingStopRef.current = true;
@@ -589,7 +673,11 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               poi={place.poi} row={place.row} fix={fix} defaults={quickDefaults}
               onRide={rideTo}
               onAdd={(p) => setAddTo(p)}
-              onClose={() => { setPlace(null); if (place.poi.placed) cancelDrop(); else lowerAfter(); }}
+              savedFor={profile ? (p) => findSaved(prof, p) : null}
+              listNames={(row) => [row.role === 'favorite' ? t('Favorites') : row.role === 'home' ? t('Home') : row.role === 'work' ? t('Work') : null, ...(row.lists ?? []).map(listName)].filter(Boolean).join(', ')}
+              onSave={profile ? (p) => setSaving(p) : null}
+              onShare={(p, row) => setSharing({ name: row?.label ?? p.name, kind: 'place', places: [{ ...p, label: row?.label ?? p.name, note: row?.note ?? '', address: p.detail ?? row?.address ?? '' }] })}
+              onClose={() => { setPlace(null); if (place.poi.placed) cancelDrop(); else if (!listView && !shared) lowerAfter(); }}
             />
           ) : chip ? (
             <NearbyPicker
@@ -604,6 +692,32 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               onRows={(rows, { fit }) => { setPins(rows); if (fit) { setFitAt(Date.now()); setMoved(false); } }}
               onPick={(row) => showPlace(rowToPoi(row), row)}
               onClose={() => { setChip(null); setPins([]); setArea(null); setMoved(false); lowerAfter(); }}
+            />
+          ) : shared ? (
+            <SavedListView
+              kicker={t('Shared with you')}
+              tone="shared"
+              title={shared.name}
+              rows={shared.places.map((p) => ({ ...p, label: p.name, saved: !!findSaved(prof, p) }))}
+              fix={fix}
+              onOpen={openSaved}
+              primary={profile && shared.places.length ? { label: shared.places.length === 1 ? t('Save it') : t('Save them to my places'), onClick: saveShared } : null}
+              onBack={() => { onSharedClose?.(); lowerAfter(); }}
+              backLabel={t('Close')}
+              empty={shared.error ?? ''}
+            />
+          ) : listView ? (
+            <SavedListView
+              kicker={t('Saved')}
+              title={listName(listView)}
+              rows={placesInList(prof, listView)}
+              fix={fix}
+              onOpen={openSaved}
+              onBack={closeList}
+              onShare={(rows) => setSharing({ name: listName(listView), kind: 'list', places: rows })}
+              onRename={listView !== 'favorites' ? (name) => profile?.renameList(listView, name) : null}
+              onDelete={listView !== 'favorites' ? () => { profile?.deleteList(listView); closeList(); } : null}
+              empty={t('Nothing in this list yet. Open a place — tap it on the map, or press and hold to drop a pin — and Save it here.')}
             />
           ) : (
             <>
@@ -627,6 +741,30 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
                       </div>
                     ))}
                   </div>
+                </section>
+              )}
+              {profile && (
+                <section className="section hm-saved">
+                  <h3>{t('Saved')} {savedRows.length > 0 && <span className="cnt">{savedRows.length}</span>}</h3>
+                  {savedRows.length === 0 ? (
+                    <p className="nb-note">{t('Save places you ride to — tap one on the map, or press and hold to drop a pin, then Save. Share a place or a whole list as a link.')}</p>
+                  ) : (
+                    <div className="hm-saved-row">
+                      {savedRows.filter((p) => p.role === 'home' || p.role === 'work').map((p) => (
+                        <button key={p.id} className="hm-list-chip" onClick={() => openSaved(p)}>
+                          <i aria-hidden="true">{p.role === 'home' ? '⌂' : '▣'}</i><b>{p.role === 'home' ? t('Home') : t('Work')}</b><small>{p.label}</small>
+                        </button>
+                      ))}
+                      <button className="hm-list-chip" onClick={() => openList('favorites')}>
+                        <i aria-hidden="true">★</i><b>{t('Favorites')}</b><small>{placesInList(prof, 'favorites').length}</small>
+                      </button>
+                      {prof.lists.map((l) => (
+                        <button key={l.id} className="hm-list-chip" onClick={() => openList(l.id)}>
+                          <i aria-hidden="true">▤</i><b>{l.name}</b><small>{placesInList(prof, l.id).length}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </section>
               )}
               <InstallPrompt />
@@ -707,6 +845,23 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
         </div>
       </div>
 
+      {saving && profile && (
+        <SavePlaceSheet
+          place={saving}
+          saved={findSaved(prof, saving)}
+          lists={prof.lists}
+          onCreateList={profile.createList}
+          onSave={(opts) => {
+            profile.saveTo(saving, opts);
+            const none = !opts.role && !opts.favorite && !(opts.lists ?? []).length;
+            flash(none ? t('Removed from saved') : `${t('Saved to')} ${[opts.role === 'home' ? t('Home') : opts.role === 'work' ? t('Work') : opts.favorite ? t('Favorites') : null, ...(opts.lists ?? []).map(listName)].filter(Boolean).join(', ')}`);
+          }}
+          onClose={() => setSaving(null)}
+        />
+      )}
+      {sharing && <SharePlacesSheet payload={sharing} onClose={() => setSharing(null)} />}
+      {toast && <div className="hm-toast" role="status" aria-live="polite">{toast}</div>}
+
       {addTo && (
         <AddToTripSheet
           place={addTo}
@@ -723,7 +878,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
 // The place the rider tapped or picked, as the sheet's card. A vector POI is
 // resolved against Google the way the plan map's card does it; a picker or
 // search row is already Google's.
-function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
+function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults, savedFor = null, listNames = null, onSave = null, onShare = null }) {
   const t = useT();
   const u = useUnits();
   // On a desktop the drawer opens straight onto the place's full page: there is
@@ -749,6 +904,21 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
     : placed
     ? { name: poi.name, lat: poi.lat, lng: poi.lng, detail: poi.detail ?? '', source: 'rider', placed }
     : { name: poi.name, lat: poi.lat, lng: poi.lng, detail: '', source: 'osm', ...(natural ? { placed: 'rider', kind: 'photo' } : {}) };
+  // Is this place one the rider saved? Then the card says where it is kept and
+  // shows their note; Save becomes Saved and opens the same sheet to edit it.
+  const savedRow = savedFor ? savedFor(place) : null;
+  const savedTag = savedRow ? (
+    <>
+      <span className="tag saved">★ {t('Saved')}{listNames?.(savedRow) ? ` · ${listNames(savedRow)}` : ''}</span>
+      {savedRow.note && <span className="nb-note hm-saved-note">{savedRow.note}</span>}
+    </>
+  ) : null;
+  const keepButtons = (
+    <>
+      {onSave && <button className={`btn hm-keep${savedRow ? ' on' : ''}`} disabled={match === undefined} onClick={() => onSave(place)} aria-pressed={!!savedRow}>{savedRow ? `★ ${t('Saved')}` : `☆ ${t('Save')}`}</button>}
+      {onShare && <button className="btn hm-keep" disabled={match === undefined} onClick={() => onShare(place, savedRow)}>{t('Share')}</button>}
+    </>
+  );
   const elev = poi.elevFt ? (u.metric ? `${Math.round(poi.elevFt / 3.28084)} m` : `${poi.elevFt.toLocaleString()} ft`) : '';
   const kicker = placed
     ? (poi.detail && poi.detail !== poi.name ? poi.detail : coordLabel(poi))
@@ -769,9 +939,9 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
         : match === undefined ? t('Checking the listing…')
         : match === null ? t('No listing found here — it will be added as an unverified stop.')
         : null}
-      facts={placed || dist ? <>{placed && <span className="tag placed">◎ {t('placed')}</span>}{dist && <span className="nb-note">{dist}</span>}</> : null}
+      facts={placed || dist || savedTag ? <>{savedTag}{placed && <span className="tag placed">◎ {t('placed')}</span>}{dist && <span className="nb-note">{dist}</span>}</> : null}
       onClose={isPhone ? () => setDetails(false) : onClose}
-      actions={(<><button className="btn gold" disabled={match === undefined} onClick={() => { setDetails(false); onRide(place); }}>{t('Ride here')}</button><button className="btn" disabled={match === undefined} onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button></>)}
+      actions={(<><button className="btn gold" disabled={match === undefined} onClick={() => { setDetails(false); onRide(place); }}>{t('Ride here')}</button><button className="btn" disabled={match === undefined} onClick={() => { setDetails(false); onAdd(place); }}>{t('Add to a trip')}</button>{keepButtons}</>)}
     />
   ) : null;
   if (sheet && !isPhone) return <div className={`hm-place${placed ? ' placed' : ''}`} role="dialog" aria-label={place.name}>{sheet}</div>;
@@ -783,6 +953,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
         <button className="mini-edit" onClick={onClose} aria-label={t('Close')}>✕</button>
       </div>
       <div className="poi-facts">
+        {savedTag}
         {placed && <span className="tag placed" title={t('A spot placed on the map on purpose — not a listed business.')}>◎ {t('placed')}</span>}
         {placed && <span className="nb-note">{t('A spot you placed on the map — not a listed business. It rides as a deliberate pin.')}</span>}
         {natural && <span className="nb-note">{t('A place on the map, not a listed business — it will be added as a placed pin.')}</span>}
@@ -803,6 +974,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
         <button className="btn" disabled={match === undefined} onClick={() => onAdd(place)}>{t('Add to a trip')}</button>
         {match && <button className="btn" onClick={() => setDetails(true)}>{t('Details')}</button>}
       </div>
+      {(onSave || onShare) && <div className="hm-place-more">{keepButtons}</div>}
       {/* a phone: Details opens the page as the bottom sheet over the card */}
       {sheet}
     </div>
@@ -815,7 +987,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults }) {
 // the pill in the nav bar IS the field and the answers drop down under it —
 // the drawer is left alone (owner, Sep 14 2026: "just have it be handled from
 // drop down screen from search").
-function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen' }) {
+function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen', saved = [], onSaved = null }) {
   const t = useT();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
@@ -857,7 +1029,7 @@ function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen' }) {
           <button type="button" className="hm-pill-x" onClick={onClose} aria-label={t('Close')}>✕</button>
         </label>
         <div className="hm-dropdown" aria-label={t('Search a place, or describe a ride')}>
-          <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} />
+          <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} saved={saved} onSaved={onSaved} />
         </div>
       </div>
     );
@@ -868,16 +1040,38 @@ function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen' }) {
         <button className="hm-round" onClick={onClose} aria-label={t('Back')}>‹</button>
         {input}
       </div>
-      <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} />
+      <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} saved={saved} onSaved={onSaved} />
     </div>
   );
 }
 
 // What the search offers under the field — the AI door, the places, recents —
 // the same list in the phone's full screen and the desktop's dropdown.
-function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick }) {
+function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick, saved = [], onSaved = null }) {
   const t = useT();
   const u = useUnits();
+  // The rider's own places answer first: Home and Work, then the most recently
+  // saved, when the field is empty; any whose name or address matches while
+  // they type — before a single place is looked up.
+  const text = q.trim().toLowerCase();
+  const roleRank = (p) => (p.role === 'home' ? 0 : p.role === 'work' ? 1 : 2);
+  const mine = (text
+    ? saved.filter((p) => `${p.label} ${p.address ?? ''}`.toLowerCase().includes(text))
+    : [...saved].sort((a, b) => roleRank(a) - roleRank(b) || String(b.savedAt ?? '').localeCompare(String(a.savedAt ?? '')))
+  ).slice(0, text ? 4 : 6);
+  const savedList = onSaved && mine.length > 0 && !plan ? (
+    <>
+      <div className="mono hm-label">{t('Saved')}</div>
+      <ul className="hm-results hm-saved-results">
+        {mine.map((p) => (
+          <li key={p.id}><button onClick={() => onSaved(p)}>
+            <span className="hm-res-pin" aria-hidden="true">{p.role === 'home' ? '⌂' : p.role === 'work' ? '▣' : p.role === 'favorite' ? '★' : '▤'}</span>
+            <span className="hm-res-main"><b>{p.label}</b><small>{[p.address, Number.isFinite(p.lat) ? `${u.miNum(haversineMiles(near, p))} ${u.miUnit}` : ''].filter(Boolean).join(' · ')}</small></span>
+          </button></li>
+        ))}
+      </ul>
+    </>
+  ) : null;
   return (
     <>
       {q.trim().length > 0 && (
@@ -886,6 +1080,7 @@ function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick }
           <span><b>{plan ? t('Plan this ride with AI') : `${t('Plan a trip to')} ${q.trim()} ${t('with AI')}`}</b><small>{t('Or keep typing a sentence — riders, days, pace — and the builder opens with it.')}</small></span>
         </button>
       )}
+      {text && savedList}
       {(rows.length > 0 || busy) && (
         <ul className="hm-results">
           {busy && rows.length === 0 && <li className="nb-note">{t('Searching…')}</li>}
@@ -904,6 +1099,7 @@ function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick }
           <span><b>{t('Plan a trip with AI')}</b><small>{t('Describe riders, days, region and pace — or just type a place name to ride there.')}</small></span>
         </button>
       )}
+      {!text && savedList}
       {q.trim().length === 0 && recent.length > 0 && (
         <>
           <div className="mono hm-label">{t('Recent')}</div>
@@ -915,6 +1111,60 @@ function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick }
         </>
       )}
     </>
+  );
+}
+
+// A list of places in the sheet: one of the rider's own (Favorites, or a list
+// they made) or the places someone shared by link. Each row opens its card;
+// the list can be shared as one link, renamed and deleted (the rider's own), or
+// saved into the rider's places (a share).
+function SavedListView({ kicker, title, rows, fix, onOpen, onBack, backLabel, onShare = null, onRename = null, onDelete = null, primary = null, empty = '', tone = 'saved' }) {
+  const t = useT();
+  const u = useUnits();
+  const [renaming, setRenaming] = useState(false);
+  const [armed, setArmed] = useState(false);
+  return (
+    <section className={`hm-list ${tone}`} aria-label={title}>
+      <div className="hm-list-head">
+        <button className="hm-round hm-list-back" onClick={onBack} aria-label={backLabel ?? t('Back')}>{backLabel ? '✕' : '‹'}</button>
+        <div className="hm-list-title">
+          <span className="mono">{kicker}</span>
+          <b>{title}</b>
+          <small>{rows.length} {rows.length === 1 ? t('place') : t('places')}</small>
+        </div>
+      </div>
+      <div className="hm-list-actions">
+        {primary && <button className="btn gold" onClick={primary.onClick}>{primary.label}</button>}
+        {onShare && rows.length > 0 && <button className="btn" onClick={() => onShare(rows)}>{t('Share list')}</button>}
+        {onRename && <button className="btn" onClick={() => setRenaming(true)}>{t('Rename')}</button>}
+        {onDelete && (
+          <button className={`btn${armed ? ' danger-ghost' : ''}`} onClick={() => (armed ? onDelete() : (setArmed(true), setTimeout(() => setArmed(false), 3000)))}>
+            {armed ? t('Sure? Delete list') : t('Delete list')}
+          </button>
+        )}
+      </div>
+      {rows.length === 0 ? <p className="nb-note">{empty}</p> : (
+        <ul className="hm-results hm-list-rows">
+          {rows.map((p, i) => (
+            <li key={p.id ?? `${p.lat},${p.lng},${i}`}>
+              <button onClick={() => onOpen(p)}>
+                <span className="hm-res-pin" aria-hidden="true">{p.role === 'home' ? '⌂' : p.role === 'work' ? '▣' : p.role === 'favorite' ? '★' : p.role ? '▤' : '◆'}</span>
+                <span className="hm-res-main">
+                  <b>{p.label ?? p.name}{p.saved ? <em className="hm-list-saved"> · ✓ {t('saved')}</em> : null}</b>
+                  <small>{[p.address, fix ? `${u.miNum(haversineMiles(fix, p))} ${u.miUnit}` : ''].filter(Boolean).join(' · ')}</small>
+                  {p.note && <small className="hm-list-note">{p.note}</small>}
+                </span>
+                <span className="mono hm-res-go">{t('Show')}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {renaming && (
+        <InputSheet title={t('Rename list')} label={t('Name')} defaultValue={title} submitLabel={t('Save')}
+          onSubmit={(name) => onRename(name)} onClose={() => setRenaming(false)} />
+      )}
+    </section>
   );
 }
 

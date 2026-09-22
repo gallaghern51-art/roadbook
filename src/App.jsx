@@ -33,6 +33,7 @@ import { useLibraryBackup } from './engine/cloudLibrary.js';
 import { useAutoTranslate } from './engine/autoTranslate.js';
 import { usePlacePreferences } from './engine/placePreferences.js';
 import { useProfile } from './engine/profile.js';
+import { shareTokenFrom, loadShare } from './engine/placeShare.js';
 import { collabFor, saveCollab, clearCollab, collabApi, parseJoinParam, tripIdForShare } from './engine/collab.js';
 import { useT, useUnits } from './engine/settings.jsx';
 
@@ -180,6 +181,29 @@ export default function App() {
     window.addEventListener('hashchange', read);
     return () => window.removeEventListener('hashchange', read);
   }, []);
+
+  // #places=<token> — a place, or a list of places, another rider shared
+  // (owner, Sep 22 2026: "share locations to someone with link and they can
+  // click and open in their roadbook"). The places come up on the home map
+  // with the list in the sheet and Save to take them. A visitor with no
+  // account and no guest choice yet goes straight to the map for this visit:
+  // the link is what they came for, and the front door is one tap away later.
+  const [shared, setShared] = useState(null); // { name, kind, places, error? }
+  const [shareVisit] = useState(() => { try { return !!shareTokenFrom(window.location.hash); } catch { return false; } });
+  useEffect(() => {
+    const read = () => {
+      const token = shareTokenFrom(window.location.hash || '');
+      if (!token) return;
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      setScreen('home');
+      loadShare(token)
+        .then((share) => setShared(share))
+        .catch((e) => setShared({ name: 'Shared places', kind: 'list', places: [], error: String(e.message || e) }));
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // #trip=<id> — the link a connector hands back after it saves a trip
   // through the MCP server. The row is in the account, not yet on this
@@ -803,7 +827,7 @@ export default function App() {
     );
   }
 
-  if (auth.recovery || auth.finishAccount || (auth.enabled && !auth.account && !guest)) {
+  if (auth.recovery || auth.finishAccount || (auth.enabled && !auth.account && !guest && !shareVisit)) {
     return (
       <Landing
         onHelp={() => setHelpOnLanding(true)}
@@ -834,6 +858,9 @@ export default function App() {
           onHelp={() => setSheet({ type: 'help' })}
           onUseTemplate={(id) => setNewTrip({ tab: 'template', templateId: id })}
           quickDefaults={{ ...tripDefaults(profile.profile), home: homePlace(profile.profile) }}
+          profile={profile}
+          shared={shared}
+          onSharedClose={() => setShared(null)}
           ride={ride}
           onRideChange={setRide}
           onQuickRide={({ start, stops = [], dest, routePrefs }) => {

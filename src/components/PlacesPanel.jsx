@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { geocode } from '../engine/geocode.js';
 import { useT } from '../engine/settings.jsx';
-import { PLACE_ROLES } from '../engine/profile.js';
+import { PLACE_ROLES, SAVED_ROLE } from '../engine/profile.js';
 
 // The places a rider keeps: home, work, and anything they leave from or aim at
 // often enough to be tired of typing.
@@ -16,6 +16,8 @@ const ROLE_LABEL = {
   home: 'Home',
   work: 'Work',
   favorite: 'Favorite',
+  // kept in one of the rider's lists from the map, not a favorite
+  [SAVED_ROLE]: 'Saved',
 };
 
 function PlaceRow({ place, onRole, onRemove, t }) {
@@ -32,7 +34,7 @@ function PlaceRow({ place, onRole, onRemove, t }) {
         aria-label={t('Kind of place')}
         onChange={(e) => onRole(e.target.value)}
       >
-        {PLACE_ROLES.map((r) => <option key={r} value={r}>{t(ROLE_LABEL[r])}</option>)}
+        {[...PLACE_ROLES, ...(place.role === SAVED_ROLE ? [SAVED_ROLE] : [])].map((r) => <option key={r} value={r}>{t(ROLE_LABEL[r])}</option>)}
       </select>
       <button
         type="button"

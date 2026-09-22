@@ -34,6 +34,7 @@ export default function NearbyPicker({
   area = null,     // {lat, lng, at} — the rider pressed "Search this area" on the map
   halfSheet = false, // phone: the panel is a half sheet over the map — keep the picker at its top
   inlineDetail = false, // the home drawer on a desktop: Details opens in place of the list, not as a modal
+  saved = [],           // the rider's saved places — the tiles face offers them before its recents
   // 'tiles' is the add-a-stop face (owner, Sep 19 2026, with a recording of
   // Google's "Add stops to your route"): the field leads, the categories are
   // glove-sized tiles rather than a strip of pills, the map is offered as a
@@ -294,6 +295,25 @@ export default function NearbyPicker({
         <button className="nb-onmap" onClick={onChooseOnMap}>
           <i aria-hidden="true">📍</i> {t('Choose on map')}
         </button>
+      )}
+
+      {/* the rider's own saved places lead an empty field: Home, Work, then
+          the rest — "add a stop at my usual gas station" is one tap */}
+      {tiles && idle && saved.length > 0 && (
+        <div className="nb-recent nb-saved">
+          <h5>{t('Saved')}</h5>
+          <ul className="nb-list">
+            {[...saved].sort((a, b) => ((a.role === 'home' ? 0 : a.role === 'work' ? 1 : 2) - (b.role === 'home' ? 0 : b.role === 'work' ? 1 : 2))).slice(0, 6).map((p) => (
+              <li key={p.id} className="nb-item">
+                <button className="nb-main" onClick={() => pick({ id: p.placeId ?? `saved:${p.id}`, name: p.label, lat: p.lat, lng: p.lng, detail: p.address ?? '', source: p.placeId ? 'google' : 'saved', ...(p.placed || !p.placeId ? { placed: 'rider' } : {}) }, { fuel: false })}>
+                  <span className="nb-recent-i" aria-hidden="true">{p.role === 'home' ? '⌂' : p.role === 'work' ? '▣' : p.role === 'favorite' ? '★' : '▤'}</span>
+                  <span className="nb-name">{p.label}</span>
+                  {p.address && <span className="nb-addr">{p.address}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {tiles && idle && recent.length > 0 && (

@@ -17,6 +17,7 @@ import DropPin from './DropPin.jsx';
 //   pins      PlacePins rows     the picker's candidates
 //   fitAt     number             bump → frame the pins, clear of the sheet
 //   sheetPx   number             how much of the bottom the sheet covers (fit padding)
+//   padLeft   number             how much of the left a desktop drawer covers (fit padding)
 //   drop      {key,lat,lng} | null  the pin the rider dropped (a long press / right-click): a draggable needle with the wheel
 //   onDropMove([lng,lat]) · onDropMoveEnd([lng,lat]) · onDropConfirm() · onDropCancel()
 //   onPinTap(id) · onPoi(poi|null) · a tap on empty map → onPoi(null) · onCenter({lat,lng}) after every move
@@ -68,7 +69,7 @@ function RiderDot({ map, me }) {
   return null;
 }
 
-export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false, routeOpts = null, routeSel = null, onRouteSel = null, routeFitAt = 0 }) {
+export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, padLeft = 0, padTop = 200, drop = null, onPinTap, onPoi, onCenter, onBearing, onDrop, onDropMove, onDropMoveEnd, onDropConfirm, onDropCancel, dropLabel, basemap = 'sat', terrain3d = false, routeOpts = null, routeSel = null, onRouteSel = null, routeFitAt = 0 }) {
   const divRef = useRef(null);
   const mapRef = useRef(null);
   const [mapObj, setMapObj] = useState(null);
@@ -167,16 +168,30 @@ export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop
     if (!map || !focus) return;
     // top padding clears the pill + chips + readout, so a focused point (and a
     // dropped pin's ✓ above it) lands in the open part of the map
-    map.easeTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 14), duration: 700, padding: { top: 260, bottom: sheetPx } });
+    map.easeTo({ center: [focus.lng, focus.lat], zoom: Math.max(map.getZoom(), 14), duration: 700, padding: { top: 260, bottom: sheetPx, left: padLeft } });
   }, [focus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Frame the pins. It also runs when the MAP arrives: a share link opened on
+  // a cold start asks for its places to be framed before the map exists, and
+  // an ask made then must not be dropped. The margin keeps two pins off the
+  // very edges of what the sheet or the drawer leaves visible.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !fitAt || !pins?.length) return;
+    if (!map || !mapObj || !fitAt || !pins?.length) return;
     const b = new mapboxgl.LngLatBounds();
     pins.forEach((p) => b.extend([p.lng, p.lat]));
-    map.fitBounds(b, { padding: { top: 190, bottom: sheetPx + 24, left: 30, right: 30 }, maxZoom: 14, duration: 600 });
-  }, [fitAt]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Margins that do not fit the screen make mapbox-gl refuse the fit outright
+    // (the camera then never moves). A phone's tall picker sheet leaves little
+    // map, so the margins give way first — never below the sheet itself.
+    const H = map.getContainer().clientHeight;
+    let top = padTop;
+    let bottom = sheetPx + 56;
+    if (top + bottom > H - 80) {
+      bottom = sheetPx + 12;
+      top = Math.max(0, Math.min(padTop, H - bottom - 80));
+    }
+    map.fitBounds(b, { padding: { top, bottom, left: 60 + padLeft, right: 60 }, maxZoom: 14, duration: 600 });
+  }, [fitAt, mapObj]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="hm-map" ref={divRef}>
@@ -185,7 +200,7 @@ export default function HomeMap({ fix, me, focus, pins, fitAt, sheetPx = 0, drop
       {mapObj && routeOpts?.length > 0 && (
         <RouteOptionLines
           map={mapObj} options={routeOpts} selected={routeSel} onSelect={onRouteSel}
-          fitAt={routeFitAt} padBottom={sheetPx} padTop={200}
+          fitAt={routeFitAt} padBottom={sheetPx} padLeft={padLeft} padTop={200}
         />
       )}
       {/* the dropped pin: a needle on the exact spot, draggable, with ✓ / ✕ */}
