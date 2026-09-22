@@ -14,7 +14,7 @@
 
 import * as P from '../src/engine/profile.js';
 import handler, { cleanShare, MAX_PLACES } from '../netlify/functions/place-share.mjs';
-import { createShareLink, shareTokenFrom, loadShare, sharePlace, inlineToken } from '../src/engine/placeShare.js';
+import { createShareLink, shareTokenFrom, shareTokenIn, loadShare, sharePlace, inlineToken } from '../src/engine/placeShare.js';
 
 let pass = 0;
 let fail = 0;
@@ -141,6 +141,13 @@ console.log('\nThe link');
   const read = await loadShare(token);
   check('that link reads back with every place, accents and all', read.places.length === 2 && read.places[1].name === 'Café Ñandú — 日本' && read.name === 'Moto');
   check('the token is read from a hash and nothing else', shareTokenFrom('#places=pabc') === 'pabc' && shareTokenFrom('#trip=pabc') === null && shareTokenFrom('#places=a b') === null);
+
+  // pasted into the Home Screen app's search (iOS never hands it a tapped link)
+  check('a pasted link is found on its own', shareTokenIn('https://roadbook-app.netlify.app/#places=pabcdefghijkl') === 'pabcdefghijkl');
+  check('…and inside the whole message it came in, stopping at the link\'s end',
+    shareTokenIn("Photo spots — 2 places in Roadbook https://roadbook-app.netlify.app/#places=pabcdefghijkl see you Friday") === 'pabcdefghijkl');
+  check('…and the self-contained form too', shareTokenIn(`look: ${down.url}`) === token);
+  check('ordinary search text is not a link', shareTokenIn('Rosco\'s Motorcycles') === null && shareTokenIn('#trip=abc') === null && shareTokenIn('') === null && shareTokenIn(null) === null);
 
   const viaServer = await loadShare('pabcdefghijkl', { fetchImpl: async (u) => ({ ok: /id=pabcdefghijkl/.test(u), json: async () => ({ name: 'Moto', kind: 'list', places: [{ name: 'A', lat: 1, lng: 2 }] }) }) });
   check('a short link reads back through the function', viaServer.places[0].name === 'A');

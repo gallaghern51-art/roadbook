@@ -1298,6 +1298,11 @@ const ES = {
   'never used': 'sin usar',
   'wants to plan and save trips as': 'quiere planificar y guardar viajes como',
   // Saved places, lists and share links (Sep 22, 2026)
+  'Open a shared link': 'Abrir un enlace compartido',
+  'Paste a Roadbook link someone sent you.': 'Pega un enlace de Roadbook que alguien te envió.',
+  'No Roadbook link on the clipboard — copy the link first, then tap here.': 'No hay un enlace de Roadbook en el portapapeles: copia primero el enlace y luego toca aquí.',
+  'Using Roadbook from your Home Screen?': '¿Usas Roadbook desde tu pantalla de inicio?',
+  'This link opened in your browser, which keeps its own copy of Roadbook. Copy it, open Roadbook from your Home Screen, and paste it into the search.': 'Este enlace se abrió en tu navegador, que guarda su propia copia de Roadbook. Cópialo, abre Roadbook desde tu pantalla de inicio y pégalo en la búsqueda.',
   'Copy link': 'Copiar enlace',
   'Copy the link above by hand — this browser would not do it.': 'Copia el enlace de arriba a mano: este navegador no lo permitió.',
   'Delete list': 'Eliminar lista',

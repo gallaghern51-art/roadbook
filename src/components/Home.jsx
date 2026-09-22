@@ -24,6 +24,7 @@ import { Sheet, InputSheet } from './Sheets.jsx';
 import SavePlaceSheet from './SavePlaceSheet.jsx';
 import SharePlacesSheet from './SharePlacesSheet.jsx';
 import { findSaved, placesInList } from '../engine/profile.js';
+import { shareTokenIn } from '../engine/placeShare.js';
 
 // The front door is the MAP (owner, Sep 13 2026: "build out option A"). The
 // Mapbox map near you with tappable POIs, the picker's categories as chips, a
@@ -80,7 +81,7 @@ const nearestDetent = (frac, px = SHEET_PX) => DETENTS.reduce((best, k) => (Math
 // `ride` (the composition in progress) is App's state, not Home's: it has to
 // survive Ride Mode, which unmounts this screen entirely. Cancelling
 // navigation then lands back HERE with the ride intact.
-export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults, ride = null, onRideChange, profile = null, shared = null, onSharedClose }) {
+export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, onSettings, onHelp, onUseTemplate, onShareTemplate, onDeleteTemplate, onQuickRide, onRideAgain, onPromoteQuick, onDeleteQuick, onAddToTrip, quickDefaults, ride = null, onRideChange, profile = null, shared = null, onSharedClose, onOpenShare }) {
   const setRide = onRideChange;
   const { state, routedLegsByDay } = useTrip();
   const { lib } = state;
@@ -229,6 +230,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
   const [searching, setSearching] = useState(false);
   // phone vs desktop: the search is a full screen or a dropdown under the pill
   const isPhone = useIsMobile();
+  const [standalone] = useState(isStandalone);
   const [addTo, setAddTo] = useState(null);    // a place → which trip?
   // Saved places (owner, Sep 22 2026: "save the location as favorite or a list
   // and then share locations to someone with link"). They live on the rider's
@@ -365,6 +367,10 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
     if (p.placeId) showPlace({ name, lat: p.lat, lng: p.lng, cls: '', subclass: '' }, { id: p.placeId, name, lat: p.lat, lng: p.lng, detail: p.address ?? '', source: 'google' });
     else showPlace({ name, lat: p.lat, lng: p.lng, cls: '', subclass: '', placed: 'rider', detail: p.address ?? '' });
   };
+  // A Roadbook link pasted into the search (the Home Screen app never receives
+  // a tapped link on an iPhone — it opens in Safari — so the rider copies it
+  // and pastes it here): open the share it names, as if the link had been tapped.
+  const openShareToken = (token) => { setSearching(false); onOpenShare?.(token); };
   const openList = (id) => { setPlace(null); setChip(null); setPins([]); setListView(id); raiseFor(); setFitAt(Date.now()); };
   const closeList = () => { setListView(null); lowerAfter(); };
   const listName = (id) => (id === 'favorites' ? t('Favorites') : prof.lists.find((l) => l.id === id)?.name ?? '');
@@ -551,6 +557,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               onPick={(row) => { setSearching(false); setChip(null); showPlace(rowToPoi(row), row); }}
               saved={savedRows}
               onSaved={(p) => { setSearching(false); openSaved(p); }}
+              onShareToken={openShareToken}
             />
           ) : (
             <button className="hm-pill" onClick={() => setSearching(true)} aria-label={t('Search a place, or describe a ride')}>
@@ -631,6 +638,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
           onPick={(row) => { setSearching(false); setChip(null); showPlace(rowToPoi(row), row); }}
           saved={savedRows}
           onSaved={(p) => { setSearching(false); openSaved(p); }}
+          onShareToken={openShareToken}
         />
       )}
 
@@ -705,6 +713,7 @@ export default function Home({ onOpenTrip, onNewTrip, onImport, onDeleteTrip, on
               onBack={() => { onSharedClose?.(); lowerAfter(); }}
               backLabel={t('Close')}
               empty={shared.error ?? ''}
+              notice={isPhone && !standalone && shared.token && shared.places.length > 0 ? <InAppHint token={shared.token} /> : null}
             />
           ) : listView ? (
             <SavedListView
@@ -987,7 +996,7 @@ function HomePlaceCard({ poi, row, fix, onRide, onAdd, onClose, defaults, savedF
 // the pill in the nav bar IS the field and the answers drop down under it —
 // the drawer is left alone (owner, Sep 14 2026: "just have it be handled from
 // drop down screen from search").
-function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen', saved = [], onSaved = null }) {
+function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen', saved = [], onSaved = null, onShareToken = null }) {
   const t = useT();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
@@ -1016,8 +1025,28 @@ function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen', saved =
     return () => document.removeEventListener('pointerdown', onDown);
   }, [variant]); // eslint-disable-line react-hooks/exhaustive-deps
   const plan = q.trim().length > 0 && readsAsPlan(q);
+  // a Roadbook share link typed or pasted into the field opens its places —
+  // the link alone or the whole message it came in
+  const onText = (value) => {
+    const token = onShareToken ? shareTokenIn(value) : null;
+    if (token) { onShareToken(token); return; }
+    setQ(value);
+  };
+  // "Open a shared link" reads the clipboard from its own tap (iOS asks with
+  // its Paste callout). Nothing there that is a link → say how to get one.
+  const [pasteNote, setPasteNote] = useState('');
+  const canPaste = !!onShareToken && typeof navigator !== 'undefined' && !!navigator.clipboard?.readText;
+  const pasteLink = async () => {
+    setPasteNote('');
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch { /* refused */ }
+    const token = shareTokenIn(text);
+    if (token) onShareToken(token);
+    else setPasteNote(t('No Roadbook link on the clipboard — copy the link first, then tap here.'));
+  };
+  const paste = canPaste ? { onPaste: pasteLink, note: pasteNote } : null;
   const input = (
-    <input ref={inputRef} className="hm-input" value={q} placeholder={t('Search a place, or describe a ride')} onChange={(e) => setQ(e.target.value)}
+    <input ref={inputRef} className="hm-input" value={q} placeholder={t('Search a place, or describe a ride')} onChange={(e) => onText(e.target.value)}
       onKeyDown={(e) => { if (e.key === 'Escape') onClose(); if (e.key === 'Enter' && plan) onPlan(q.trim()); }} />
   );
   if (variant === 'dropdown') {
@@ -1029,7 +1058,7 @@ function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen', saved =
           <button type="button" className="hm-pill-x" onClick={onClose} aria-label={t('Close')}>✕</button>
         </label>
         <div className="hm-dropdown" aria-label={t('Search a place, or describe a ride')}>
-          <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} saved={saved} onSaved={onSaved} />
+          <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} saved={saved} onSaved={onSaved} paste={paste} />
         </div>
       </div>
     );
@@ -1040,14 +1069,14 @@ function HomeSearch({ near, onClose, onPlan, onPick, variant = 'screen', saved =
         <button className="hm-round" onClick={onClose} aria-label={t('Back')}>‹</button>
         {input}
       </div>
-      <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} saved={saved} onSaved={onSaved} />
+      <HomeSearchAnswers q={q} plan={plan} rows={rows} busy={busy} recent={recent} near={near} onPlan={onPlan} onPick={onPick} saved={saved} onSaved={onSaved} paste={paste} />
     </div>
   );
 }
 
 // What the search offers under the field — the AI door, the places, recents —
 // the same list in the phone's full screen and the desktop's dropdown.
-function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick, saved = [], onSaved = null }) {
+function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick, saved = [], onSaved = null, paste = null }) {
   const t = useT();
   const u = useUnits();
   // The rider's own places answer first: Home and Work, then the most recently
@@ -1099,6 +1128,15 @@ function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick, 
           <span><b>{t('Plan a trip with AI')}</b><small>{t('Describe riders, days, region and pace — or just type a place name to ride there.')}</small></span>
         </button>
       )}
+      {q.trim().length === 0 && paste && (
+        <>
+          <button className="hm-ai hm-paste" onClick={paste.onPaste}>
+            <span className="hm-ai-glyph" aria-hidden="true">⧉</span>
+            <span><b>{t('Open a shared link')}</b><small>{t('Paste a Roadbook link someone sent you.')}</small></span>
+          </button>
+          {paste.note && <p className="nb-note warn hm-paste-note">{paste.note}</p>}
+        </>
+      )}
       {!text && savedList}
       {q.trim().length === 0 && recent.length > 0 && (
         <>
@@ -1114,11 +1152,36 @@ function HomeSearchAnswers({ q, plan, rows, busy, recent, near, onPlan, onPick, 
   );
 }
 
+// Is this the Home Screen app, or a browser tab?
+const isStandalone = () => {
+  try { return !!(navigator.standalone || window.matchMedia?.('(display-mode: standalone)').matches); } catch { return false; }
+};
+
+// A share link tapped on a phone opens in the BROWSER — an iPhone never hands
+// a link to a Home Screen app, and the browser keeps its own copy of Roadbook
+// (its own storage, its own sign-in). A rider who lives in the Home Screen app
+// gets the way across: copy the link, open the app, paste it into the search.
+function InAppHint({ token }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/#places=${token}`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); } catch { setCopied(false); }
+  };
+  return (
+    <div className="hm-inapp">
+      <b>{t('Using Roadbook from your Home Screen?')}</b>
+      <p>{t('This link opened in your browser, which keeps its own copy of Roadbook. Copy it, open Roadbook from your Home Screen, and paste it into the search.')}</p>
+      <button className="btn" onClick={copy}>{copied ? `✓ ${t('Copied')}` : t('Copy link')}</button>
+    </div>
+  );
+}
+
 // A list of places in the sheet: one of the rider's own (Favorites, or a list
 // they made) or the places someone shared by link. Each row opens its card;
 // the list can be shared as one link, renamed and deleted (the rider's own), or
 // saved into the rider's places (a share).
-function SavedListView({ kicker, title, rows, fix, onOpen, onBack, backLabel, onShare = null, onRename = null, onDelete = null, primary = null, empty = '', tone = 'saved' }) {
+function SavedListView({ kicker, title, rows, fix, onOpen, onBack, backLabel, onShare = null, onRename = null, onDelete = null, primary = null, empty = '', tone = 'saved', notice = null }) {
   const t = useT();
   const u = useUnits();
   const [renaming, setRenaming] = useState(false);
@@ -1143,6 +1206,7 @@ function SavedListView({ kicker, title, rows, fix, onOpen, onBack, backLabel, on
           </button>
         )}
       </div>
+      {notice}
       {rows.length === 0 ? <p className="nb-note">{empty}</p> : (
         <ul className="hm-results hm-list-rows">
           {rows.map((p, i) => (
