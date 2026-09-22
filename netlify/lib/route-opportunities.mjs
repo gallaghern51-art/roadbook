@@ -5,6 +5,8 @@
 // fuel gaps and (best effort) climbing. The compact result is safe to return to
 // the model and UI — no giant encoded geometry crosses that boundary.
 
+import { settleEvenings } from '../../src/engine/dayShape.js';
+
 const DEFAULT_URL = 'https://valhalla1.openstreetmap.de';
 const KM_TO_MI = 0.621371;
 const M_TO_FT = 3.28084;
@@ -282,7 +284,10 @@ export async function evaluateRouteOptions(input, {
   const departMin = parseClock(input?.depart);
 
   const options = await Promise.all(concepts.map(async (concept) => {
-    const locations = (concept.locations ?? []).filter((p) => finite(p.lat) && finite(p.lng));
+    // Each evening's dinner back on the day it is eaten, before anything is
+    // measured — every lodging ends a day below, so a dinner listed after the
+    // hotel would otherwise open (and lengthen) the next one. See dayShape.js.
+    const locations = settleEvenings((concept.locations ?? []).filter((p) => finite(p.lat) && finite(p.lng)));
     if (locations.length > MAX_ROUTE_LOCATIONS) {
       return {
         id: concept.id,
@@ -312,6 +317,12 @@ export async function evaluateRouteOptions(input, {
         locations,
         searchPolyline: encodePolyline5(compactShape(legs)),
         metrics: {
+          // The departure this was measured from. Recorded so a later
+          // re-measure (a rider replacing one stop by hand, no model) can
+          // reproduce it exactly — the evaluator defaults to 08:00, and a
+          // model that planned a 06:30 start would otherwise see every
+          // arrival move for a reason that has nothing to do with the swap.
+          depart: clock(departMin),
           miles: round(miles),
           rideMinutes: round(rideMinutes),
           dwellMinutes: round(dwellMinutes),

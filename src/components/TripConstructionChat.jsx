@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { runPlanner } from '../engine/planner.js';
 import { passSizeFor, nextPass, passLabel, priorDaysDigest, shrinkPass } from '../engine/buildPasses.js';
 import { CATEGORIES } from '../engine/nearby.js';
+import { replaceConceptStop, replaceableAt, withDeltas, remeasureConcept, decodePolyline5, conceptToTrip } from '../engine/conceptEdit.js';
+import { alongOnRoute } from '../engine/tripEngine.js';
 import PlaceSheet from './PlaceSheet.jsx';
+import NearbyPicker from './NearbyPicker.jsx';
 
 const mins = (value) => {
   if (!Number.isFinite(value)) return '—';
@@ -48,8 +51,22 @@ function PlaceGlance({ stop, onDetails }) {
   );
 }
 
-function RouteFacts({ metrics }) {
-  if (!metrics) return <span className="concept-error">Route could not be measured</span>;
+// An option's measured day count against the Days in the trip details. Said
+// as what the DETAILS say, not what the rider "asked for": the field defaults
+// to 5, and a rider who typed "two days" into the sentence never set it.
+// Null when they agree or either is unknown.
+function daysOff(metrics, requestedDays) {
+  const have = metrics?.dayCount;
+  if (!Number.isFinite(have) || !(requestedDays > 0) || have === requestedDays) return null;
+  return `${have} ${have === 1 ? 'day' : 'days'} · trip details say ${requestedDays}`;
+}
+
+function RouteFacts({ metrics, pending = false, error = '', requestedDays = null }) {
+  // A stop was just replaced by hand: the old figures described a road this
+  // option no longer rides, so they are gone and this says so plainly rather
+  // than showing miles that are no longer true.
+  if (pending) return <span className="concept-remeasure">Re-measuring the route…</span>;
+  if (!metrics) return <span className="concept-error">{error || 'Route could not be measured'}</span>;
   return (
     <div className="concept-facts" aria-label="Measured route facts">
       <span><b>{metrics.miles}</b> mi</span>
@@ -62,12 +79,31 @@ function RouteFacts({ metrics }) {
       {(metrics.deltaMiles > 0 || metrics.deltaMinutes > 0) && (
         <span className="detour"><b>+{metrics.deltaMiles} mi · +{mins(metrics.deltaMinutes)}</b> vs quickest option</span>
       )}
+      {daysOff(metrics, requestedDays) && <span className="days-off">{daysOff(metrics, requestedDays)}</span>}
     </div>
   );
 }
 
-function ConceptDetail({ concept, onRefine, onReject }) {
+// A stop's role, as the category its replacement is searched in: replacing a
+// dinner opens on Food, a fuel stop on Fuel. A road-shape anchor has no
+// category — the rider types what they want instead.
+const KIND_CATEGORY = { fuel: 'fuel', food: 'food', lodging: 'lodging', attraction: 'sights' };
+
+function ConceptDetail({ concept, onRefine, onReject, onReplace }) {
   const [detail, setDetail] = useState(null); // the stop whose place sheet is open
+  // The stop being replaced by hand (owner, Sep 20 2026: "if you recommend one
+  // dinner spot and they dont want to go there. they should be able to choose
+  // replace and then ... search area for food"). Replacing is the rider's own
+  // act: a live search, a pick, a re-measure — no planner turn.
+  const [replacing, setReplacing] = useState(null);
+  const pickerRef = useRef(null);
+  useEffect(() => {
+    if (replacing != null) pickerRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [replacing]);
+  const askPlanner = (stop) => {
+    onReject?.(stop, concept);
+    onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
+  };
   const detailIdx = detail ? concept.locations.indexOf(detail) : -1;
   const canChange = detailIdx > 0 && detailIdx < concept.locations.length - 1;
   return (
@@ -79,15 +115,51 @@ function ConceptDetail({ concept, onRefine, onReject }) {
           kicker={kindLabel[detail.kind] || 'Stop'}
           onClose={() => setDetail(null)}
           actions={canChange ? (
-            <button type="button" className="btn gold" onClick={() => {
-              setDetail(null);
-              onReject?.(detail, concept);
-              onRefine(`Replace ${detail.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
-            }}>Change this stop</button>
+            <>
+              <button type="button" className="btn gold" onClick={() => { setDetail(null); setReplacing(detailIdx); }}>Replace this stop</button>
+              <button type="button" className="btn" onClick={() => { setDetail(null); askPlanner(detail); }}>Ask the planner</button>
+            </>
           ) : null}
         />
       )}
+      {replacing != null && concept.locations[replacing] && (() => {
+        const stop = concept.locations[replacing];
+        const chain = decodePolyline5(concept.searchPolyline);
+        const here = chain.length > 1 ? alongOnRoute(chain, { lat: stop.lat, lng: stop.lng })?.along : null;
+        return (
+          <div ref={pickerRef} className="concept-replace">
+            <NearbyPicker
+              variant="tiles"
+              mode="swap"
+              title={`Replace ${stop.name}`}
+              subtitle={chain.length > 1 ? 'Search around this stop, or along the proposed road' : 'Search around this stop'}
+              near={{ lat: stop.lat, lng: stop.lng }}
+              chain={chain.length > 1 ? chain : null}
+              fromAlong={Number.isFinite(here) ? here : 0}
+              initialCategory={KIND_CATEGORY[stop.kind] ?? null}
+              onPick={(place) => {
+                const i = replacing;
+                setReplacing(null);
+                onReject?.(stop, concept);
+                onReplace?.(i, place);
+              }}
+              onClose={() => setReplacing(null)}
+            />
+            <button type="button" className="concept-replace-ai" onClick={() => { setReplacing(null); askPlanner(stop); }}>
+              Or ask the planner to find alternatives
+            </button>
+          </div>
+        );
+      })()}
       <div className="concept-story">
+        {concept.edits?.length > 0 && (
+          // The planner wrote the notes below about the ORIGINAL stops. Saying
+          // so beats silently showing prose that names a place the rider
+          // just took out.
+          <p className="concept-edited">
+            You replaced {concept.edits.map((e) => `${e.from} with ${e.to}`).join('; ')}. The planner&rsquo;s notes below were written for the original stops.
+          </p>
+        )}
         <p>{concept.routeDescription}</p>
         <dl>
           <div><dt>Why this works</dt><dd>{concept.why}</dd></div>
@@ -106,11 +178,9 @@ function ConceptDetail({ concept, onRefine, onReject }) {
                 <b>{stop.name}{stop.placeId && <span className="stop-verified" title="Verified listing"> ✓</span>}{stop.verified === false && <span className="stop-unverified" title="No matching business was found near this pin"> ⚠ unverified</span>}</b>
                 {stop.detail && <small>{stop.detail}</small>}
               </span>
-              {i > 0 && i < concept.locations.length - 1 && (
-                <button type="button" onClick={() => {
-                  onReject?.(stop, concept);
-                  onRefine(`Replace ${stop.name}, but keep the rest of ${concept.title}. Show me verified alternatives and recheck the route.`);
-                }}>Change</button>
+              {replaceableAt(concept.locations, i) && (
+                <button type="button" className={replacing === i ? 'active' : ''} aria-pressed={replacing === i}
+                  onClick={() => setReplacing(replacing === i ? null : i)}>Replace</button>
               )}
             </div>
             <PlaceGlance stop={stop} onDetails={setDetail} />
@@ -127,19 +197,51 @@ function ConceptDetail({ concept, onRefine, onReject }) {
   );
 }
 
+// The proposal, kept on this device until it is created (owner, Sep 20 2026:
+// "...or save for later"). Before this a rider who closed the app, or whose
+// phone reloaded the tab, lost the conversation AND the options the planner
+// had spent a minute researching. A created trip already lives in the library
+// and backs up to the account; this covers the part before that — "I'll decide
+// tomorrow". Two weeks, then it is let go.
+const SESSION_KEY = 'moto.builderSession.v1';
+const SESSION_TTL_MS = 14 * 24 * 3600 * 1000;
+function loadSession() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    if (!saved || Date.now() - (saved.at ?? 0) > SESSION_TTL_MS) return null;
+    if (!saved.concepts?.length && !saved.messages?.length) return null;
+    return saved;
+  } catch { return null; }
+}
+const saveSession = (value) => {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ ...value, at: Date.now() })); } catch { /* storage full — a convenience, not a loss */ }
+};
+const clearSession = () => { try { localStorage.removeItem(SESSION_KEY); } catch { /* nothing kept */ } };
+// A re-measure in flight when the session was saved did not survive it.
+const settle = (concepts) => (concepts ?? []).map((c) => ({ ...c, remeasuring: false }));
+
 export default function TripConstructionChat({
   initialPrompt = '', basics, onTrip, onBusyChange, onStageChange, placePreferences,
 }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState(initialPrompt);
-  const [concepts, setConcepts] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  // Opened with no new sentence: pick the last plan back up. Opened WITH one
+  // (typed on the home pill): that is a new ride — start fresh, but offer the
+  // old plan back instead of overwriting it without a word.
+  const [saved] = useState(loadSession);
+  const restoring = !initialPrompt && !!saved;
+  const [messages, setMessages] = useState(() => (restoring ? saved.messages ?? [] : []));
+  const [input, setInput] = useState(() => (restoring ? saved.input ?? '' : initialPrompt));
+  const [concepts, setConcepts] = useState(() => (restoring ? settle(saved.concepts) : []));
+  const [selectedId, setSelectedId] = useState(() => (restoring ? saved.selectedId ?? null : null));
+  const [resumable, setResumable] = useState(() => !!initialPrompt && !!saved);
   const [busyMode, setBusyMode] = useState(null);
   const [progress, setProgress] = useState(null);
   const [pass, setPass] = useState(null); // { from, to, total, built } while a long trip builds in passes
   const [live, setLive] = useState('');
   const [error, setError] = useState('');
-  const [mobilePane, setMobilePane] = useState('chat');
+  // Coming back to a kept plan means coming back to DECIDE on it — land on the
+  // route, not on the conversation that produced it. (On a phone these are two
+  // panes; restoring into the chat hid the options behind a tab.)
+  const [mobilePane, setMobilePane] = useState(() => (restoring && saved.concepts?.length ? 'plan' : 'chat'));
   const inputRef = useRef(null);
   const liveRef = useRef(''); // the streamed text, readable synchronously in catch/finally
   const transportRef = useRef('background'); // which transport carried the last planner call
@@ -148,6 +250,49 @@ export default function TripConstructionChat({
   const started = messages.length > 0 || concepts.length > 0;
 
   useEffect(() => onStageChange?.(started), [started, onStageChange]);
+
+  // Keep the plan as it changes. Once the trip is created the kept copy is
+  // spent — doneRef stops a save that was already queued from writing it back
+  // in the moment between creating and the builder closing.
+  const doneRef = useRef(false);
+  useEffect(() => {
+    if (doneRef.current || (!messages.length && !concepts.length)) return undefined;
+    const id = setTimeout(() => {
+      if (!doneRef.current) saveSession({ messages, concepts, selectedId, input });
+    }, 400);
+    return () => clearTimeout(id);
+  }, [messages, concepts, selectedId, input]);
+
+  // A stop replaced just before the app closed never got its re-measure; the
+  // figures it would have replaced were already cleared. Finish that job now
+  // rather than showing an option with no numbers.
+  useEffect(() => {
+    if (!restoring) return;
+    for (const c of concepts) {
+      if (c.metrics || (c.locations?.length ?? 0) < 2) continue;
+      setConcepts((cs) => cs.map((x) => (x.id === c.id ? { ...x, remeasuring: true } : x)));
+      remeasureConcept(c, basics).then(
+        (m) => setConcepts((cs) => withDeltas(cs.map((x) => (x.id === c.id ? { ...m, remeasuring: false, measureError: '' } : x)))),
+        () => setConcepts((cs) => cs.map((x) => (x.id === c.id ? { ...x, remeasuring: false, measureError: 'The route could not be re-measured — replace the stop again to retry.' } : x))),
+      );
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resume = () => {
+    if (!saved) return;
+    setMessages(saved.messages ?? []);
+    setConcepts(settle(saved.concepts));
+    setSelectedId(saved.selectedId ?? null);
+    setInput(saved.input ?? '');
+    setResumable(false);
+    if (saved.concepts?.length) setMobilePane('plan');
+  };
+  const startOver = () => {
+    clearSession();
+    setMessages([]); setConcepts([]); setSelectedId(null); setInput(''); setError('');
+    setResumable(false);
+    setMobilePane('chat');
+  };
 
   // Text that arrives while the rider watches has to stay in view, or the
   // narration scrolls out of the pane as fast as it is written.
@@ -230,10 +375,64 @@ export default function TripConstructionChat({
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
+  // Replace one stop by hand, then re-measure the road with no model. The swap
+  // lands at once (the stop's role and position are kept); the figures clear
+  // to "re-measuring" because they described the old road; and every option's
+  // "vs quickest" comparison is redone across the whole set, since the one
+  // just measured may now be the quickest. Latest-only per option: a rider who
+  // replaces twice in a row never sees the first answer land on top of the
+  // second.
+  const remeasureSeq = useRef({});
+  const replaceStop = async (conceptId, index, place) => {
+    const current = concepts.find((c) => c.id === conceptId);
+    if (!current) return;
+    let edited;
+    try {
+      edited = replaceConceptStop(current, index, place);
+    } catch (e) {
+      setError(String(e.message || e));
+      return;
+    }
+    const my = (remeasureSeq.current[conceptId] = (remeasureSeq.current[conceptId] ?? 0) + 1);
+    setConcepts((cs) => withDeltas(cs.map((c) => (c.id === conceptId ? { ...edited, remeasuring: true, measureError: '' } : c))));
+    try {
+      const measured = await remeasureConcept(edited, basics);
+      if (remeasureSeq.current[conceptId] !== my) return;
+      setConcepts((cs) => withDeltas(cs.map((c) => (c.id === conceptId ? { ...measured, remeasuring: false, measureError: '' } : c))));
+    } catch {
+      if (remeasureSeq.current[conceptId] !== my) return;
+      setConcepts((cs) => cs.map((c) => (c.id === conceptId
+        ? { ...c, remeasuring: false, measureError: 'The stop is replaced, but the route could not be re-measured right now — replace it again to retry, or ask the planner.' }
+        : c)));
+    }
+  };
+
   const selectConcept = (concept) => {
     if (concept.id === selectedId) return;
     setSelectedId(concept.id);
     placePreferences?.record?.('selected', concept.locations, { optionId: concept.id });
+  };
+
+  // Create the trip straight from the chosen proposal — no model. The rider
+  // already chose this plan (and may have replaced stops in it); a second full
+  // planner generation just to re-write it cost 20-60 seconds between them and
+  // the editor where they can reorder, move stops between days, add, remove,
+  // undo, and save. It goes through the same normalisation as the planner's
+  // trip (onTrip), so the two doors cannot build differently-shaped trips.
+  const buildInstant = async () => {
+    if (!selected || busy) return;
+    setError('');
+    setBusy('instant');
+    try {
+      await placePreferences?.record?.('confirmed', selected.locations, { optionId: selected.id });
+      await onTrip(conceptToTrip(selected, basics));
+      doneRef.current = true;
+      clearSession();
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   // The build, in passes sized to the transport that carries them (a long
@@ -263,7 +462,15 @@ export default function TripConstructionChat({
         selected,
         conversation: messages.map((m) => `${m.role === 'user' ? 'Rider' : 'Roadbook'}: ${m.content}`).join('\n'),
       };
-      const prompt = `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.\n\n${JSON.stringify(construction)}`;
+      // Stops the rider replaced by hand. The concept's prose (why / tradeoff /
+      // route description) was written BEFORE those edits and may still name
+      // the old places — and the generator is told to "preserve stated
+      // tradeoffs", which without this line invites it to put a place the
+      // rider deliberately removed straight back.
+      const edits = selected.edits?.length
+        ? `\n\nThe rider replaced these stops by hand, and their choice is final: ${selected.edits.map((e) => `"${e.from}" was replaced with "${e.to}"`).join('; ')}. Use the places in \`locations\` exactly. Where the prose mentions a replaced place, it is out of date — do not restore it.`
+        : '';
+      const prompt = `Create the confirmed Roadbook trip from this selected, already researched construction plan. Preserve its route order, verified places, and stated tradeoffs.${edits}\n\n${JSON.stringify(construction)}`;
       let built = [];
       let size = passSizeFor(transportRef.current);
       let createdYet = false;
@@ -293,6 +500,13 @@ export default function TripConstructionChat({
         meta = meta ?? data.trip?.meta ?? {};
         const last = built.length + days.length >= total;
         await onTrip({ ...data, trip: { meta, days } }, { partial: !last, append: createdYet });
+        if (!createdYet) {
+          // the first pass made it a trip in the library — the kept proposal
+          // is spent, even if a later pass fails (resuming it would build a
+          // second copy)
+          doneRef.current = true;
+          clearSession();
+        }
         createdYet = true;
         built = [...built, ...days];
         if (last) break;
@@ -308,6 +522,9 @@ export default function TripConstructionChat({
       clearLive();
     }
   };
+
+  const requestedDays = Number(basics?.numDays) > 0 ? Number(basics.numDays) : null;
+  const selectedDaysOff = !!(selected?.metrics && daysOff(selected.metrics, requestedDays));
 
   const status = (() => {
     const secs = progress?.ms ? ` · ${Math.round(progress.ms / 1000)}s` : '';
@@ -333,6 +550,21 @@ export default function TripConstructionChat({
 
       <section className="construction-dialogue" aria-label="Planning conversation">
         <div className="construction-thread" aria-live="polite">
+          {resumable && saved && (
+            <div className="builder-resume" role="status">
+              <div>
+                <b>You have an unfinished plan.</b>
+                <span>{saved.concepts?.length ? `${saved.concepts.length} route option${saved.concepts.length === 1 ? '' : 's'}` : 'A conversation'} from {new Date(saved.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, not created yet.</span>
+              </div>
+              <div className="builder-resume-actions">
+                <button type="button" className="btn" onClick={resume}>Resume it</button>
+                <button type="button" className="builder-resume-drop" onClick={() => { clearSession(); setResumable(false); }}>Discard</button>
+              </div>
+            </div>
+          )}
+          {started && !busy && (
+            <button type="button" className="builder-startover" onClick={startOver}>Start over</button>
+          )}
           {messages.length === 0 && (
             <div className="builder-intro">
               <span className="builder-mark">✦</span>
@@ -381,7 +613,7 @@ export default function TripConstructionChat({
       <section className="construction-plan" aria-label="Route plan">
         {concepts.length > 0 ? (
           <section className="concept-workbench" aria-label="Route options">
-            <div className="concept-head"><span>Route options</span><small>Select one, then refine any piece in the conversation.</small></div>
+            <div className="concept-head"><span>Route options</span><small>Select one. Replace any stop yourself, or refine it in the conversation.</small></div>
             <div className="concept-tabs" role="tablist">
               {concepts.map((concept) => (
                 <button
@@ -396,10 +628,11 @@ export default function TripConstructionChat({
             </div>
             {selected && (
               <div className="concept-selected">
-                <RouteFacts metrics={selected.metrics} />
+                <RouteFacts metrics={selected.metrics} pending={!!selected.remeasuring} error={selected.measureError} requestedDays={requestedDays} />
                 <ConceptDetail
                   concept={selected}
                   onRefine={refine}
+                  onReplace={(index, place) => replaceStop(selected.id, index, place)}
                   onReject={(stop, concept) => placePreferences?.record?.('rejected', [stop], { optionId: concept.id })}
                 />
               </div>
@@ -411,8 +644,32 @@ export default function TripConstructionChat({
 
         {selected && (
           <div className="construction-confirm">
-            <div><b>Nothing is created yet.</b><span>Confirm when the route and its pieces feel right.</span></div>
-            <button type="button" className="btn gold" disabled={busy} onClick={build}>{busyMode === 'build' ? 'Creating…' : 'Create this trip'}</button>
+            <div>
+              <b>Nothing is created yet.</b>
+              <span className="cc-long">Create it now and edit it in the trip — reorder, add or remove stops, save your own versions.</span>
+              <span className="cc-short">You can edit every stop after.</span>
+              {/* Create builds the days the option has; say so when that is not
+                  the number the rider set, and name the door that fills them */}
+              {selectedDaysOff && (
+                <span className="cc-days">
+                  {`This option covers ${selected.metrics.dayCount} ${selected.metrics.dayCount === 1 ? 'day' : 'days'}; your trip details say ${requestedDays}. Create makes a ${selected.metrics.dayCount}-day trip`}
+                  {selected.metrics.dayCount < requestedDays
+                    ? ` — add days after, or have the planner write up all ${requestedDays}.`
+                    : '.'}
+                </span>
+              )}
+            </div>
+            <div className="construction-confirm-actions">
+              <button type="button" className="btn gold" disabled={busy || !!selected?.remeasuring} onClick={buildInstant}>
+                {busyMode === 'instant' ? 'Creating…' : selected?.remeasuring ? 'Re-measuring…' : 'Create this trip'}
+              </button>
+              {/* the planner's full write-up — per-day narratives, meal timing —
+                  for a rider who wants it, never as a wait everyone pays */}
+              <button type="button" className="btn construction-writeup" disabled={busy || !!selected?.remeasuring} onClick={build}
+                title="The planner writes day-by-day notes and meal timing. Takes up to a minute.">
+                {busyMode === 'build' ? 'Planner is writing it up…' : 'Have the planner write it up'}
+              </button>
+            </div>
           </div>
         )}
       </section>

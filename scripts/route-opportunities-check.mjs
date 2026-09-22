@@ -475,3 +475,63 @@ assert.deepEqual(
 );
 assert.equal(refinedDone.concepts[0].metrics.dayCount, 2);
 console.log('PASS planner refinement keeps the complete second day when asked only to add Day 1 breakfast');
+
+// Where a day ends (Sep 20, 2026). Owner: "it would have one full day then the
+// next day would just have a dinner or lodging". The live planner lists each
+// evening's dinner AFTER the hotel (these fixtures are its own answers), and
+// every lodging ends a day — so each dinner opened, and lengthened, the next
+// day. The evaluator settles the order before it measures anything, and tells
+// the planner when an option's days do not match the rider's.
+{
+  const { JACKSON, LEADVILLE } = await import('./fixtures/builder-probes.mjs');
+  const dayResponses = [
+    { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'days-1', name: 'evaluate_route_options', input: {
+      routePrefs: { style: 'touring', avoidTolls: false },
+      concepts: [JACKSON, LEADVILLE],
+    } }] },
+    { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'days-2', name: 'present_route_options', input: {
+      message: 'Two ways.', recommendedId: JACKSON.id,
+      options: [
+        { evaluationId: JACKSON.id, summary: 'Tetons', routeDescription: 'x', why: 'x', groupFit: 'x', tradeoff: 'x' },
+        { evaluationId: LEADVILLE.id, summary: 'Leadville', routeDescription: 'x', why: 'x', groupFit: 'x', tradeoff: 'x' },
+      ],
+    } }] },
+  ];
+  const dayCalls = [];
+  const dayEvents = [];
+  await runExplore({
+    client: { messages: { stream: (args) => {
+      dayCalls.push(structuredClone(args));
+      const response = dayResponses.shift();
+      return { on() { return this; }, abort() {}, finalMessage: async () => response };
+    } } },
+    body: { basics: { riders: 2, numDays: 3, routePrefs: { style: 'touring', avoidTolls: false } }, messages: [{ role: 'user', content: 'Three days to Jackson.' }] },
+    emit: (event) => dayEvents.push(event),
+    routeOpts: { fetchImpl: mockFetch, baseUrl: 'https://valhalla.test' },
+    verifyOpts: { key: '' },
+  });
+  const toolResult = JSON.parse(dayCalls[1].messages.at(-1).content[0].content);
+  const [tetons, leadville] = toolResult.options;
+  const order = tetons.locations.map((l) => l.name);
+  assert.ok(order.indexOf('The Bistro') < order.indexOf('The Wort Hotel'),
+    `the first night's dinner is measured on Day 1: ${order.join(' → ')}`);
+  const firstNight = order.indexOf('The Wort Hotel');
+  const expectedDwell = tetons.locations.slice(1, firstNight).reduce((n, l) => n + (Number.isFinite(l.dwell) ? l.dwell : 20), 0);
+  assert.equal(tetons.metrics.days[0].dwellMinutes, expectedDwell, 'Day 1\'s clock carries the dinner it ends with');
+  assert.ok(tetons.metrics.days[0].dwellMinutes >= 90, 'the 90-minute dinner is on Day 1');
+  assert.equal(tetons.metrics.dayCount, 3);
+  assert.equal(tetons.dayCountNote, undefined, 'an option that covers the rider\'s days carries no note');
+  assert.match(leadville.dayCountNote ?? '', /covers 2 riding days; <trip_basics>.numDays says 3/, 'a 2-day option under a 3-day ask is named to the planner');
+  const presented = dayEvents.find((event) => event.type === 'done');
+  assert.ok(presented.concepts[0].locations.findIndex((l) => l.name === 'The Bistro')
+    < presented.concepts[0].locations.findIndex((l) => l.name === 'The Wort Hotel'), 'and the rider sees that same order');
+  console.log('PASS each evening\'s dinner is measured on its own day, and a day-count mismatch is named to the planner');
+}
+
+// The prompt carries the rule, and food stops can say which meal they are.
+{
+  const { EXPLORE_SYSTEM } = await import('../netlify/lib/planner-core.mjs');
+  assert.match(EXPLORE_SYSTEM, /dinner goes BEFORE the lodging/);
+  assert.match(EXPLORE_SYSTEM, /numDays − 1 overnights/);
+  console.log('PASS the builder prompt says where a day ends and how many days a concept covers');
+}

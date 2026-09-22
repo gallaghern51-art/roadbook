@@ -103,9 +103,11 @@ check((await daysInput.inputValue()) === '10', 'the intake carries ten days');
 await page.locator('.construction-composer .btn', { hasText: 'Explore the trip' }).click();
 await page.waitForSelector('.concept-tabs button');
 check(await page.locator('.concept-tabs button').count() === 1, 'one concept comes back to confirm');
-check(await activeTrip().then((t) => t?.title !== 'The Big Loop'), 'nothing is created before Create this trip');
+check(await activeTrip().then((t) => t?.title !== 'The Big Loop'), 'nothing is created before the rider confirms');
 
-await page.locator('.construction-confirm .btn', { hasText: 'Create this trip' }).click();
+// the planner-written build (Create this trip is instant and never calls the
+// generator — tools/sims/concept-instant-create-check.mjs covers that door)
+await page.locator('.construction-confirm .btn', { hasText: 'Have the planner write it up' }).click();
 // pass 2 is held open by the mock: look at the screen while it runs
 const seenStatus = [];
 const poll = setInterval(async () => {
