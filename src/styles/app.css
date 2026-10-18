@@ -3554,7 +3554,9 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
      a 375pt row, so chips keep compact visuals, grow to fill the row on
      shorter trips, and their hit areas swallow the gaps between them — every
      pixel of the strip is tappable, and a miss lands on the adjacent day. */
-  .ribbon .rchip { flex: 1 0 auto; min-height: 44px; justify-content: center; }
+  /* capped: on a one- or two-day trip an uncapped chip stretched across the
+     whole strip — one giant "S 18" button (owner, Oct 18 2026) */
+  .ribbon .rchip { flex: 1 0 auto; max-width: 76px; min-height: 44px; justify-content: center; }
   .ribbon .rchip::after { content: ''; position: absolute; inset: -6px -2px; }
   .ribbon .rchip.trip-seat { flex: 0 0 auto; min-height: 44px; }
 
@@ -5897,3 +5899,32 @@ input:focus, textarea:focus, select:focus {
 }
 .wp-move .wm-step:disabled { opacity: 0.35; }
 .wp-move .wm-done { padding: 0 18px; background: var(--route); border-color: var(--route); color: #000; }
+
+/* Phone: the panel's hide handle IS the strip of map beside the open panel
+   (owner, Oct 18 2026). It was a 30×96 box hung on the panel's edge, sitting
+   over the strip's map, half over the "Editing…" hint and flush against the
+   stop list. Now the whole strip is the button — full height, so a thumb
+   anywhere on it takes you back to the map — with one small glass chevron in
+   the middle and nothing else drawn over the map, so the Mapbox wordmark,
+   the ⓘ and the scale bar (licence conditions) stay readable. */
+@media (max-width: 820px), (max-width: 1100px) and (max-height: 520px) {
+  .main > .side .panel-tab {
+    top: 0; bottom: 0; height: auto; transform: none;
+    left: calc(-1 * (100vw - min(88vw, 460px)) - 1px); /* the panel has a 1px left border */
+    width: calc(100vw - min(88vw, 460px));
+    background: transparent; border: none; border-radius: 0; box-shadow: none;
+    color: var(--ink); font-size: 0;
+  }
+  .main > .side .panel-tab::before { inset: 0; }
+  .main > .side .panel-tab::after {
+    content: '›'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; padding-bottom: 2px;
+    font-family: var(--display); font-size: 22px; font-weight: 700; line-height: 1;
+    color: #f4efe6; background: rgba(14, 16, 18, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+  .main > .side .panel-tab:hover::after { color: var(--rally); }
+  /* the map's hint chip was clipped to "Editi" by the open panel */
+  .main[data-panel="open"] .map-hint { display: none; }
+}
