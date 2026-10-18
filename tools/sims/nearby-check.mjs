@@ -161,7 +161,8 @@ check((await page.locator('.pl-pin').count()) === 0, 'pins clear when the picker
 
 // ---- 2. swap keeps the role ----
 const diner = page.locator('.wp-row', { hasText: 'Granite Diner' });
-await diner.locator('.rm.swap').click();
+await diner.locator('.wp-more').click();
+await page.locator('.stop-menu .dm-row', { hasText: 'Swap for another place' }).click();
 await page.waitForSelector('.nearby-swap', { timeout: 5000 });
 check(await page.locator('.nearby-swap .nb-chips:not(.nb-sub) .nb-chip.active').textContent() === '🍽Food', 'swap opens on the Food chip for a diner');
 await page.waitForSelector('.nearby-swap .nb-item', { timeout: 6000 });

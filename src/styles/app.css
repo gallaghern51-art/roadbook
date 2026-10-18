@@ -1460,15 +1460,6 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   .road-links li { padding: 0; }
   .road-links a { display: inline-block; padding: 9px 0; }
 
-  /* hover-only affordances have to be permanently visible */
-  .wp-row .rm {
-    opacity: 1; display: inline-flex; align-items: center; justify-content: center;
-    min-width: 36px; min-height: 36px; margin: -8px -8px -8px 0;
-  }
-  .wp-row .grip {
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 17px; min-height: 34px; margin: -6px 0;
-  }
 
   .toggle { width: 46px; height: 26px; border-radius: 6px; }
   .toggle::after { top: 2px; left: 2px; width: 20px; height: 20px; }
@@ -1744,7 +1735,6 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   /* 62px keeps all four day stats on one row in the phone panel's 291px of
      content width — at 70px the fuel-gap figure wrapped to a lonely second row */
   .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(62px, 1fr)); gap: 10px 12px; }
-  .wp-row { grid-template-columns: 18px 60px minmax(0, 1fr) auto; gap: 6px; padding: 9px 4px; }
   .ov-day { grid-template-columns: 16px 12px 50px minmax(0, 1fr) auto; gap: 8px; }
   /* glove-sized grip without widening the visual column */
   .ov-grip::after { content: ''; position: absolute; inset: -8px -12px -8px -10px; }
@@ -3571,10 +3561,10 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   /* Compact glyph buttons keep their visuals; the hit area extends invisibly. */
   /* NOT .panel-tab here — it is position:absolute with its own hit area, and
      relative would drop it into .side's flex flow where it shrinks */
-  .mini-edit, .tc-del, .wp-row button, .gate-row .mini-edit, .reserve-item .r-del {
+  .mini-edit, .tc-del, .gate-row .mini-edit, .reserve-item .r-del {
     position: relative;
   }
-  .mini-edit::after, .tc-del::after, .wp-row button::after, .reserve-item .r-del::after {
+  .mini-edit::after, .tc-del::after, .reserve-item .r-del::after {
     content: ''; position: absolute; inset: -10px -8px;
   }
 
@@ -3621,8 +3611,6 @@ input[type='date'], input[type='time'] { color-scheme: dark; }
   /* centered on the panel edge and sized for gloves (owner request — the
      62% thumb-zone offset read as misplaced, not ergonomic) */
   .panel-tab { top: 50%; height: 96px; width: 30px; left: -29px; font-size: 22px; }
-  .wp-row .eta.leg-tap { padding: 2px 4px; margin: -2px -4px; }
-  .wp-row .eta.leg-tap .leg-mi { text-decoration: underline dotted; text-underline-offset: 2px; }
 }
 
 /* basemap switcher collapses to a layers pill — the row exists only while choosing */
@@ -5810,3 +5798,102 @@ input:focus, textarea:focus, select:focus {
   font-size: 13.5px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4); pointer-events: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── Stop rows, rebuilt for a thumb (Oct 18 2026) ──────────────────────────
+   One row = grip · numbered badge · the stop (a big tap target that opens its
+   actions) · a 44pt ⋯. The leg INTO the stop is its own full-width button
+   underneath. Nothing on the row is smaller than 44pt; nothing destructive
+   lives on it at all (Remove is in the actions sheet; Undo is in the mast). */
+.wp-row {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) 44px;
+  grid-template-areas: "badge main more" ". leg leg";
+  column-gap: 8px; row-gap: 4px; align-items: start;
+  margin: 0 -8px; padding: 10px 8px; border-radius: 12px;
+  border: 1px solid transparent; background: transparent;
+}
+.wp-row + .wp-row { border-top-color: var(--line-soft); border-top-left-radius: 0; border-top-right-radius: 0; }
+.wp-row:hover { background: var(--asphalt-2); }
+.wp-row.dragging { opacity: 0.5; background: var(--asphalt-2); }
+.wp-row .grip {
+  grid-area: grip; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 44px; margin-top: -5px; border-radius: 8px;
+  color: var(--ink-faint); font-size: 19px; cursor: grab; user-select: none; touch-action: none;
+}
+.wp-row .grip:active { cursor: grabbing; background: var(--asphalt-2); }
+.wp-badge {
+  grid-area: badge; display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  font-family: var(--body); font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums;
+  background: var(--asphalt-2); color: var(--ink); border: 2px solid var(--route);
+}
+.wp-row.k-start .wp-badge, .wp-row.k-end .wp-badge { background: var(--route); color: #000; font-size: 13px; }
+.wp-row.k-fuel .wp-badge { border-color: var(--outbound); font-size: 15px; }
+.wp-row.k-photo .wp-badge { border-color: var(--return); }
+.wp-row .wp-main {
+  grid-area: main; min-width: 0; display: flex; flex-direction: column; gap: 4px;
+  min-height: 44px; justify-content: center; cursor: pointer; border-radius: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+.wp-row .wp-main:focus-visible { outline: 2px solid var(--route); outline-offset: 2px; }
+.wp-row .nm { font-family: var(--body); font-size: 16.5px; font-weight: 650; line-height: 1.25; color: var(--ink); overflow-wrap: anywhere; }
+@media (hover: hover) { .wp-row .wp-main:hover .nm { color: var(--rally); } }
+.wp-when { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13.5px; color: var(--ink-dim); }
+.wp-when b { font-family: var(--mono); font-weight: 600; font-size: 13.5px; color: var(--route); }
+.wp-when .tag {
+  display: inline-flex; align-items: center; white-space: nowrap; margin: 0;
+  font-family: var(--body); font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+  padding: 2px 8px; border-radius: 999px; vertical-align: 0;
+}
+.wp-when .tag.fuel { background: rgba(244, 131, 34, 0.18); color: var(--outbound); }
+.wp-when .tag.photo { background: rgba(206, 206, 206, 0.14); color: var(--return); }
+.wp-when .tag.placed { background: color-mix(in srgb, var(--route) 14%, transparent); color: var(--route); }
+.wp-when .tag.offroad { background: rgba(214, 69, 51, 0.16); color: #ffab84; cursor: help; }
+:root[data-theme='light'] .wp-when .tag.offroad { color: #b3341f; }
+.wp-when .tag.unverified.act { min-height: 32px; padding: 4px 10px; }
+.wp-row .note {
+  font-size: 13.5px; line-height: 1.4; color: var(--ink-dim);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wp-more {
+  grid-area: more; width: 44px; height: 44px; margin-top: -5px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; line-height: 1; color: var(--ink-dim);
+  border: 1px solid var(--line); background: var(--asphalt-1);
+}
+.wp-more:hover, .wp-more:active { color: var(--ink); background: var(--asphalt-2); }
+.wp-leg {
+  grid-area: leg; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; overflow: hidden;
+  min-height: 40px; padding: 6px 10px; margin-top: 2px; width: 100%; text-align: left;
+  border: 1px solid var(--line-soft); border-radius: 10px; background: var(--asphalt-1);
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim);
+}
+.wp-leg:hover, .wp-leg:active { border-color: var(--route); color: var(--ink); }
+.wp-leg::before { content: '↝'; font-family: var(--body); color: var(--route); font-size: 15px; }
+.wp-leg .wl-fig { white-space: nowrap; }
+.wp-leg .leg-roads { margin: 0 0 0 auto; justify-content: flex-end; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+.wp-leg .wl-cum { margin-left: auto; color: var(--ink-faint); font-size: 11.5px; }
+.stop-menu .dm-row.danger b { color: var(--danger); }
+.stop-menu .dm-row.danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+@media (hover: none) {
+  .wp-row:hover { background: transparent; }
+  .wp-row .wp-main:active { background: var(--asphalt-2); }
+}
+/* Move mode: one row lifted, everything else still. The grip only exists
+   here, so a scroll or a stray touch can never reorder the day. */
+.wp-row.moving {
+  grid-template-columns: 32px 34px minmax(0, 1fr);
+  grid-template-areas: "grip badge main" "move move move";
+  background: var(--asphalt-2); border: 2px solid var(--route) !important; border-radius: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+.wp-row.still { opacity: 0.55; }
+.wp-row.moving .wp-main { cursor: default; }
+.wp-move { grid-area: move; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 4px; }
+.wp-move button {
+  min-height: 48px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--asphalt-1); color: var(--ink);
+  font-family: var(--body); font-size: 15px; font-weight: 650;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.wp-move .wm-step:disabled { opacity: 0.35; }
+.wp-move .wm-done { padding: 0 18px; background: var(--route); border-color: var(--route); color: #000; }

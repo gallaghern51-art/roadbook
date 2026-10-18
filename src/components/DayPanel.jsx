@@ -121,6 +121,25 @@ export default function DayPanel({ day }) {
   let acc = 0;
   for (const s of timeline.stops) { acc += s.legMiles; cumMiles.push(acc); }
 
+  // Moving a stop is deliberate (owner, Oct 18 2026: "user to have to click a
+  // stop and click some button to move it so you don't accidentally drag
+  // it"): no row carries a drag handle until its actions sheet says Move;
+  // then that one row grows ▲ / ▼ and a grip, and Done puts it down.
+  const [movingId, setMovingId] = React.useState(null);
+  React.useEffect(() => { setMovingId(null); }, [day.id]);
+  React.useEffect(() => {
+    if (!movingId) return undefined;
+    const esc = (e) => { if (e.key === 'Escape') setMovingId(null); };
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [movingId]);
+  const step = (id, dir) => {
+    const ids = day.waypoints.map((w) => w.id);
+    const from = ids.indexOf(id);
+    const to = from + dir;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    dispatch({ type: 'apply_ops', ops: [{ op: 'reorder_waypoints', dayId: day.id, waypointIds: arrayMove(ids, from, to) }] });
+  };
   const onDragEnd = (e) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
@@ -239,12 +258,14 @@ export default function DayPanel({ day }) {
       )}
 
       <div className="section">
-        <h3>{t('Route & stops')} <span className="cnt">{day.waypoints.length} · {t('drag ⠿ to reorder · tap to zoom the map · ⓘ for details')}</span></h3>
+        <h3>{t('Route & stops')} <span className="cnt">{day.waypoints.length} · {t('tap a stop to edit, swap, move or remove it')}</span></h3>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={day.waypoints.map((w) => w.id)} strategy={verticalListSortingStrategy}>
             {day.waypoints.map((w, i) => (
               <React.Fragment key={w.id}>
-                <SortableWaypoint w={w} dayId={day.id} legIndex={i - 1} dispatch={dispatch} sched={timeline.stops[i]} cum={cumMiles[i]} first={i === 0} tt={tt} u={u} t={t} shields={showShields ? shieldsByStop[i] : null} snapM={routes[day.id]?.snaps?.[w.id]} onSwap={() => setSwapId(swapId === w.id ? null : w.id)} />
+                <SortableWaypoint w={w} n={i} last={i === day.waypoints.length - 1}
+                  moving={movingId === w.id} anyMoving={!!movingId} onStartMove={() => setMovingId(w.id)} onDoneMove={() => setMovingId(null)}
+                  onStep={(dir) => step(w.id, dir)} count={day.waypoints.length} dayId={day.id} legIndex={i - 1} dispatch={dispatch} sched={timeline.stops[i]} cum={cumMiles[i]} first={i === 0} tt={tt} u={u} t={t} shields={showShields ? shieldsByStop[i] : null} snapM={routes[day.id]?.snaps?.[w.id]} onSwap={() => setSwapId(swapId === w.id ? null : w.id)} />
                 {swapId === w.id && (
                   <SwapPicker day={day} w={w} sched={timeline.stops[i]} next={day.waypoints[i + 1] ?? null} dispatch={dispatch} routes={routes} trip={state.trip} onClose={() => setSwapId(null)} />
                 )}
@@ -933,57 +954,54 @@ function LodgingSection({ day, dispatch }) {
   );
 }
 
-function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt, u, t, shields, snapM, onSwap}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id });
+// A stop row is built for a thumb (owner, Oct 18 2026, phone screenshot: "the
+// UI of these buttons on the trip editor are so small"). It used to carry four
+// 11px glyph buttons (⇄ ⓘ ✕ and the grip) plus a mono column of leg figures
+// whose dotted underline was the only sign it was tappable. Now: one big row
+// (tap → the stop's actions), a numbered badge, the name at reading size, the
+// arrival and dwell on one line, the leg as a real button that shows it on the
+// map, and a 44pt ⋯ that opens the same actions. Remove is in the sheet — a
+// destructive glyph a finger can graze at 11px had no business on the row, and
+// Undo sits in the masthead.
+function SortableWaypoint({ w, n, dayId, legIndex, dispatch, sched, cum, first, last, tt, u, t, shields, snapM, onSwap, moving, anyMoving, onStartMove, onDoneMove, onStep, count }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: w.id, disabled: !moving });
+  const [menu, setMenu] = React.useState(false);
+  const rowRef = React.useRef(null);
+  // keep the moving stop on screen as it climbs or sinks through the list
+  React.useEffect(() => { if (moving) rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); }, [moving, n]);
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const hasLeg = !first && legIndex >= 0;
+  const kind = w.fuel ? 'fuel' : first ? 'start' : last ? 'end' : w.kind === 'photo' ? 'photo' : 'via';
+  const badge = w.fuel ? '⛽' : first ? '▶' : last ? '⚑' : n;
+  const showLeg = () => dispatch({ type: 'focus_leg', leg: { dayId, index: legIndex, zoom: Date.now() } });
+  const center = () => { if (Number.isFinite(w.lat) && Number.isFinite(w.lng)) dispatch({ type: 'focus_point', lat: w.lat, lng: w.lng }); };
   return (
+    <>
     <div
-      ref={setNodeRef}
+      ref={(el) => { setNodeRef(el); rowRef.current = el; }}
       style={style}
-      className={`wp-row${isDragging ? ' dragging' : ''}`}
-      // hovering a stop lights its arriving leg on the map — the row's +mi/+time
-      // figures ARE that leg, so the map shows what the numbers describe.
+      className={`wp-row k-${kind}${moving ? ' moving' : ''}${anyMoving && !moving ? ' still' : ''}${isDragging ? ' dragging' : ''}`}
+      // hovering a stop lights its arriving leg on the map — the row's leg line
+      // IS that leg, so the map shows what the numbers describe.
       // Hover-capable pointers only: on touch, a tap's synthetic hover would
       // leave the highlight stuck with no mouseleave to ever clear it.
-      onMouseEnter={() => { if (!first && legIndex >= 0 && window.matchMedia?.('(hover: hover)').matches) dispatch({ type: 'focus_leg', leg: { dayId, index: legIndex } }); }}
-      onMouseLeave={() => { if (!first && legIndex >= 0 && window.matchMedia?.('(hover: hover)').matches) dispatch({ type: 'focus_leg', leg: null }); }}
+      onMouseEnter={() => { if (hasLeg && window.matchMedia?.('(hover: hover)').matches) dispatch({ type: 'focus_leg', leg: { dayId, index: legIndex } }); }}
+      onMouseLeave={() => { if (hasLeg && window.matchMedia?.('(hover: hover)').matches) dispatch({ type: 'focus_leg', leg: null }); }}
     >
-      <span className="grip" {...attributes} {...listeners}>⠿</span>
-      <span
-        className={`eta${!first && legIndex >= 0 ? ' leg-tap' : ''}`}
-        title={!first && legIndex >= 0 ? t('Show this leg on the map') : undefined}
-        role={!first && legIndex >= 0 ? 'button' : undefined}
-        // TAP is the leg highlight on a phone (hover doesn't exist there, and
-        // the panel covers the map anyway): the map zooms to the leg and the
-        // panel steps aside — App closes it when a zoom-tagged focus arrives
-        onClick={() => {
-          if (!first && legIndex >= 0) dispatch({ type: 'focus_leg', leg: { dayId, index: legIndex, zoom: Date.now() } });
-        }}
+      {moving && <button ref={setActivatorNodeRef} className="grip" aria-label={t('Drag to reorder')} title={t('Drag to reorder')} {...attributes} {...listeners}>⠿</button>}
+      <span className="wp-badge" aria-hidden="true">{badge}</span>
+      <div className="wp-main" role="button" tabIndex={0} aria-haspopup="dialog" aria-label={`${tt(w.name)} — ${t('Stop actions')}`}
+        onClick={() => { if (!moving) setMenu(true); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMenu(true); } }}
       >
-        {sched ? fmtTime(first ? sched.depart : sched.arrive) : '·'}
-        {!first && sched && sched.legMin > 0 && <span className="leg-t">+{fmtDur(sched.legMin)}</span>}
-        {/* interval distance since the last stop, then the day's running odometer */}
-        {!first && sched && sched.legMiles > 0 && (
-          <span className="leg-mi">+{u.miNum(sched.legMiles)} {u.miUnit} · {u.miNum(cum)}</span>
-        )}
-        {shields?.length > 0 && (
-          <span className="leg-roads">
-            {shields.map((r) => <RoadShield key={r.key} road={r} />)}
-          </span>
-        )}
-      </span>
-      <div className="wp-main">
-        <span
-          className="nm clickable"
-          title="Center the map on this stop"
-          onClick={() => {
-            if (Number.isFinite(w.lat) && Number.isFinite(w.lng)) dispatch({ type: 'focus_point', lat: w.lat, lng: w.lng });
-          }}
-        >
-          {tt(w.name)}
-          {w.fuel && <span className="tag fuel">FUEL</span>}
-          {w.kind === 'photo' && <span className="tag photo">{t('Photo').toUpperCase()}</span>}
-          {sched && sched.dwell > 0 && <span className="tag dwell">{fmtDur(sched.dwell)}</span>}
+        <span className="nm">{tt(w.name)}</span>
+        <span className="wp-when">
+          {sched && <b>{fmtTime(first ? sched.depart : sched.arrive)}</b>}
+          {first && sched && <span>{t('depart')}</span>}
+          {sched && sched.dwell > 0 && <span>{fmtDur(sched.dwell)} {t('stop')}</span>}
+          {w.fuel && <span className="tag fuel">{t('Fuel')}</span>}
+          {w.kind === 'photo' && <span className="tag photo">{t('Photo')}</span>}
+          <VerifyTag on={w.verified} placed={w.placed} t={t} onPlace={onSwap} />
           {/* pin sits far from the road network — the router detours to touch
               it, which is what draws those double-back spurs on the map */}
           {snapM > 150 && (
@@ -991,26 +1009,63 @@ function SortableWaypoint({ w, dayId, legIndex, dispatch, sched, cum, first, tt,
               ⚠ {snapM} m {t('off road')}
             </span>
           )}
-          <VerifyTag on={w.verified} placed={w.placed} t={t} onPlace={onSwap} />
         </span>
         {w.note && <span className="note">{tt(w.note)}</span>}
       </div>
-      {/* Swap keeps the stop's ROLE — slot, kind, dwell, gates — and changes only
-          the place. It is how "not that diner" becomes a two-tap fix instead of
-          remove + search + re-add + re-dwell. */}
-      {!first && onSwap && (
-        <button className="rm swap" title={t('Swap this stop for another place')} aria-label={t('Swap this stop for another place')} onClick={onSwap}>⇄</button>
+      {moving ? (
+        <div className="wp-move" role="group" aria-label={t('Move this stop')}>
+          <button className="wm-step" disabled={n === 0} onClick={() => onStep(-1)} aria-label={t('Move earlier')}>▲ <span>{t('Earlier')}</span></button>
+          <button className="wm-step" disabled={n === count - 1} onClick={() => onStep(1)} aria-label={t('Move later')}>▼ <span>{t('Later')}</span></button>
+          <button className="wm-done" onClick={onDoneMove}>{t('Done')}</button>
+        </div>
+      ) : (
+      <button className="wp-more" aria-label={t('Stop actions')} title={t('Stop actions')} aria-haspopup="dialog" onClick={() => setMenu(true)}>⋯</button>
       )}
-      <button
-        className="rm info"
-        title="Stop details"
-        onClick={() => dispatch({ type: 'open_modal', modal: { type: 'stop', dayId, waypointId: w.id } })}
-      >ⓘ</button>
-      <button
-        className="rm"
-        title="Remove stop"
-        onClick={() => dispatch({ type: 'apply_ops', ops: [{ op: 'remove_waypoint', dayId, waypointId: w.id }] })}
-      >✕</button>
+      {/* the leg INTO this stop: interval miles, time, the running odometer and
+          the road. Tapping it zooms the map to that leg (App closes the panel
+          on a phone so the highlight is visible). */}
+      {!moving && hasLeg && sched && (sched.legMiles > 0 || sched.legMin > 0) && (
+        <button className="wp-leg" onClick={showLeg} title={t('Show this leg on the map')}>
+          <span className="wl-fig">+{u.miNum(sched.legMiles)} {u.miUnit} · {fmtDur(sched.legMin)}</span>
+          {shields?.length > 0 && (
+            <span className="leg-roads">{shields.map((r) => <RoadShield key={r.key} road={r} />)}</span>
+          )}
+        </button>
+      )}
     </div>
+      {/* outside the row: a sheet hovered on a desktop must not light the leg */}
+      {menu && (
+        <Sheet eyebrow={`${t('Stop')} ${n + 1}${sched ? ` · ${fmtTime(first ? sched.depart : sched.arrive)}` : ''}${!first && Number.isFinite(cum) ? ` · ${t('mile')} ${u.miNum(cum)}` : ''}`} title={tt(w.name)} onClose={() => setMenu(false)}>
+          <div className="day-menu stop-menu">
+            <button className="dm-row" onClick={() => { setMenu(false); dispatch({ type: 'open_modal', modal: { type: 'stop', dayId, waypointId: w.id } }); }}>
+              <b>ⓘ {t('Details & edit')}</b><small>{t('Name, dwell, location, notes')}</small>
+            </button>
+            {/* Swap keeps the stop's ROLE — slot, kind, dwell, gates — and
+                changes only the place: "not that diner" is a two-tap fix */}
+            {!first && onSwap && (
+              <button className="dm-row" onClick={() => { setMenu(false); onSwap(); }}>
+                <b>⇄ {t('Swap for another place')}</b><small>{t('Keeps its slot, dwell and gates')}</small>
+              </button>
+            )}
+            {count > 1 && (
+              <button className="dm-row" onClick={() => { setMenu(false); onStartMove(); }}>
+                <b>↕ {t('Move')}</b><small>{t('Change where it falls in the day — ▲ / ▼, then Done')}</small>
+              </button>
+            )}
+            <button className="dm-row" onClick={() => { setMenu(false); center(); }}>
+              <b>◎ {t('Show on the map')}</b><small>{t('Center the map on this stop')}</small>
+            </button>
+            {hasLeg && (
+              <button className="dm-row" onClick={() => { setMenu(false); showLeg(); }}>
+                <b>↝ {t('Show the leg in')}</b><small>{t('The road from the previous stop')}</small>
+              </button>
+            )}
+            <button className="dm-row danger" onClick={() => { setMenu(false); dispatch({ type: 'apply_ops', ops: [{ op: 'remove_waypoint', dayId, waypointId: w.id }] }); }}>
+              <b>✕ {t('Remove stop')}</b><small>{t('Undo brings it back')}</small>
+            </button>
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
