@@ -89,7 +89,8 @@ async function run(width, label) {
   await chips.nth(4).click();
   await page.waitForSelector('.day-head .phase-chip', { timeout: 10000 });
   check(/^Black Hills/.test((await page.locator('.day-head .phase-chip').textContent()).trim()), 'the day chip follows the rename');
-  await page.locator('.wp-row .rm.info').nth(1).click();
+  await page.locator('.wp-row .wp-more').nth(1).click();
+  await page.locator('.stop-menu .dm-row', { hasText: 'Details' }).click();
   await page.waitForSelector('.modal .eyebrow', { timeout: 6000 }).catch(() => {});
   const eyebrow = await page.locator('.modal .eyebrow').first().textContent().catch(() => '');
   check(/Black Hills/.test(eyebrow), `the stop detail eyebrow follows it too ("${eyebrow.trim()}")`);

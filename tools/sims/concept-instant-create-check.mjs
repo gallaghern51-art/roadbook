@@ -179,7 +179,8 @@ if (!(await page.locator('.wp-row').first().isVisible().catch(() => false))) {
 }
 await page.waitForSelector('.wp-row', { timeout: 8000 });
 const rowsBefore = await page.locator('.wp-row').count();
-await page.locator('.wp-row', { hasText: 'Million Dollar Highway' }).locator('button.rm[title="Remove stop"]').click();
+await page.locator('.wp-row', { hasText: 'Million Dollar Highway' }).locator('.wp-more').click();
+await page.locator('.stop-menu .dm-row.danger').click();
 await page.waitForTimeout(300);
 const rowsAfter = await page.locator('.wp-row').count();
 check(rowsAfter === rowsBefore - 1, `a stop can be removed from its row (${rowsBefore} → ${rowsAfter})`);
