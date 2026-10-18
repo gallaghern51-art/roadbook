@@ -179,7 +179,11 @@ process.env.ANTHROPIC_API_KEY = 'test-key';
   ok('lastLine strips heading and emphasis marks',
     lastLine('## **Evaluating the Catskills option**') === 'Evaluating the Catskills option');
   const long = lastLine('x'.repeat(400));
-  ok('lastLine fits one row', long.length <= 120 && long.endsWith('…'), `${long.length} chars`);
+  ok('lastLine caps a runaway line', long.length <= 320 && long.endsWith('…'), `${long.length} chars`);
+  const sentence = lastLine('Given the day\'s mileage range, I\'m considering two concepts: a coastal loop through Sea Girt and an inland run on 524 past Squankum toward Allaire, both under ninety miles with fuel near the start.');
+  ok('a long reasoning line arrives whole', !sentence.includes('…') && sentence.endsWith('start.'), sentence);
+  const words = lastLine('word '.repeat(100));
+  ok('a capped line is cut at a word boundary', /word…$/.test(words), words.slice(-12));
   ok('lastLine survives empty input', lastLine('') === '' && lastLine(null) === '' && lastLine(undefined) === '');
   ok('lastLine never splices an ellipsis mid-sentence',
     !lastLine('a short line').includes('…'));
