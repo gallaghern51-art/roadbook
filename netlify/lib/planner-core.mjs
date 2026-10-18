@@ -645,12 +645,16 @@ export function trackProgress(stream, emit) {
 }
 
 // Reasoning summaries arrive as prose with headings and blank lines. Keep the
-// last non-empty line, trimmed to something that fits one row of a status
-// strip — this is a glance, not a transcript.
-export function lastLine(text, max = 120) {
+// last non-empty line. The builder wraps it (a one-row cut left riders reading
+// "I'm considering two conc…"), so the cap only guards against a runaway
+// paragraph, and a cut lands on a word boundary.
+export function lastLine(text, max = 320) {
   const line = String(text ?? '').split('\n').map((s) => s.trim()).filter(Boolean).pop() ?? '';
   const clean = line.replace(/^[#*\-\s]+/, '').replace(/\*\*/g, '').trim();
-  return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
 // What to tell the rider when a budget runs out, based on how far it got.
